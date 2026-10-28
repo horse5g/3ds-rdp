@@ -32,6 +32,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q '3DS has no AF_UNIX' "$src/winpr/include/winpr/winsock.h"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-network-headers.patch"
   fi
+  if ! grep -q 'libctru socket handles are signed ints' "$src/winpr/include/winpr/winsock.h"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-socket-types.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
