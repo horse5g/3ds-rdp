@@ -1,0 +1,59 @@
+#ifndef RDP_SESSION_PAD_H
+#define RDP_SESSION_PAD_H
+
+#include <stdbool.h>
+
+/* 320x240 bottom screen becomes a laptop-style touchpad after RDP connects.
+ * This state machine intentionally has no libctru / FreeRDP dependencies. */
+#define RDP_PAD_SCREEN_W 320
+#define RDP_PAD_SCREEN_H 240
+#define RDP_PAD_REMOTE_W 400
+#define RDP_PAD_REMOTE_H 240
+
+typedef enum {
+    PAD_NONE = 0,
+    PAD_AREA,
+    PAD_SCROLL_UP,
+    PAD_SCROLL_STRIP,
+    PAD_SCROLL_DOWN,
+    PAD_LEFT_BUTTON,
+    PAD_RIGHT_BUTTON,
+    PAD_DISCONNECT,
+    PAD_SETTINGS,
+    PAD_KEYBOARD,
+    PAD_SPEED,
+    PAD_SCROLL_AMOUNT,
+    PAD_REVERSE
+} PadRegion;
+
+typedef struct {
+    int pointer_x, pointer_y;
+    int sensitivity;          /* 1, 2, 3 desktop pixels per touch pixel */
+    int scroll_amount;        /* 1, 2, 3 wheel notches per button press */
+    bool reverse_scroll;
+    bool settings_open;
+    bool disconnect_armed;
+    bool touching;
+    bool moved;
+    PadRegion captured;
+    int touch_x, touch_y, start_x, start_y;
+    int hold_frames, scroll_remainder;
+} SessionPad;
+
+typedef struct {
+    bool pointer_moved;
+    bool left_click, right_click;
+    int wheel_notches;        /* + is up, - is down */
+    bool keyboard, disconnect;
+    bool redraw;
+} PadActions;
+
+void session_pad_init(SessionPad *pad);
+PadRegion session_pad_hit(const SessionPad *pad, int x, int y);
+void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *out);
+
+/* Implementation is in connection_ui_draw.c; draws GSP_RGB565_OES bottom
+ * screen through the same small font / framebuffer renderer as the menu. */
+void session_pad_draw(const SessionPad *pad);
+
+#endif
