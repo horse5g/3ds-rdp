@@ -40,6 +40,30 @@ HorizonWaitResult horizon_event_wait(HorizonEvent *event, uint32_t timeout_ms) {
     return HORIZON_WAIT_ERROR;
 }
 
+HorizonWaitResult horizon_events_wait_any(HorizonEvent *const *events, size_t count,
+                                          uint32_t timeout_ms, size_t *signaled_index) {
+    Handle handles[16];
+    s32 selected = -1;
+    s64 nanoseconds;
+    Result rc;
+    size_t i;
+    if (!events || !signaled_index || !count || count > 16) return HORIZON_WAIT_ERROR;
+    for (i = 0; i < count; ++i) {
+        if (!valid_event(events[i])) return HORIZON_WAIT_ERROR;
+        handles[i] = events[i]->handle;
+    }
+    *signaled_index = SIZE_MAX;
+    nanoseconds = (timeout_ms == UINT32_MAX) ? -1 : (s64)timeout_ms * 1000000LL;
+    rc = svcWaitSynchronizationN(&selected, handles, (s32)count, false, nanoseconds);
+    if (R_SUCCEEDED(rc)) {
+        if (selected < 0 || (size_t)selected >= count) return HORIZON_WAIT_ERROR;
+        *signaled_index = (size_t)selected;
+        return HORIZON_WAIT_SIGNALED;
+    }
+    if (R_DESCRIPTION(rc) == RD_TIMEOUT) return HORIZON_WAIT_TIMEOUT;
+    return HORIZON_WAIT_ERROR;
+}
+
 void horizon_event_destroy(HorizonEvent *event) {
     if (!event) return;
     if (event->valid) svcCloseHandle(event->handle);
@@ -89,6 +113,23 @@ bool horizon_sync_selftest(char *message, size_t capacity) {
         goto cleanup;
     }
 
+    {
+        HorizonEvent *watch[2] = { &auto_event, &manual_event };
+        size_t selected = SIZE_MAX;
+        if (horizon_events_wait_any(watch, 2, 0, &selected) != HORIZON_WAIT_TIMEOUT ||
+            !horizon_event_signal(&manual_event) ||
+            horizon_events_wait_any(watch, 2, 0, &selected) != HORIZON_WAIT_SIGNALED ||
+            selected != 1 ||
+            !horizon_event_reset(&manual_event) ||
+            !horizon_event_signal(&auto_event) ||
+            horizon_events_wait_any(watch, 2, 0, &selected) != HORIZON_WAIT_SIGNALED ||
+            selected != 0 ||
+            horizon_events_wait_any(watch, 2, 0, &selected) != HORIZON_WAIT_TIMEOUT) {
+            set_message(message, capacity, "Multi-event wait failed");
+            goto cleanup;
+        }
+    }
+
     /* Cross-thread handoff: the kernel must unblock a waiter, not just
        report an event that this same thread already signaled. */
     worker = threadCreate(delayed_signal, &auto_event, 16 * 1024, 0x30, -1, false);
@@ -101,7 +142,7 @@ bool horizon_sync_selftest(char *message, size_t capacity) {
         goto cleanup;
     }
     ok = true;
-    set_message(message, capacity, "Auto/manual + threaded wait PASS");
+    set_message(message, capacity, "Single/multi + threaded wait PASS");
 
 cleanup:
     /* A worker may still reference auto_event; always join before closing. */
