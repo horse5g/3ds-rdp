@@ -105,6 +105,17 @@ After the timezone fix, the ARM11 compiler reached `winpr/libwinpr/thread/thread
 
 WinPR's `WSAIoctl(SIO_GET_INTERFACE_LIST)` used Linux `net/if.h`, `struct ifreq`, and `SIOCGIFCONF`. The O3DS build now uses libctru's `SOCU_GetIPInfo()` to populate one IPv4 interface (address/netmask/broadcast), returning a WinSock error if SOC has no address or the supplied buffer is too small. No IPv6 or multi-interface enumeration is implemented, and hardware behavior is unverified. This is more faithful than defining fake Linux structures or claiming the interface list is unavailable.
 
+### Current WinPR Winsock portability blockers
+
+The latest ARM11 CI compiler trace (October 28, 2026) confirms FreeRDP's `freerdp-primitives` and `freerdp-codecs` targets compile, and WinPR progresses into `winpr/libwinpr/winsock/winsock.c`. The `SOCU_GetIPInfo` adapter is included but not yet fully verified because adjacent POSIX assumptions fail compilation:
+
+- `3ds/services/soc.h` requires the libctru primitive types first; the patch now includes `3ds/types.h` before it.
+- Newlib/devkitARM lacks some errno values used by WinPR's POSIX ↔ Winsock translation (`ESOCKTNOSUPPORT`, `ESHUTDOWN`, `EUSERS`, `EREMOTE`).
+- The `_IOR` ioctl encoding used by `SIO_GET_INTERFACE_LIST` is not supplied by the target headers.
+- `getservbyport`, `getservbyname`, `getprotobynumber` and `getprotobyname` lack target declarations and may lack implementations; do not assume the linker provides them.
+
+Next implement a coherent 3DS Winsock compatibility adapter rather than sprinkling invented errno/ioctl values. Unsupported operations should have explicit error semantics, while supported TCP/IPv4/DNS calls should be mapped to libctru. Then continue compilation and finally link with the application's SOC initialization. Neither NLA nor desktop transport is usable yet.
+
 ## Domains and DNS names
 
 The homebrew configuration parser now accepts `host=rdp01.corp.example.com`, `domain=CORP`, and `username=alice` as future FreeRDP connection settings, along with `CORP\\alice` and `alice@corp.example.com` account formats. Hostname resolution for the **negotiation probe** uses the real libctru `getaddrinfo()` implementation (IPv4). The username/domain are not yet passed to FreeRDP or Windows; there is **no login**.
