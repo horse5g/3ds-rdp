@@ -55,6 +55,7 @@ cmake -S "$src" -B "$build" \
   -DMBEDCRYPTO_LIBRARY="$portlibs/lib/libmbedcrypto.a" \
   -DMBEDX509_LIBRARY="$portlibs/lib/libmbedx509.a" \
   -DWITH_UNICODE_BUILTIN=ON \
+  -DWINPR_HAVE_PIPE2=OFF \
   -DWITH_WINPR_TOOLS=OFF \
   -DWITH_CLIENT=OFF \
   -DWITH_CLIENT_COMMON=OFF \
