@@ -1,0 +1,85 @@
+diff --git a/libfreerdp/core/tcp.c b/libfreerdp/core/tcp.c
+--- a/libfreerdp/core/tcp.c
++++ b/libfreerdp/core/tcp.c
+@@ -664,8 +664,12 @@
+ 
+ char* freerdp_tcp_address_to_string(const struct sockaddr_storage* addr, BOOL* pIPv6)
+ {
+-	char ipAddress[INET6_ADDRSTRLEN + 1] = WINPR_C_ARRAY_INIT;
+-	const struct sockaddr_in6* sockaddr_ipv6 = (const struct sockaddr_in6*)addr;
++#ifdef __3DS__
++	char ipAddress[INET_ADDRSTRLEN + 1] = WINPR_C_ARRAY_INIT;
++#else
++	char ipAddress[INET6_ADDRSTRLEN + 1] = WINPR_C_ARRAY_INIT;
++	const struct sockaddr_in6* sockaddr_ipv6 = (const struct sockaddr_in6*)addr;
++#endif
+ 	const struct sockaddr_in* sockaddr_ipv4 = (const struct sockaddr_in*)addr;
+ 
+ 	if (addr == nullptr)
+@@ -682,16 +686,18 @@
+ 
+ 			break;
+ 
+-		case AF_INET6:
+-			if (!inet_ntop(sockaddr_ipv6->sin6_family, &sockaddr_ipv6->sin6_addr, ipAddress,
+-			               sizeof(ipAddress)))
+-				return nullptr;
+-
+-			break;
+-
+-		case AF_UNIX:
+-			(void)sprintf_s(ipAddress, ARRAYSIZE(ipAddress), "127.0.0.1");
+-			break;
++#ifndef __3DS__
++		case AF_INET6:
++			if (!inet_ntop(sockaddr_ipv6->sin6_family, &sockaddr_ipv6->sin6_addr, ipAddress,
++			               sizeof(ipAddress)))
++				return nullptr;
++
++			break;
++
++		case AF_UNIX:
++			(void)sprintf_s(ipAddress, ARRAYSIZE(ipAddress), "127.0.0.1");
++			break;
++#endif
+ 
+ 		default:
+ 			return nullptr;
+@@ -735,9 +741,10 @@
+ 	return freerdp_tcp_address_to_string(&saddr, nullptr);
+ }
+ 
+-static int freerdp_uds_connect(const char* path)
+-{
+-#ifndef _WIN32
++static int freerdp_uds_connect(const char* path)
++{
++#if !defined(_WIN32) && !defined(__3DS__)
++	/* Horizon SOC does not implement Unix-domain sockets. */
+ 	int status = 0;
+ 	int sockfd = 0;
+ 	struct sockaddr_un addr = WINPR_C_ARRAY_INIT;
+@@ -1025,10 +1032,19 @@
+ 	optval = keepalive ? 1 : 0;
+ 	optlen = sizeof(optval);
+ 
+-	if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, (void*)&optval, optlen) < 0)
+-	{
+-		WLog_WARN(TAG, "setsockopt() SOL_SOCKET, SO_KEEPALIVE");
+-	}
++#ifdef SO_KEEPALIVE
++	if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, (void*)&optval, optlen) < 0)
++	{
++		WLog_WARN(TAG, "setsockopt() SOL_SOCKET, SO_KEEPALIVE");
++	}
++#elif defined(__3DS__)
++	/* Keepalive must fail instead of silently claiming it was enabled. */
++	if (keepalive)
++	{
++		WLog_WARN(TAG, "Horizon SOC does not expose SO_KEEPALIVE");
++		return FALSE;
++	}
++#endif
+ 
+ 	if (!isTcp)
+ 		return TRUE;
