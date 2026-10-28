@@ -11,3 +11,6 @@ jobs:
         run: make -C tests test
       - name: Verify FreeRDP patch syntax
         run: python3 scripts/check-patches.py
+
+      - name: Validate experimental build script syntax
+        run: bash -n scripts/build-freerdp-3ds.sh
