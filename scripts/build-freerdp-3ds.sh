@@ -128,6 +128,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'Horizon SOC supports IPv4 only' "$src/libfreerdp/core/utils.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-ipv4-only-utils.patch"
   fi
+  if ! grep -q '#ifndef __3DS__' "$src/libfreerdp/core/tcp.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-tcp-network-headers.patch"
+  fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
 fi
