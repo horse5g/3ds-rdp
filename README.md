@@ -6,8 +6,8 @@ Experimental **standalone** Microsoft RDP client for the original Nintendo 3DS/2
 
 This is a first milestone, **not yet an interactive remote desktop client**.
 
-- Reads IPv4 address and port from SD card.
-- Opens direct TCP connection to port 3389 (or configured port).
+- Reads IPv4 address **or DNS hostname**, port, and optional Windows domain/account metadata from SD card.
+- Resolves an IPv4 address using libctru's DNS resolver and opens direct TCP to port 3389 (or configured port).
 - Sends TPKT / X.224 Connection Request and RDP_NEG_REQ advertising TLS and CredSSP (NLA).
 - Reads server's X.224 Connection Confirm, reporting selected protocol or failure.
 - Disconnects without sending passwords or starting TLS.
@@ -22,7 +22,7 @@ Install [devkitPro 3DS development tools](https://devkitpro.org/wiki/Getting_Sta
 make
 ```
 
-Expected output: `3ds-rdp.3dsx`. The project has **not yet been built with devkitARM or run on hardware** in this development environment; please report compiler output or 3DS behavior for validation.
+Expected output: `3ds-rdp.3dsx`. GitHub Actions has successfully compiled this homebrew target using the official devkitPro Docker image; **physical O3DS hardware testing is still pending**.
 
 Portable packet parser tests (GCC or Clang):
 
@@ -32,15 +32,23 @@ make -C tests test
 
 ## SD card configuration
 
-Put the built `3ds-rdp.3dsx` in `/3ds/3ds-rdp/`. Make `/3ds/3ds-rdp/host.txt` with an IPv4 address and optional port:
+Put the compiled `3ds-rdp.3dsx` at `/3ds/3ds-rdp/` on your SD card. Create `/3ds/3ds-rdp/host.txt`:
 
-```text
-192.168.1.100:3389
+```ini
+host=workstation.corp.example.com
+port=3389
+domain=CORP
+username=alice
 ```
 
-Launch via Homebrew Launcher. Press **A** to probe, **X** to reload config, **START** to exit. The top screen displays negotiated protocol, network errors or negotiation failures. Use a Windows Pro/Enterprise/Server host with Remote Desktop enabled, or another compatible RDP server. Keep NLA enabled.
+- `host`: IPv4 address or DNS name, including domain-joined machine FQDN. **IPv4 only** for now; the 3DS's configured DNS server must be able to resolve internal names.
+- `port`: optional TCP port, defaults to 3389.
+- `domain`: optional Windows Active Directory domain (NetBIOS `CORP` or DNS-style `corp.example.com`).
+- `username`: optional. Supports a simple `alice`, `CORP\\alice` (automatically extracts the domain), or UPN `alice@corp.example.com`. For a UPN, omit the separate `domain` key.
 
-The response is only an indication of supported **security negotiation**, not a successful login.
+Legacy files containing only `192.168.1.100:3389` or `rdp01.corp.example.com` still work. Lines beginning with `#` or `;` are comments. Unknown settings, including `password=`, are rejected intentionally; **do not save passwords on the SD card**.
+
+Press **A** to send an RDP negotiation probe, **X** to reload `host.txt`, or **START** to exit. The bottom screen displays the parsed username and domain. Those fields are **not transmitted to Windows** in this milestone. Domain sign-in requires future FreeRDP + CredSSP/NLA integration (and Kerberos if domain policy requires it).
 
 ## FreeRDP / WinPR port investigation
 
@@ -57,4 +65,4 @@ References: [FreeRDP](https://github.com/FreeRDP/FreeRDP), [devkitPro 3DS exampl
 
 ## Security
 
-This first prototype never handles credentials. Only connect to systems you control or are authorized to access. Do not expose RDP directly to the internet for testing.
+This first prototype never handles credentials; domain and username are local metadata for the future authentication implementation. Only connect to systems you control or are authorized to access. Do not expose RDP directly to the internet for testing.
