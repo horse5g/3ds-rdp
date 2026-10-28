@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 #define MAX_TPKT 512
 static int waitfd(int fd,int write_ready) {
     fd_set fds; struct timeval tv; int rc;
@@ -27,14 +28,28 @@ static int transfer(int fd,uint8_t *data,size_t n,int writing) {
     }
     return 0;
 }
-int network_rdp_probe(const char *ip,uint16_t port,RdpNegResult *result,char *error,size_t error_size) {
-    struct sockaddr_in addr; uint8_t request[19],reply[MAX_TPKT];
-    int fd=-1,flags,rc,so_error=0; socklen_t so_len=sizeof(so_error);
+int network_rdp_probe(const char *hostname,uint16_t port,RdpNegResult *result,char *error,size_t error_size) {
+    struct sockaddr_in addr; struct addrinfo hints, *addresses=NULL, *entry;
+    uint8_t request[19],reply[MAX_TPKT];
+    int fd=-1,flags,rc,so_error=0,found=0; socklen_t so_len=sizeof(so_error);
     size_t n; const char *why="Unknown error";
-    if(!ip||!port||!result||!error||!error_size) return -1;
+    if(!hostname||!port||!result||!error||!error_size) return -1;
     result->kind=RDP_NEG_INVALID; result->value=0;
-    memset(&addr,0,sizeof(addr)); addr.sin_family=AF_INET; addr.sin_port=htons(port);
-    if(inet_pton(AF_INET,ip,&addr.sin_addr)!=1) { why="Invalid IPv4";goto fail; }
+    /* libctru's SOC service provides getaddrinfo; IPv4-only for the O3DS prototype. */
+    memset(&hints,0,sizeof(hints));
+    hints.ai_family=AF_INET; hints.ai_socktype=SOCK_STREAM;
+    if(getaddrinfo(hostname,NULL,&hints,&addresses)!=0) {
+        why="DNS lookup failed";goto fail;
+    }
+    for(entry=addresses;entry;entry=entry->ai_next) {
+        if(entry->ai_family!=AF_INET || !entry->ai_addr ||
+           entry->ai_addrlen<sizeof(addr)) continue;
+        memcpy(&addr,entry->ai_addr,sizeof(addr));
+        found=1;break;
+    }
+    freeaddrinfo(addresses); addresses=NULL;
+    if(!found) {why="No IPv4 address found";goto fail;}
+    addr.sin_port=htons(port);
     fd=socket(AF_INET,SOCK_STREAM,0);
     if(fd<0) {why="socket failed";goto fail;}
     flags=fcntl(fd,F_GETFL,0);
@@ -51,5 +66,6 @@ int network_rdp_probe(const char *ip,uint16_t port,RdpNegResult *result,char *er
     if(rdp_neg_parse_confirm(reply,n,result)==RDP_NEG_INVALID) {why="Invalid X.224 confirmation";goto fail;}
     close(fd); error[0]=0; return 0;
 fail:
+    if(addresses) freeaddrinfo(addresses);
     snprintf(error,error_size,"%s",why); if(fd>=0) close(fd); return -1;
 }
