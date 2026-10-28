@@ -6,6 +6,9 @@ on:
       - '.github/workflows/openssl-arm11.yml'
       - 'scripts/build-openssl-3ds.sh'
       - 'cmake/openssl-3ds.conf'
+      - 'scripts/link-openssl-3ds.sh'
+      - 'tests/openssl-arm11-link.c'
+      - 'patches/openssl-*.patch'
   pull_request:
     paths:
       - '.github/workflows/openssl-arm11.yml'
@@ -25,8 +28,11 @@ jobs:
         run: |
           test -s build/openssl-3ds/libcrypto.a
           test -s build/openssl-3ds/libssl.a
-          "$DEVKITARM/bin/arm-none-eabi-ar" t build/openssl-3ds/libcrypto.a | head -n 2
-          "$DEVKITARM/bin/arm-none-eabi-ar" t build/openssl-3ds/libssl.a | head -n 2
+          "$DEVKITARM/bin/arm-none-eabi-ar" t build/openssl-3ds/libcrypto.a | sed -n '1,2p'
+          "$DEVKITARM/bin/arm-none-eabi-ar" t build/openssl-3ds/libssl.a | sed -n '1,2p'
+      - name: Link native SSL_CTX and X.509 symbols (informational)
+        continue-on-error: true
+        run: bash scripts/link-openssl-3ds.sh
       - uses: actions/upload-artifact@v4
         if: success()
         with:
