@@ -51,3 +51,19 @@ jobs:
             build/freerdp-3ds/CMakeFiles/CMakeConfigureLog.yaml
             build/freerdp-3ds/CMakeFiles/CMakeError.log
             build/freerdp-3ds/CMakeCache.txt
+
+      - name: Inventory compiled ARM11 archives
+        if: always()
+        shell: bash
+        run: |
+          if test -d build/freerdp-3ds; then
+            find build/freerdp-3ds -type f -name '*.a' -print
+          fi
+      - name: Upload compiled WinPR static archives
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: winpr-arm11-static-experimental
+          if-no-files-found: ignore
+          path: |
+            build/freerdp-3ds/winpr/**/*.a
