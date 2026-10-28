@@ -416,9 +416,18 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     SessionZoom zoom;
     int result = -1;
 
-    if (!cfg || !cfg->host[0] || !reason || !reason_size)
+    if (!cfg || !reason || !reason_size)
         return -1;
     snprintf(reason, reason_size, "FreeRDP startup failed");
+    /* The UI ordinarily validates all fields. Enforce bounds here too:
+       certificate lookup and WinPR settings use null-terminated strings. */
+    if (!cfg->host[0] || !cfg->port ||
+        !memchr(cfg->host, 0, sizeof(cfg->host)) ||
+        !memchr(cfg->username, 0, sizeof(cfg->username)) ||
+        !memchr(cfg->domain, 0, sizeof(cfg->domain))) {
+        snprintf(reason, reason_size, "Invalid or unterminated connection settings");
+        return -1;
+    }
 
     /* Load both trust sources before prompting for credentials. Missing files
        are allowed (new server); malformed or unreadable files fail closed. */
