@@ -15,3 +15,12 @@ diff --git a/winpr/libwinpr/synch/wait.c b/winpr/libwinpr/synch/wait.c
  
  		while (TRUE)
  		{
+@@ -190,7 +195,8 @@
+ 			if (status != 0)
+ 				return status;
+ 		}
++#endif
+ 	}
+ 
+ 	if (Type == HANDLE_TYPE_MUTEX)
+ 	{
