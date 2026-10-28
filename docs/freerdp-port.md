@@ -2,7 +2,7 @@
 
 The normal `make` target still builds `3ds-rdp.3dsx`, with the proven
 A negotiation probe and B/Y/SELECT diagnostics. A **separate experimental**
-full-client path now attempts to assemble OpenSSL, WinPR, the FreeRDP core,
+full-client path now successfully compiles, links and packages OpenSSL, WinPR, the FreeRDP core,
 libctru, runtime password entry, a basic GDI framebuffer and touch controls:
 
 ```sh
@@ -12,13 +12,15 @@ bash scripts/link-freerdp-3ds.sh
 bash scripts/build-combined-3dsx.sh
 ```
 
-The third command makes a standalone combined ARM11 ELF/3DSX from the real
+The third command creates a standalone combined ARM11 ELF/3DSX using the real
 `freerdp_new`, `freerdp_connect`, settings and OpenSSL symbols. The fourth
-tries to create `3ds-rdp-full.3dsx` with `RDP_FULL_CLIENT=1` in a separate
-`build-full/` intermediate directory. GitHub Actions runs these steps **only
-after** a successful upstream FreeRDP compile; the experimental steps currently
-use `continue-on-error`. Inspect their exact step outcomes rather than the
-overall workflow status.
+builds `3ds-rdp-full.3dsx` with `RDP_FULL_CLIENT=1` in a separate
+`build-full/` intermediate directory. **All four integration gates passed** in
+[GitHub Actions run 40672154636](https://github.com/horse5g/3ds-rdp/actions/runs/40672154636)
+(commit `2c189caf`), including the actual `.3dsx` packaging step. The
+[full app and static archives](https://github.com/horse5g/3ds-rdp/actions/runs/40672154636/artifacts/12808337729)
+are available as a workflow artifact. The workflow intentionally keeps detailed
+failed-stage diagnostics but its final gate now requires all stages to succeed.
 
 In the opt-in application, press **R** to attempt a FreeRDP session. The
 password comes from the on-screen keyboard and is **never read from** or
@@ -37,6 +39,8 @@ proves the binary can be produced. It does not establish safe TLS/NLA login,
 Windows domain sign-in, framebuffer correctness, thread/event behavior or
 acceptable original-3DS memory/CPU performance. These require subsequent
 software tests and, later, hardware validation.
+
+Earlier sections below record the development history; compile failures mentioned in those historical notes may have since been resolved.
 
 ## FreeRDP with native ARM11 OpenSSL (experimental)
 
@@ -72,7 +76,7 @@ certificate verification.
 
 # FreeRDP / WinPR ARM11 port investigation
 
-**Status: build-system feasibility work, not a working port.** The existing RDP negotiation client does not link FreeRDP, perform TLS/NLA, or render a desktop.
+**Current status: integrated FreeRDP/OpenSSL client cross-build passes; O3DS runtime remains unverified.** The default RDP negotiation client still has no TLS/NLA or desktop output; the separate `3ds-rdp-full.3dsx` is not yet a proven working remote desktop.
 
 ## Why FreeRDP 3.32.2?
 
