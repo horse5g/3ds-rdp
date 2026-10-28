@@ -31,6 +31,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #include <arpa/inet.h>
 #include <limits.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <time.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -74,8 +75,10 @@ static int load_cert_pin(RdpCertPin *pin)
 
 static bool load_cert_pool(RdpCertPool *pool)
 {
-    char text[POOL_MAX_BYTES + 1];
+    /* Avoid placing the 13-KiB file buffer on the O3DS thread stack. */
+    char *text;
     size_t n;
+    bool valid;
     FILE *f = fopen(POOL_FILE, "rb");
     if (!f) {
         if (errno != ENOENT)
@@ -83,50 +86,69 @@ static bool load_cert_pool(RdpCertPool *pool)
         memset(pool, 0, sizeof(*pool));
         return true;
     }
-    n = fread(text, 1, sizeof(text), f);
+    text = (char *)malloc(POOL_MAX_BYTES + 1);
+    if (!text) {
+        fclose(f);
+        return false;
+    }
+    n = fread(text, 1, POOL_MAX_BYTES + 1, f);
     const bool read_error = ferror(f) != 0;
     const int closed = fclose(f);
-    if (read_error || closed != 0 || n >= sizeof(text) || memchr(text, 0, n))
-        return false;
-    text[n] = '\0';
-    return rdp_cert_pool_parse(text, pool) == 0;
+    valid = !read_error && closed == 0 && n <= POOL_MAX_BYTES &&
+            !memchr(text, 0, n);
+    if (valid) {
+        text[n] = '\0';
+        valid = rdp_cert_pool_parse(text, pool) == 0;
+    }
+    free(text);
+    return valid;
 }
 
-/* Always verify the existing file before append. Never replace or overwrite
- * a previous decision; interrupted writes will be rejected by strict parser.
- * SD/FAT does not promise power-fail-atomic appends. */
+/* Read back every entry after saving; no trust if the write fails.
+ * The SD filesystem does not guarantee append durability on power loss.
+ * A partially written line will fail the strict parser on next startup. */
 static bool save_cert_to_pool(const RdpCertPin *pin)
 {
-    RdpCertPool disk = {0}, updated = {0}, verified = {0};
+    RdpCertPool *disk = (RdpCertPool *)malloc(sizeof(RdpCertPool));
+    RdpCertPool *verified = (RdpCertPool *)malloc(sizeof(RdpCertPool));
     char record[RDP_CERT_POOL_LINE_MAX];
-    int n;
+    bool ok = false;
     FILE *f;
-
-    if (!load_cert_pool(&disk) || disk.count != active_pool.count)
-        return false;
-    for (size_t i = 0; i < disk.count; ++i) {
+    int n;
+    if (!disk || !verified)
+        goto finish;
+    if (!load_cert_pool(disk) || disk->count != active_pool.count)
+        goto finish;
+    for (size_t i = 0; i < disk->count; ++i) {
         const RdpCertPin *e = &active_pool.entries[i];
-        if (rdp_cert_pool_lookup(&disk, e->host, e->port, e->sha256) != 1)
-            return false;
+        if (rdp_cert_pool_lookup(disk, e->host, e->port, e->sha256) != 1)
+            goto finish;
     }
-    updated = disk;
-    if (rdp_cert_pool_add(&updated, pin) != 1)
-        return false;
+    if (rdp_cert_pool_add(disk, pin) != 1)
+        goto finish;
     n = rdp_cert_pool_format(pin, record, sizeof(record));
     if (n <= 0)
-        return false;
+        goto finish;
     f = fopen(POOL_FILE, "ab");
     if (!f)
-        return false;
+        goto finish;
     const bool written = fwrite(record, 1, (size_t)n, f) == (size_t)n &&
                          fflush(f) == 0;
     const int closed = fclose(f);
-    if (!written || closed != 0 || !load_cert_pool(&verified) ||
-        rdp_cert_pool_lookup(&verified, pin->host, pin->port, pin->sha256) != 1 ||
-        verified.count != updated.count)
-        return false;
-    active_pool = verified;
-    return true;
+    if (!written || closed != 0 || !load_cert_pool(verified) ||
+        verified->count != disk->count)
+        goto finish;
+    for (size_t i = 0; i < disk->count; ++i) {
+        const RdpCertPin *e = &disk->entries[i];
+        if (rdp_cert_pool_lookup(verified, e->host, e->port, e->sha256) != 1)
+            goto finish;
+    }
+    active_pool = *verified;
+    ok = true;
+finish:
+    free(disk);
+    free(verified);
+    return ok;
 }
 
 /* No automatic first-use trust: the user must see the complete SHA-256 and
