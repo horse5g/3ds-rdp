@@ -2,12 +2,13 @@ CC ?= cc
 CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
 .PHONY: all test clean
 all: test
-test: test_rdp_probe test_config test_loopback_pair test_cert_pin test_cert_pool test_profiles test_ui_hit test_session_pad test_session_zoom
+test: test_rdp_probe test_config test_loopback_pair test_cert_pin test_cert_pool test_cert_store test_profiles test_ui_hit test_session_pad test_session_zoom
 	./test_rdp_probe
 	./test_config
 	./test_loopback_pair
 	./test_cert_pin
 	./test_cert_pool
+	./test_cert_store
 	./test_profiles
 	./test_ui_hit
 	./test_session_pad
@@ -22,6 +23,8 @@ test_cert_pin: test_cert_pin.c ../source/cert_pin.c ../include/cert_pin.h
 	$(CC) $(CFLAGS) -I../include test_cert_pin.c ../source/cert_pin.c -o $@
 test_cert_pool: test_cert_pool.c ../source/cert_pool.c ../include/cert_pool.h ../source/cert_pin.c ../include/cert_pin.h
 	$(CC) $(CFLAGS) -I../include test_cert_pool.c ../source/cert_pool.c ../source/cert_pin.c -o $@
+test_cert_store: test_cert_store.c ../source/cert_store.c ../source/cert_pool.c ../source/cert_pin.c ../include/cert_store.h
+	$(CC) $(CFLAGS) -I../include test_cert_store.c ../source/cert_store.c ../source/cert_pool.c ../source/cert_pin.c -o $@
 test_profiles: test_profiles.c ../source/profile_store.c ../source/config.c ../include/profile_store.h ../include/config.h
 	$(CC) $(CFLAGS) -I../include test_profiles.c ../source/profile_store.c ../source/config.c -o $@
 test_ui_hit: test_ui_hit.c ../source/connection_ui_hit.c ../include/connection_ui.h
@@ -31,4 +34,4 @@ test_session_pad: test_session_pad.c ../source/session_pad.c ../include/session_
 test_session_zoom: test_session_zoom.c ../source/session_zoom.c ../include/session_zoom.h
 	$(CC) $(CFLAGS) -I../include test_session_zoom.c ../source/session_zoom.c -lm -o $@
 clean:
-	rm -f test_rdp_probe test_config test_loopback_pair test_cert_pin test_cert_pool test_profiles test_ui_hit test_session_pad test_session_zoom test-profiles.tmp test-profiles.tmp.bak
+	rm -f test_rdp_probe test_config test_loopback_pair test_cert_pin test_cert_pool test_cert_store test-cert-store-fixture.txt test-cert-store-fixture.txt.tmp test-cert-store-fixture.txt.bak test_profiles test_ui_hit test_session_pad test_session_zoom test-profiles.tmp test-profiles.tmp.bak

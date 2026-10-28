@@ -10,12 +10,18 @@
 #include "loopback_pair.h"
 #include "horizon_rng.h"
 #include "freerdp_session.h"
+#ifdef RDP_FULL_CLIENT
+#include "cert_manager.h"
+#endif
 
 #define HOST_FILE "sdmc:/3ds/3ds-rdp/host.txt"
 #define PROFILES_FILE "sdmc:/3ds/3ds-rdp/connections.txt"
 #define SOC_SIZE (1024*1024)
 
 static PrintConsole top;
+#ifdef RDP_FULL_CLIENT
+static PrintConsole cert_bottom;
+#endif
 static ConnectionUI ui;
 static char status[100] = "Ready", detail[100] = "Edit a computer on the touch screen";
 
@@ -89,6 +95,9 @@ int main(int argc, char **argv)
     gfxInitDefault();
     gfxSetScreenFormat(GFX_BOTTOM,GSP_RGB565_OES);
     consoleInit(GFX_TOP,&top);
+#ifdef RDP_FULL_CLIENT
+    consoleInit(GFX_BOTTOM,&cert_bottom);
+#endif
     buffer = memalign(0x1000,SOC_SIZE);
     if (buffer && R_SUCCEEDED(socInit(buffer,SOC_SIZE))) netok=1;
     connection_ui_init(&ui,HOST_FILE,PROFILES_FILE);
@@ -112,7 +121,7 @@ int main(int argc, char **argv)
         }
         /* L is a diagnostic/session modifier, never an editor shortcut. */
         menu_keys = down & ~KEY_L;
-        if (held & KEY_L) menu_keys &= ~(KEY_Y|KEY_SELECT);
+        if (held & KEY_L) menu_keys &= ~(KEY_Y|KEY_SELECT|KEY_X);
         connection_ui_key(&ui,menu_keys,PROFILES_FILE);
         touch_connect = ui.connect_requested;
         ui.connect_requested = false;
@@ -130,6 +139,17 @@ int main(int argc, char **argv)
             snprintf(status,sizeof(status),"Kernel events %s",passed ? "PASS" : "FAIL");
             snprintf(detail,sizeof(detail),"%s",result);
         }
+#ifdef RDP_FULL_CLIENT
+        if ((down & KEY_X) && (held & KEY_L)) {
+            char manager_result[100] = {0};
+            const int rc = rdp_cert_manager_run(&top,&cert_bottom,
+                                                manager_result,sizeof(manager_result));
+            gfxSetScreenFormat(GFX_BOTTOM,GSP_RGB565_OES);
+            snprintf(status,sizeof(status),"%s",rc == 0 ?
+                     "Trusted certificates" : "Certificate manager error");
+            snprintf(detail,sizeof(detail),"%s",manager_result);
+        }
+#endif
         if ((down & KEY_Y) && (held & KEY_L)) {
             char result[96] = "SOC init failed";
             bool passed = netok && loopback_pair_selftest(result,sizeof(result));

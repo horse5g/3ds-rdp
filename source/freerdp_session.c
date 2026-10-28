@@ -1,6 +1,7 @@
 #include "freerdp_session.h"
 #include "cert_pin.h"
 #include "cert_pool.h"
+#include "cert_store.h"
 #include "session_pad.h"
 #include "session_zoom.h"
 #include <stdio.h>
@@ -77,33 +78,9 @@ static int load_cert_pin(RdpCertPin *pin)
 
 static bool load_cert_pool(RdpCertPool *pool)
 {
-    /* Avoid placing the 13-KiB file buffer on the O3DS thread stack. */
-    char *text;
-    size_t n;
-    bool valid;
-    FILE *f = fopen(POOL_FILE, "rb");
-    if (!f) {
-        if (errno != ENOENT)
-            return false;
-        memset(pool, 0, sizeof(*pool));
-        return true;
-    }
-    text = (char *)malloc(POOL_MAX_BYTES + 1);
-    if (!text) {
-        fclose(f);
-        return false;
-    }
-    n = fread(text, 1, POOL_MAX_BYTES + 1, f);
-    const bool read_error = ferror(f) != 0;
-    const int closed = fclose(f);
-    valid = !read_error && closed == 0 && n <= POOL_MAX_BYTES &&
-            !memchr(text, 0, n);
-    if (valid) {
-        text[n] = '\0';
-        valid = rdp_cert_pool_parse(text, pool) == 0;
-    }
-    free(text);
-    return valid;
+    /* Also refuse an interrupted Trusted Certificates manager rewrite.
+     * An unresolved .bak or .tmp is never mistaken for an empty trust pool. */
+    return rdp_cert_store_load(POOL_FILE, pool) == 0;
 }
 
 /* Read back every entry after saving; no trust if the write fails.

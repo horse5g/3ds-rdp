@@ -48,7 +48,7 @@ username=alice
 
 Legacy files containing only `192.168.1.100:3389` or `rdp01.corp.example.com` still work. Lines beginning with `#` or `;` are comments. Unknown settings, including `password=`, are rejected intentionally; **do not save passwords on the SD card**.
 
-With the connection launcher, press **R** to probe the selected host; use **B** for native kernel-event tests, **L+Y** for SOC loopback, **L+SELECT** for PS entropy, or **START** to exit. The bottom screen edits and saves host/user/domain settings; the normal probe still does **not** send credentials. Actual Windows sign-in requires the experimental FreeRDP/CredSSP/NLA integration.
+With the graphical launcher press **R** for the negotiation probe, **L+R** for the experimental full client, **L+X** for the trusted-certificates manager, **B** for native events, **L+Y** for SOC loopback, **L+SELECT** for PS entropy and **START** to exit. The normal probe does not transmit sign-in credentials.
 
 ## Windows-style connection launcher (draft PR #3)
 
@@ -79,6 +79,8 @@ section of the UI documentation for details.
 
 See [Connection UI details](docs/connection-ui.md). This interface is a build
 milestone, **not** evidence that Windows login or desktop rendering work.
+
+L+X opens the trusted-certificate manager from the launcher in the full-client build.
 
 ## Integrated FreeRDP + OpenSSL client (ARM11 build verified)
 
