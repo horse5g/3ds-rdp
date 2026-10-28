@@ -79,7 +79,7 @@ int rdp_profiles_upsert(RdpProfileStore *store, const char *name, const RdpConfi
                         char *error, size_t cap)
 {
     size_t i;
-    if (!store || !safe_name(name)) return problem(error, cap, "Invalid profile name");
+    if (!store || store->count > RDP_PROFILE_LIMIT || !safe_name(name)) return problem(error, cap, "Invalid profile name");
     if (rdp_profile_validate(config, error, cap)) return -1;
     for (i = 0; i < store->count; ++i)
         if (same_name(store->items[i].name, name)) break;
@@ -179,11 +179,15 @@ int rdp_profiles_load(const char *path, RdpProfileStore *out, char *error, size_
         return problem(error, cap, "Invalid profile path");
     memset(out, 0, sizeof(*out));
     rc = read_file(path, out, error, cap);
-    if (rc == 1) {
+    if (rc != 0) {
+        int backup_rc;
         snprintf(backup, sizeof(backup), "%s.bak", path);
-        rc = read_file(backup, out, error, cap);
+        backup_rc = read_file(backup, out, error, cap);
+        if (backup_rc == 0) rc = 0;
+        else if (rc == 1 && backup_rc == 1) rc = 0; /* First run. */
+        else if (rc == 1) rc = backup_rc;
+        else problem(error, cap, "Saved profiles damaged (backup unavailable)");
     }
-    if (rc == 1) rc = 0; /* First run: no profiles. */
     if (!rc && error && cap) error[0] = 0;
     return rc;
 }
@@ -216,9 +220,13 @@ int rdp_profiles_save(const char *path, const RdpProfileStore *store, char *erro
                     p->name, p->config.host, (unsigned)p->config.port,
                     p->config.username, p->config.domain) < 0) goto write_error;
     }
-    if (fflush(file) || fclose(file)) {
-        remove(temp);
-        return problem(error, cap, "SD write failed");
+    {
+        int flushed = fflush(file);
+        int closed = fclose(file);
+        if (flushed || closed) {
+            remove(temp);
+            return problem(error, cap, "SD write failed");
+        }
     }
     had_original = 0;
     {
