@@ -122,6 +122,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'signal_3ds.c' "$src/libfreerdp/utils/CMakeLists.txt"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-signals.patch"
   fi
+  if [[ "$backend" == openssl ]] && ! grep -q 'unsigned int digest_len = 0;' "$src/libfreerdp/crypto/x509_utils.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-openssl-x509-length.patch"
+  fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
 fi
