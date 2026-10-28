@@ -1,0 +1,37 @@
+# Independent crypto prerequisite probe; NOT a usable or secure RDP client.
+name: OpenSSL ARM11 feasibility
+on:
+  push:
+    paths:
+      - '.github/workflows/openssl-arm11.yml'
+      - 'scripts/build-openssl-3ds.sh'
+      - 'cmake/openssl-3ds.conf'
+  pull_request:
+    paths:
+      - '.github/workflows/openssl-arm11.yml'
+      - 'scripts/build-openssl-3ds.sh'
+      - 'cmake/openssl-3ds.conf'
+  workflow_dispatch:
+jobs:
+  cross-compile:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross-compile static libcrypto and libssl for original 3DS
+        run: bash scripts/build-openssl-3ds.sh build
+      - name: Verify archive targets
+        run: |
+          test -s build/openssl-3ds/libcrypto.a
+          test -s build/openssl-3ds/libssl.a
+          "$DEVKITARM/bin/arm-none-eabi-ar" t build/openssl-3ds/libcrypto.a | head -n 2
+          "$DEVKITARM/bin/arm-none-eabi-ar" t build/openssl-3ds/libssl.a | head -n 2
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: openssl-arm11-static-experimental
+          path: |
+            build/openssl-3ds/libcrypto.a
+            build/openssl-3ds/libssl.a
+          if-no-files-found: error
