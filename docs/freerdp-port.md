@@ -30,16 +30,24 @@ remote desktop, sends A as a left-click and X as an ASCII-only text keyboard.
 B or START exits the session. No graphical controls or certificate management
 UI is implemented yet.
 
-**Fail-closed security:** the full client now requires an out-of-band,
-endpoint-specific SHA-256 certificate pin file, as documented in
-[certificate-pinning.md](certificate-pinning.md). It uses FreeRDP's
-external X.509 verification callback and rejects a missing pin, different
-certificate, hostname mismatch, expiry or implausible system time. It does
-not enable `/cert:ignore` or disable NLA. A matched leaf pin is explicit
-trust, not CA-chain validation or revocation checking. A successful ELF/3DSX
-build proves only that the binary can be produced; it does not establish
-safe TLS/NLA runtime, Windows domain sign-in, framebuffer correctness,
-thread/event behavior or acceptable O3DS memory/CPU performance.
+**Certificate trust:** the full client now supports a 32-entry,
+host:port-bound **saved certificate pool** at
+`sdmc:/3ds/3ds-rdp/trusted-certs.txt`. A first-time certificate with valid
+names/dates triggers an explicit 3DS prompt: **B/START** reject, **A** accept
+for one session, **X** accept and save. Existing fingerprints match without
+reprompting, while **changed** certificates are blocked until the user
+verifies and manually removes or updates the old entry. The optional
+single-endpoint, out-of-band `cert-pin.txt` takes precedence for its host.
+See [certificate-pinning.md](certificate-pinning.md) for risks, pool format,
+recovery, manual pins and a secure source of fingerprints.
+
+FreeRDP still uses external X.509 verification with name/date checks; the
+client does not enable `/cert:ignore` or disable NLA. **First-use acceptance
+is subject to MITM attacks if the user fails to verify the displayed SHA-256
+against the actual Windows host.** Neither pinning nor this pool automatically
+checks certificate revocation. Successful ELF/3DSX builds do not establish
+safe TLS/NLA on hardware, domain sign-in, framebuffer correctness,
+thread/event behavior or O3DS memory/CPU performance.
 
 Earlier sections below record the development history; compile failures mentioned in those historical notes may have since been resolved.
 
