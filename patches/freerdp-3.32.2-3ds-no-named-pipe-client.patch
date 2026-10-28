@@ -31,3 +31,10 @@ diff --git a/winpr/libwinpr/file/namedPipeClient.c b/winpr/libwinpr/file/namedPi
 +/* Extended API */
  
  #define NAMED_PIPE_PREFIX_PATH "\\\\.\\pipe\\"
+@@ -283,5 +291,5 @@
+ int GetNamePipeFileDescriptor(HANDLE hNamedPipe)
+ {
+-#ifndef _WIN32
++#if !defined(_WIN32) && !defined(__3DS__)
+ 	int fd = 0;
+ 	WINPR_NAMED_PIPE* pNamedPipe = (WINPR_NAMED_PIPE*)hNamedPipe;
