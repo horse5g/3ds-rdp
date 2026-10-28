@@ -116,6 +116,15 @@ The latest ARM11 CI compiler trace (October 28, 2026) confirms FreeRDP's `freerd
 
 Next implement a coherent 3DS Winsock compatibility adapter rather than sprinkling invented errno/ioctl values. Unsupported operations should have explicit error semantics, while supported TCP/IPv4/DNS calls should be mapped to libctru. Then continue compilation and finally link with the application's SOC initialization. Neither NLA nor desktop transport is usable yet.
 
+## Original 3DS hardware diagnostics (October 28, 2026)
+
+First hardware run of the two new diagnostics exposed actual portability problems:
+
+- **B** displayed `Kernel events FAIL: Unsignaled event failed to time out`. The root cause is our wrapper: `svcWaitSynchronization` returns `0x09401BFE` on timeout, a nonnegative informational `Result`. Our code called `R_SUCCEEDED` *before* checking `RD_TIMEOUT`, treating a timeout as signal. Fixed for both single and multiple-event waits; the self-test now identifies which initial event was misclassified if another issue remains. **Awaiting repeat hardware test.**
+- **Y** displayed `SOC wakeup FAIL: loopback bind (errno=22)` for a `127.0.0.1:0` TCP listener. This indicates the SOC bind call returned `EINVAL`; it does **not** independently prove the loopback address is unsupported. The test now retries **only** `127.0.0.1` with fixed high ports if port zero is rejected. If both methods fail, it prints short diagnostics: `lo0` = original loopback/port-zero bind errno, `loP` = loopback/fixed-port probe, `any` = temporary `INADDR_ANY:0` bind, `wifi` = temporary assigned-Wi-Fi-IP bind (`-1` if unavailable). Zero means the bind was accepted. The `any` and `wifi` probes do **not** listen, accept connections, or become the WinPR transport. **Awaiting repeat hardware test.**
+
+Do not silently fall back to a LAN-facing listener for WinPR event notifications: a socket listener exposed on Wi-Fi would be accessible to other devices and could interfere with the application's event mechanism. If localhost sockets cannot work on Horizon SOC, retire the socket-pair WinPR bridge and use native kernel events plus an explicit mixed kernel-event/SOC-readiness wait strategy instead.
+
 ## Domains and DNS names
 
 The homebrew configuration parser now accepts `host=rdp01.corp.example.com`, `domain=CORP`, and `username=alice` as future FreeRDP connection settings, along with `CORP\\alice` and `alice@corp.example.com` account formats. Hostname resolution for the **negotiation probe** uses the real libctru `getaddrinfo()` implementation (IPv4). The username/domain are not yet passed to FreeRDP or Windows; there is **no login**.
