@@ -1,13 +1,14 @@
 diff --git a/winpr/libwinpr/winsock/winsock.c b/winpr/libwinpr/winsock/winsock.c
 --- a/winpr/libwinpr/winsock/winsock.c
 +++ b/winpr/libwinpr/winsock/winsock.c
-@@ -294,5 +294,9 @@
+@@ -294,5 +294,10 @@
  #include <netinet/in.h>
  #include <netinet/tcp.h>
 -#include <net/if.h>
 +#ifndef __3DS__
 +#include <net/if.h>
 +#else
++#include <3ds/types.h>
 +#include <3ds/services/soc.h>
 +#endif
  
