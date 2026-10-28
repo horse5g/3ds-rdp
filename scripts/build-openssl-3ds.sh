@@ -59,6 +59,9 @@ if [[ "$src" == "$root/external/openssl" ]]; then
   if ! grep -q 'newlib lacks posix_memalign' "$src/crypto/mem.c"; then
     patch -d "$src" -p1 < "$root/patches/openssl-3.5.9-3ds-libc-link.patch"
   fi
+  if ! grep -q 'Horizon entropy provider for OpenSSL' "$src/providers/implementations/rands/seeding/rand_unix.c"; then
+    patch -d "$src" -p1 < "$root/patches/openssl-3.5.9-3ds-ps-entropy.patch"
+  fi
 elif [[ ! -f "$src/Configurations/15-3ds.conf" ]]; then
   echo "Custom OPENSSL_SOURCE requires its own 3ds-armv6k target config" >&2
   exit 2
