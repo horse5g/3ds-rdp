@@ -11,3 +11,10 @@ external/
 CMakeFiles/
 CMakeCache.txt
 compile_commands.json
+
+# Separate opt-in full client build intermediates
+build-full/
+3ds-rdp-full.3dsx
+3ds-rdp-full.elf
+3ds-rdp-full.map
+3ds-rdp-full.smdh
