@@ -1,0 +1,20 @@
+diff --git a/winpr/include/winpr/winsock.h b/winpr/include/winpr/winsock.h
+--- a/winpr/include/winpr/winsock.h
++++ b/winpr/include/winpr/winsock.h
+@@ -100,3 +100,7 @@
+ 
++#ifdef __3DS__
++/* libctru socket handles are signed ints (see sys/socket.h). */
++typedef int SOCKET;
++#else
+ typedef UINT_PTR SOCKET;
++#endif
+ typedef struct sockaddr_storage SOCKADDR_STORAGE;
+@@ -172,3 +176,7 @@
+ #endif
+ 
++#ifdef __3DS__
++/* Structure layout only; this does not add IPv6 networking to libctru. */
++struct in6_addr { unsigned char s6_addr[16]; };
++#endif
+ typedef struct in6_addr IN6_ADDR;
