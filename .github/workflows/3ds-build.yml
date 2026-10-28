@@ -1,0 +1,21 @@
+name: O3DS homebrew build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  homebrew:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm
+      options: --user 1001
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build 3DSX
+        run: make -j2
+      - name: Verify output
+        run: test -s 3ds-rdp.3dsx
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 3ds-rdp-3dsx
+          path: 3ds-rdp.3dsx
