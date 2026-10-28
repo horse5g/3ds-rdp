@@ -2,7 +2,21 @@
 name: FreeRDP ARM11 feasibility
 on:
   push:
+    paths:
+      - '.github/workflows/freerdp-port.yml'
+      - 'scripts/build-freerdp-3ds.sh'
+      - 'cmake/3ds-armv6k.cmake'
+      - 'patches/freerdp-*.patch'
+      - 'source/loopback_pair.c'
+      - 'include/loopback_pair.h'
   pull_request:
+    paths:
+      - '.github/workflows/freerdp-port.yml'
+      - 'scripts/build-freerdp-3ds.sh'
+      - 'cmake/3ds-armv6k.cmake'
+      - 'patches/freerdp-*.patch'
+      - 'source/loopback_pair.c'
+      - 'include/loopback_pair.h'
   workflow_dispatch:
     inputs:
       phase:
