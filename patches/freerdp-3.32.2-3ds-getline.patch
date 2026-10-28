@@ -1,0 +1,60 @@
+diff --git a/winpr/libwinpr/crt/string.c b/winpr/libwinpr/crt/string.c
+--- a/winpr/libwinpr/crt/string.c
++++ b/winpr/libwinpr/crt/string.c
+@@ -895,6 +895,54 @@
+ 	(*lineptr)[used] = '\0';
+ 	return used;
+-#elif !defined(ANDROID) && !defined(IOS)
+-	return getline(lineptr, size, stream);
++#elif defined(__3DS__)
++	/* devkitARM newlib does not provide POSIX getline(). Grow the buffer
++	 * dynamically and preserve newline/EOF semantics. */
++	if (!lineptr || !size || !stream)
++	{
++		errno = EINVAL;
++		return -1;
++	}
++	if (!*lineptr || !*size)
++	{
++		char* n = realloc(*lineptr, 128);
++		if (!n)
++		{
++			errno = ENOMEM;
++			return -1;
++		}
++		*lineptr = n;
++		*size = 128;
++	}
++	size_t used = 0;
++	int ch = EOF;
++	while ((ch = fgetc(stream)) != EOF)
++	{
++		if (used + 1 >= *size)
++		{
++			if (*size > ((size_t)-1) / 2)
++			{
++				errno = ENOMEM;
++				return -1;
++			}
++			const size_t new_size = *size * 2;
++			char* n = realloc(*lineptr, new_size);
++			if (!n)
++			{
++				errno = ENOMEM;
++				return -1;
++			}
++			*lineptr = n;
++			*size = new_size;
++		}
++		(*lineptr)[used++] = (char)ch;
++		if (ch == '\n')
++			break;
++	}
++	if (ferror(stream) || (ch == EOF && used == 0))
++		return -1;
++	(*lineptr)[used] = '\0';
++	return (INT64)used;
++#elif !defined(ANDROID) && !defined(IOS)
++	return getline(lineptr, size, stream);
+ #else
+ 	return -1;
