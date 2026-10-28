@@ -50,6 +50,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'FAT/SD file timestamps do not have' "$src/winpr/libwinpr/file/file.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-filetime.patch"
   fi
+  if ! grep -q 'The O3DS client does not support serial/COM-port redirection' "$src/winpr/libwinpr/CMakeLists.txt"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-serial.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
@@ -71,6 +74,7 @@ cmake -S "$src" -B "$build" \
   -DMBEDX509_LIBRARY="$portlibs/lib/libmbedx509.a" \
   -DWITH_UNICODE_BUILTIN=ON \
   -DWINPR_HAVE_PIPE2=OFF \
+  -DWINPR_TARGET_3DS=ON \
   -DWINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK=OFF \
   -DWINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK_SYMBOL=OFF \
   -DWINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK_LIB=OFF \
