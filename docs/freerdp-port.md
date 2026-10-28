@@ -38,6 +38,21 @@ The default `configure` command only configures; `build` additionally attempts a
 
 The separate `FreeRDP ARM11 feasibility` GitHub Actions workflow performs a **non-blocking experimental configure** on pushes and pull requests, and uploads diagnostic logs. Its green status is **not proof** of successful FreeRDP compilation: read the step outcome. It can also be manually dispatched with a `build` argument once the workflow exists on the default branch.
 
+## Verified CI progress (October 28, 2026)
+
+The experimental `build` job now successfully completes upstream FreeRDP **CMake configuration** for ARMv6K with static Mbed TLS and the built-in Unicode converter. We also disabled `WITH_SWSCALE` and `WITH_CAIRO` so FFmpeg is not required at this stage. The cross-compiler compiled the `freerdp-primitives` library target.
+
+The first **real WinPR compilation blocker** in the CI logs is:
+
+```text
+winpr/include/winpr/winsock.h:83:10:
+fatal error: netdb.h: No such file or directory
+```
+
+This is a devkitARM/Horizon OS portability gap. Next, inventory the actual DNS/socket interfaces supplied by libctru/newlib; implement a proper WinPR adapter (including supported `getaddrinfo` / `getnameinfo` behavior where needed), rather than declaring networking functions that are absent or disabling certificate validation. Then continue compilation and diagnose additional missing POSIX headers / APIs. The CMake feature checks currently use `STATIC_LIBRARY` try-compiles, so a detected function does **not** guarantee a resolved symbol at final link time.
+
+Reproducible evidence is in the `FreeRDP ARM11 feasibility` workflow logs for the PR branch. The experimental step intentionally allows failure while the upstream port is being developed.
+
 ## Acceptance criteria
 
 1. A CI-produced `3ds-rdp.3dsx` exists for the *existing* RDP negotiation probe.
