@@ -29,6 +29,7 @@ typedef struct {
     bool show_saved;
     bool dirty;
     bool connect_requested;
+    bool profiles_unavailable; /* refuse to overwrite a corrupt SD profile store */
 } ConnectionUI;
 
 /* O3DS bottom-screen framebuffer UI, top console reserved for diagnostics.
