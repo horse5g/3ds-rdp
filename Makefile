@@ -15,6 +15,20 @@ ASFLAGS := -g $(ARCH)
 LDFLAGS := -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 LIBS := -lctru -lm
 LIBDIRS := $(CTRULIB)
+# Set RDP_FULL_CLIENT=1 only after cross-compiling the OpenSSL and
+# FreeRDP archives. The normal build remains the known-working probe.
+ifeq ($(RDP_FULL_CLIENT),1)
+FRROOT := $(TOPDIR)/external/FreeRDP
+FRBUILD := $(TOPDIR)/build/freerdp-3ds
+SSLROOT := $(TOPDIR)/external/openssl
+SSLBUILD := $(TOPDIR)/build/openssl-3ds
+CFLAGS += -DRDP_FULL_CLIENT
+CFLAGS += -I$(FRROOT)/include -I$(FRROOT)/winpr/include
+CFLAGS += -I$(FRBUILD) -I$(FRBUILD)/include -I$(FRBUILD)/winpr -I$(FRBUILD)/winpr/include
+CFLAGS += -I$(SSLBUILD)/include -I$(SSLROOT)/include
+LIBDIRS += $(FRBUILD)/libfreerdp $(FRBUILD)/winpr/libwinpr $(SSLBUILD) $(DEVKITPRO)/portlibs/3ds
+LIBS := -Wl,--start-group -lfreerdp3 -lwinpr3 -lssl -lcrypto -lz -lctru -lm -Wl,--end-group
+endif
 export APP_TITLE := 3DS RDP Probe
 export APP_DESCRIPTION := Standalone RDP negotiation test
 export APP_AUTHOR := 3ds-rdp contributors
