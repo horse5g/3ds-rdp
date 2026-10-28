@@ -1,4 +1,5 @@
 #include "cert_manager.h"
+#ifdef RDP_FULL_CLIENT
 #include "cert_store.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -176,3 +177,5 @@ finish:
     free(pool);
     return result;
 }
+
+#endif /* RDP_FULL_CLIENT */
