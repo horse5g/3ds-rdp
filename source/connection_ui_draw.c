@@ -130,14 +130,14 @@ static void topbar(void)
 }
 static void tabs(const ConnectionUI *ui)
 {
-    static const char *titles[] = {"GENERAL","DISPLAY","LOCAL","SPEED","ADVANCED"};
+    static const char *titles[] = {"GENERAL","DISPLAY","LOCAL","EXPERIENCE","ADVANCED"};
     int i;
     for (i=0; i<RDP_UI_TAB_COUNT; ++i) {
         int x = i*64;
         int active = ui->tab == i;
         fill(x,31,64,23,active ? WHITE : C(219,226,235));
         outline(x,31,64,23,active ? BLUE : BORDER);
-        label(x+5,40,titles[i],x+63,active ? BLUE : INK);
+        label(x+2,40,titles[i],x+63,active ? BLUE : INK);
     }
 }
 static void field(int row, const char *name, const char *value, bool focus)
@@ -200,9 +200,9 @@ static void saved_panel(const ConnectionUI *ui)
     char line[30];
     for (i=0; i<5; ++i) {
         int index = ui->scroll+i, y=58+25*i;
-        uint32_t color = index == ui->selected ? HIGHLIGHT : WHITE;
+        uint32_t color = index == ui->highlight ? HIGHLIGHT : WHITE;
         fill(7,y,306,23,color);
-        outline(7,y,306,23,index == ui->selected ? BLUE : BORDER);
+        outline(7,y,306,23,index == ui->highlight ? BLUE : BORDER);
         if ((size_t)index >= ui->store.count) continue;
         snprintf(line,sizeof(line),"%2d  %.23s",index+1,ui->store.items[index].name);
         label(14,y+8,line,292,INK);
