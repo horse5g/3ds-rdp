@@ -390,15 +390,23 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     }
 done:
     OPENSSL_cleanse(password, sizeof(password));
-    OPENSSL_cleanse(&active_pin, sizeof(active_pin));
-    OPENSSL_cleanse(cert_failure, sizeof(cert_failure));
     if (connected)
         freerdp_disconnect(client);
     if (client) {
-        if (initialized)
+        if (initialized) {
+            /* Scrub the FreeRDP-owned password string before freeing settings.
+             * NLA/SSPI can have additional short-lived copies we do not own. */
+            if (client->context && client->context->settings &&
+                client->context->settings->Password) {
+                char *owned = client->context->settings->Password;
+                OPENSSL_cleanse(owned, strlen(owned));
+            }
             freerdp_context_free(client);
+        }
         freerdp_free(client);
     }
+    OPENSSL_cleanse(&active_pin, sizeof(active_pin));
+    OPENSSL_cleanse(cert_failure, sizeof(cert_failure));
     return result;
 }
 #endif
