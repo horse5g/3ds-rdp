@@ -5,3 +5,9 @@ build/
 *.map
 *.o
 tests/test_rdp_probe
+
+# Vendored upstream source and cross-compile artifacts
+external/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
