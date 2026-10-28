@@ -48,6 +48,8 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: devkitpro/devkitarm
+    env:
+      JOBS: 4
     steps:
       - uses: actions/checkout@v4
       - name: Install ARM11 zlib for combined linking
@@ -58,7 +60,7 @@ jobs:
           fi
       - name: Restore compiled ARM11 OpenSSL prerequisite
         id: ssl-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             external/openssl
@@ -76,6 +78,14 @@ jobs:
           test -s build/openssl-3ds/libssl.a
           test -s build/openssl-3ds/libcrypto.a
           test -s build/openssl-3ds/include/openssl/configuration.h
+      - name: Save validated OpenSSL prerequisite for later iterations
+        if: steps.ssl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            external/openssl
+            build/openssl-3ds
+          key: arm11-ssl359-dkp-v1-${{ hashFiles('scripts/build-openssl-3ds.sh', 'cmake/openssl-3ds.conf', 'patches/openssl-*.patch') }}
       - name: Configure and compile FreeRDP against ARM11 OpenSSL
         id: freerdp
         continue-on-error: true
