@@ -33,7 +33,7 @@ bool horizon_event_reset(HorizonEvent *event) {
  * informational (nonnegative) result level. R_SUCCEEDED(timeout) is TRUE!
  * Check timeout before considering an event signaled. */
 static HorizonWaitResult classify_wait_result(Result rc) {
-    if (R_MODULE(rc) == RM_KERNEL && R_DESCRIPTION(rc) == RD_TIMEOUT)
+    if (R_DESCRIPTION(rc) == RD_TIMEOUT)
         return HORIZON_WAIT_TIMEOUT;
     if (rc == 0)
         return HORIZON_WAIT_SIGNALED;
