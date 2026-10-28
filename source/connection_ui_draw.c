@@ -188,7 +188,7 @@ static void main_panel(const ConnectionUI *ui)
         break;
     default:
         panel_text(63,"SECURITY: NLA / CREDSSP","NO INSECURE RDP FALLBACK");
-        panel_text(103,"CERTIFICATE VALIDATION","UNTRUSTED CERTS REJECTED");
+        panel_text(103,"CERTIFICATE TRUST","UNKNOWN: CONFIRM / SAVE PIN");
         panel_text(143,"SAVED CREDENTIALS","PASSWORD NEVER STORED");
         break;
     }
