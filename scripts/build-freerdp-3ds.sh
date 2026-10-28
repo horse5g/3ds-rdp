@@ -68,6 +68,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'Horizon exposes its IPv4 settings through SOC' "$src/winpr/libwinpr/winsock/winsock.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-wsaioctl-ipv4.patch"
   fi
+  if ! grep -q 'The target has no matching errno' "$src/winpr/libwinpr/winsock/winsock.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-winsock-compat.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
