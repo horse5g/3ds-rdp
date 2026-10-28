@@ -125,6 +125,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if [[ "$backend" == openssl ]] && ! grep -q 'unsigned int digest_len = 0;' "$src/libfreerdp/crypto/x509_utils.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-openssl-x509-length.patch"
   fi
+  if ! grep -q 'Horizon SOC supports IPv4 only' "$src/libfreerdp/core/utils.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-ipv4-only-utils.patch"
+  fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
 fi
