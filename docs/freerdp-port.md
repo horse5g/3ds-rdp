@@ -36,7 +36,7 @@ bash scripts/build-freerdp-3ds.sh build
 
 The default `configure` command only configures; `build` additionally attempts a static-library compilation. Both **may fail until we write the Horizon-specific compatibility layer**. Supply `FREERDP_SOURCE=/path/to/existing/FreeRDP` to use an already checked-out tree, or let the script clone the 3.32.2 tag into ignored `external/FreeRDP`. Files are built under ignored `build/freerdp-3ds`.
 
-The separate `FreeRDP ARM11 feasibility` GitHub Actions workflow performs a **non-blocking experimental configure** on pushes and pull requests, and uploads diagnostic logs. Its green status is **not proof** of successful FreeRDP compilation: read the step outcome. It can also be manually dispatched with a `build` argument once the workflow exists on the default branch.
+The separate `FreeRDP ARM11 feasibility` GitHub Actions workflow performs a **non-blocking experimental configure/compile** on pushes and pull requests, and uploads diagnostic logs. Its green status is **not proof** of successful FreeRDP compilation: read the step outcome. It can also be manually dispatched with a `build` argument once the workflow exists on the default branch.
 
 ## Verified CI progress (October 28, 2026)
 
@@ -49,9 +49,17 @@ winpr/include/winpr/winsock.h:83:10:
 fatal error: netdb.h: No such file or directory
 ```
 
+libctru itself **does provide `netdb.h` and `getaddrinfo()`**; the FreeRDP CMake toolchain simply needed `-I$DEVKITPRO/libctru/include`. After adding that header path, CI reached `sys/un.h` (Unix-domain sockets), which is absent on the 3DS. We have a second narrow upstream patch to omit unavailable `sys/un.h` and `net/if.h` includes on `__3DS__`, without supplying invented implementations. The resulting build errors will identify actual WinPR assumptions that need porting.
+
 This is a devkitARM/Horizon OS portability gap. Next, inventory the actual DNS/socket interfaces supplied by libctru/newlib; implement a proper WinPR adapter (including supported `getaddrinfo` / `getnameinfo` behavior where needed), rather than declaring networking functions that are absent or disabling certificate validation. Then continue compilation and diagnose additional missing POSIX headers / APIs. The CMake feature checks currently use `STATIC_LIBRARY` try-compiles, so a detected function does **not** guarantee a resolved symbol at final link time.
 
 Reproducible evidence is in the `FreeRDP ARM11 feasibility` workflow logs for the PR branch. The experimental step intentionally allows failure while the upstream port is being developed.
+
+## Domains and DNS names
+
+The homebrew configuration parser now accepts `host=rdp01.corp.example.com`, `domain=CORP`, and `username=alice` as future FreeRDP connection settings, along with `CORP\\alice` and `alice@corp.example.com` account formats. Hostname resolution for the **negotiation probe** uses the real libctru `getaddrinfo()` implementation (IPv4). The username/domain are not yet passed to FreeRDP or Windows; there is **no login**.
+
+When CredSSP/NLA is implemented, a username/domain may be used for NTLM authentication. Some enterprise policies require Kerberos; the current build explicitly disables the optional Kerberos/GSSAPI support, so **successful domain sign-in cannot be promised** until we implement and test the required authentication mechanism, secure time, and certificate trust. Passwords are deliberately never loaded from `host.txt`.
 
 ## Acceptance criteria
 
@@ -61,6 +69,6 @@ Reproducible evidence is in the `FreeRDP ARM11 feasibility` workflow logs for th
 4. Measure actual memory usage and performance on O3DS.
 5. Only then implement validated TLS, CredSSP/NLA and graphics.
 
-**Items 2–5 remain open until build logs and hardware tests verify them.** RDP authentication must never disable TLS certificate validation or NLA to hide a portability problem. Avoid exposing RDP to the public internet.
+**Item 2 (CMake configuration) is now verified by CI. Items 3–5 remain open until builds, links and hardware tests verify them.** RDP authentication must never disable TLS certificate validation or NLA to hide a portability problem. Avoid exposing RDP to the public internet.
 
 References: [FreeRDP upstream](https://github.com/FreeRDP/FreeRDP), [3DS homebrew SDK](https://github.com/devkitPro/libctru).
