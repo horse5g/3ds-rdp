@@ -179,6 +179,12 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         !freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, RDP_W) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, RDP_H) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_ColorDepth, 32) ||
+        /* Only NLA/CredSSP (including hybrid extended). No legacy RDP
+           Security or TLS-without-NLA credential fallback. */
+        !freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, TRUE) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_ExtSecurity, TRUE) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_RdpSecurity, FALSE) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_TlsSecurity, FALSE) ||
         !freerdp_settings_set_string(settings, FreeRDP_Username, cfg->username) ||
         !freerdp_settings_set_string(settings, FreeRDP_Domain, cfg->domain) ||
         !freerdp_settings_set_string(settings, FreeRDP_Password, password)) {
