@@ -1,0 +1,16 @@
+diff --git a/winpr/libwinpr/synch/timer.c b/winpr/libwinpr/synch/timer.c
+--- a/winpr/libwinpr/synch/timer.c
++++ b/winpr/libwinpr/synch/timer.c
+@@ -895,9 +895,11 @@
+ 	pthread_cond_init(&(timerQueue->cond), nullptr);
+ 	pthread_mutex_init(&(timerQueue->cond_mutex), nullptr);
+ 	pthread_mutex_init(&(timerQueue->mutex), nullptr);
+ 	pthread_attr_init(&(timerQueue->attr));
++#ifndef __3DS__
++	/* Horizon's pthreads do not expose POSIX real-time scheduler controls. */
+ 	timerQueue->param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+ 	pthread_attr_setschedparam(&(timerQueue->attr), &(timerQueue->param));
+ 	pthread_attr_setschedpolicy(&(timerQueue->attr), SCHED_FIFO);
++#endif
+ 	pthread_create(&(timerQueue->thread), &(timerQueue->attr), TimerQueueThread, timerQueue);
+ 	return 0;
