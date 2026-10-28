@@ -48,7 +48,39 @@ username=alice
 
 Legacy files containing only `192.168.1.100:3389` or `rdp01.corp.example.com` still work. Lines beginning with `#` or `;` are comments. Unknown settings, including `password=`, are rejected intentionally; **do not save passwords on the SD card**.
 
-Press **A** to send an RDP negotiation probe, **B** to run native Horizon kernel event tests, **Y** to test the SOC loopback/select wakeup transport, **SELECT** to check the PS hardware entropy service, **X** to reload `host.txt`, or **START** to exit. The bottom screen displays the parsed username and domain. Those fields are **not transmitted to Windows** in this milestone. Domain sign-in requires future FreeRDP + CredSSP/NLA integration (and Kerberos if domain policy requires it).
+With the graphical launcher press **R** for the negotiation probe, **L+R** for the experimental full client, **L+X** for the trusted-certificates manager, **B** for native events, **L+Y** for SOC loopback, **L+SELECT** for PS entropy and **START** to exit. The normal probe does not transmit sign-in credentials.
+
+## Windows-style connection launcher (draft PR #3)
+
+The bottom touchscreen now has a native RGB565, Windows Remote Desktop
+Connection-inspired interface with General/Display/Local/Experience/Advanced
+tabs. General lets you type **Computer, User name, Domain, Port, Save as** using
+the 3DS on-screen keyboard. Save and browse up to 12 named connections under
+`/3ds/3ds-rdp/connections.txt`. Existing `host.txt` can be imported as an
+unsaved connection. Stored passwords are never supported.
+
+Tap **Connect** (or press R) to probe an RDP server in the normal build. The
+experimental full-client build instead attempts a FreeRDP session when Connect
+is tapped; hold L+R for that same experimental attempt. B still tests Horizon
+events; L+Y checks SOC loopback and L+SELECT checks PS entropy. START exits.
+Other tabs currently explain fixed settings and limitations; they are **not**
+working configuration switches.
+
+In a connected experimental FreeRDP session, the bottom screen becomes a
+relative **touchpad**, with scroll buttons / a drag-to-scroll strip on the
+right, on-screen left/right buttons, and a top toolbar for **Disconnect**,
+**Settings**, and **Keyboard**. Hold A and move a finger to drag, use B for
+right-click, and START as a disconnect shortcut. Settings adjusts sensitivity
+and wheel behavior for this session only. The top screen stays the remote
+desktop. Hold **L** and rotate the Circle Pad clockwise to zoom into the
+mouse pointer or counterclockwise to zoom back out (100%-300% local zoom,
+smoothly interpolated, without altering RDP resolution). See the in-session
+section of the UI documentation for details.
+
+See [Connection UI details](docs/connection-ui.md). This interface is a build
+milestone, **not** evidence that Windows login or desktop rendering work.
+
+L+X opens the trusted-certificate manager from the launcher in the full-client build.
 
 ## Integrated FreeRDP + OpenSSL client (ARM11 build verified)
 

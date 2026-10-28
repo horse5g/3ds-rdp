@@ -2,6 +2,8 @@
 #include "cert_pin.h"
 #include "cert_pool.h"
 #include "cert_store.h"
+#include "session_pad.h"
+#include "session_zoom.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -293,34 +295,46 @@ static BOOL end_paint(rdpContext *context)
 
 /* Full GDI surface copy only when a paint has occurred. The 3DS uses two
  * framebuffers; swapping on idle iterations otherwise exposes stale frames. */
-static BOOL copy_desktop_frame(rdpContext *context)
+static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
+                               int pointer_x, int pointer_y)
 {
     rdpGdi *gdi;
-    u16 fb_width = 0, fb_height = 0;
+    u16 fb_width=0, fb_height=0;
     u8 *frame;
-    int x, y, width, height;
+    SessionZoomView view;
+    int x,y;
+    int sample_y[RDP_H];
+    int32_t step_x,step_y;
 
-    if (!context || !(gdi = context->gdi) || !gdi->primary_buffer ||
-        gdi->width <= 0 || gdi->height <= 0)
-        return FALSE;
-    width = gdi->width < RDP_W ? gdi->width : RDP_W;
-    height = gdi->height < RDP_H ? gdi->height : RDP_H;
-    if (gdi->stride < (size_t)width * 4 ||
+    if (!context || !(gdi=context->gdi) || !gdi->primary_buffer ||
+        gdi->width < RDP_W || gdi->height < RDP_H ||
+        gdi->stride < (size_t)gdi->width * 4 ||
         gfxGetScreenFormat(GFX_TOP) != GSP_BGR8_OES)
         return FALSE;
 
-    frame = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, &fb_width, &fb_height);
-    if (!frame || fb_width < RDP_H || fb_height < RDP_W)
-        return FALSE;
-    for (x = 0; x < width; ++x) {
-        for (y = 0; y < height; ++y) {
-            const u8 *src = gdi->primary_buffer + (size_t)y * gdi->stride +
-                            (size_t)x * 4;
-            u8 *dst = frame + ((size_t)x * RDP_H + (RDP_H - 1 - y)) * 3;
-            /* XRGB32 is stored as B,G,R,X; GSP_BGR8 uses B,G,R bytes. */
-            dst[0] = src[0];
-            dst[1] = src[1];
-            dst[2] = src[2];
+    frame=gfxGetFramebuffer(GFX_TOP,GFX_LEFT,&fb_width,&fb_height);
+    if (!frame || fb_width < RDP_H || fb_height < RDP_W) return FALSE;
+
+    view=session_zoom_view(zoom,pointer_x,pointer_y,RDP_W,RDP_H);
+    step_x=view.width_q16/RDP_W;
+    step_y=view.height_q16/RDP_H;
+    /* Cache vertical source row lookup once per frame; on an O3DS this
+       avoids 400x repeating the expensive crop and bound arithmetic. */
+    for (y=0;y<RDP_H;++y) {
+        int sy=(int)((view.top_q16+(int64_t)y*step_y+32768)>>16);
+        if (sy < 0) sy=0;
+        if (sy >= gdi->height) sy=gdi->height-1;
+        sample_y[y]=sy;
+    }
+    for (x=0;x<RDP_W;++x) {
+        int sx=(int)((view.left_q16+(int64_t)x*step_x+32768)>>16);
+        if (sx < 0) sx=0;
+        if (sx >= gdi->width) sx=gdi->width-1;
+        for (y=0;y<RDP_H;++y) {
+            const u8 *src=gdi->primary_buffer+
+                     (size_t)sample_y[y]*gdi->stride+(size_t)sx*4;
+            u8 *dst=frame+((size_t)x*RDP_H+(RDP_H-1-y))*3;
+            dst[0]=src[0]; dst[1]=src[1]; dst[2]=src[2];
         }
     }
     return TRUE;
@@ -393,8 +407,11 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     char password[128] = {0};
     bool initialized = false;
     bool connected = false;
-    bool mouse_down = false;
-    u16 last_x = RDP_W / 2, last_y = RDP_H / 2;
+    bool left_down = false;
+    bool right_down = false;
+    bool pad_redraw = true;
+    SessionPad pad;
+    SessionZoom zoom;
     int result = -1;
 
     if (!cfg || !cfg->host[0] || !reason || !reason_size)
@@ -476,6 +493,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         goto done;
     }
     connected = true;
+    session_pad_init(&pad);
+    session_zoom_init(&zoom);
     snprintf(reason, reason_size, "Session ended");
     result = 0;
 
@@ -483,33 +502,101 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         HANDLE handles[RDP_MAX_EVENTS];
         DWORD count, wait_status;
         u32 down, held, up;
+        PadActions action;
         touchPosition touch;
+        circlePosition circle;
         rdpInput *input = client->context->input;
+        int tick;
+
         hidScanInput();
         down = hidKeysDown();
-        up = hidKeysUp();
         held = hidKeysHeld();
-        if (down & (KEY_B | KEY_START))
-            break;
-        if ((down & KEY_X) && input)
-            send_text(input);
-        if ((held & KEY_TOUCH) && input) {
+        up = hidKeysUp();
+        hidCircleRead(&circle);
+        /* Hold L and rotate the Circle Pad. Clockwise increases magnification,
+           counterclockwise reduces it. No mouse wheel or RDP size changes. */
+        if (session_zoom_update(&zoom,(held & KEY_L)!=0,
+                                circle.dx,circle.dy))
+            pad_redraw=true;
+
+        if (held & KEY_TOUCH) {
             hidTouchRead(&touch);
-            last_x = (u16)((unsigned)touch.px * RDP_W / 320);
-            last_y = (u16)touch.py;
-            if (last_x >= RDP_W) last_x = RDP_W - 1;
-            if (last_y >= RDP_H) last_y = RDP_H - 1;
-            (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_MOVE, last_x, last_y);
+            session_pad_update(&pad, true, (int)touch.px, (int)touch.py, &action);
+        } else {
+            session_pad_update(&pad, false, -1, -1, &action);
         }
-        if ((down & KEY_A) && input) {
-            (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1 | PTR_FLAGS_DOWN,
-                                                 last_x, last_y);
-            mouse_down = true;
+        if (action.redraw) pad_redraw = true;
+        if (action.pointer_moved && zoom.visible > 1.001f)
+            pad_redraw=true; /* keep viewport tracking the remote cursor */
+        if (action.disconnect || (down & KEY_START)) {
+            snprintf(reason, reason_size, "Disconnected by user");
+            break;
         }
-        if ((up & KEY_A) && mouse_down && input) {
-            (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1, last_x, last_y);
-            mouse_down = false;
+
+        /* Software keyboard is transient, not a permanent overlay. It never
+         * stores entered text and the pad layout returns after dismissal. */
+        if (down & KEY_X || action.keyboard) {
+            if (input) send_text(input);
+            pad_redraw = true;
         }
+
+        if (input) {
+            if (action.pointer_moved) {
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_MOVE,
+                         (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+            }
+
+            /* Physical A can be held for dragging over the touchpad.
+             * Physical B is right-click (START or toolbar disconnects). */
+            if (down & KEY_A) {
+                (void)freerdp_input_send_mouse_event(input,
+                        PTR_FLAGS_BUTTON1 | PTR_FLAGS_DOWN,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                left_down = true;
+            }
+            if ((up & KEY_A) && left_down) {
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                left_down = false;
+            }
+            if (down & KEY_B) {
+                (void)freerdp_input_send_mouse_event(input,
+                        PTR_FLAGS_BUTTON2 | PTR_FLAGS_DOWN,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                right_down = true;
+            }
+            if ((up & KEY_B) && right_down) {
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON2,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                right_down = false;
+            }
+
+            if (action.left_click && !left_down) {
+                (void)freerdp_input_send_mouse_event(input,
+                        PTR_FLAGS_BUTTON1 | PTR_FLAGS_DOWN,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+            }
+            if (action.right_click && !right_down) {
+                (void)freerdp_input_send_mouse_event(input,
+                        PTR_FLAGS_BUTTON2 | PTR_FLAGS_DOWN,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON2,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+            }
+
+            /* RDP wheel rotation uses 9-bit signed notation: 120 up,
+             * 0x100 | (0x100-120) down. Never combine MOVE with WHEEL. */
+            for (tick = 0; tick < abs(action.wheel_notches); ++tick) {
+                const UINT16 flags = (UINT16)(PTR_FLAGS_WHEEL |
+                    (action.wheel_notches > 0 ? 120 :
+                     (PTR_FLAGS_WHEEL_NEGATIVE | (0x100 - 120))));
+                (void)freerdp_input_send_mouse_event(input, flags,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+            }
+        }
+
         count = freerdp_get_event_handles(client->context, handles, RDP_MAX_EVENTS);
         if (!count || count > RDP_MAX_EVENTS) {
             snprintf(reason, reason_size, "FreeRDP event handles unavailable");
@@ -522,19 +609,33 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
             result = -1;
             break;
         }
-        if (desktop_dirty) {
-            if (!copy_desktop_frame(client->context)) {
+        if (desktop_dirty || pad_redraw) {
+            /* gfxSwapBuffers swaps BOTH screens. Always redraw the current
+             * GDI desktop into the new top backbuffer when the bottom pad
+             * changes, otherwise the previous top console can reappear. */
+            if (!copy_desktop_frame(client->context,&zoom,pad.pointer_x,pad.pointer_y)) {
                 snprintf(reason, reason_size, "Invalid GDI or top-screen framebuffer");
                 result = -1;
                 break;
             }
+            session_pad_draw(&pad,session_zoom_percent(&zoom));
             gfxFlushBuffers();
             gfxSwapBuffers();
             desktop_dirty = false;
+            pad_redraw = false;
         }
         gspWaitForVBlank();
     }
 done:
+    if (connected && client && client->context && client->context->input) {
+        rdpInput *input = client->context->input;
+        if (left_down)
+            (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1,
+                      (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+        if (right_down)
+            (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON2,
+                      (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+    }
     OPENSSL_cleanse(password, sizeof(password));
     if (connected)
         freerdp_disconnect(client);
