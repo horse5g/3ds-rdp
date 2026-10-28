@@ -23,6 +23,12 @@ correctness analysis), shared libraries, modules/DSOs, engines, apps and tests.
 It **does not** disable threading, TLS, certificate validation or
 cryptographic algorithms simply to make the build pass.
 
+The first independent CI builds reached real OpenSSL BIO compilation and uncovered
+missing libctru network include paths, unavailable IPv6 structures, and Unix-only
+service-name, keepalive and syslog APIs. Small scoped adjustments address these
+compile-time dependencies. These are not successful TLS runtime tests; inspect
+the latest OpenSSL ARM11 workflow for remaining failures.
+
 Platform compatibility measures:
 - libctru's `netdb.h` and SOC networking headers are added to the compile
   include path.
@@ -35,6 +41,8 @@ Platform compatibility measures:
   excluded; the available libctru `getaddrinfo` path is retained. Numeric
   TCP ports such as 3389 are the supported use case. DNS and socket behavior
   must still be validated on physical hardware.
+- Socket keepalive requests fail explicitly if libctru lacks `SO_KEEPALIVE`;
+  OpenSSL's Unix syslog BIO is excluded as Horizon provides no `syslog.h`.
 
 CI output must be inspected for actual library build results; the existing
 FreeRDP feasibility workflow deliberately treats the FreeRDP build as
