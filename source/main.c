@@ -87,7 +87,7 @@ int main(int argc, char **argv)
     int netok = 0;
     (void)argc; (void)argv;
     gfxInitDefault();
-    gfxSetScreenFormat(GFX_BOTTOM,GSP_BGR8);
+    gfxSetScreenFormat(GFX_BOTTOM,GSP_RGB565_OES);
     consoleInit(GFX_TOP,&top);
     buffer = memalign(0x1000,SOC_SIZE);
     if (buffer && R_SUCCEEDED(socInit(buffer,SOC_SIZE))) netok=1;
