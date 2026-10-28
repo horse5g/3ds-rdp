@@ -41,6 +41,28 @@ static void select_profile(ConnectionUI *ui, int index)
     reset_pending(ui);
     tell(ui, "Saved connection loaded");
 }
+/* Allow Windows-style DOMAIN\user as well as a separate Domain field.
+ * Reuse the actual parser so editing and SD loading follow identical rules. */
+static bool normalize_username(ConnectionUI *ui, const char *input)
+{
+    char text[512], error[96];
+    RdpConfig parsed;
+    int n = snprintf(text,sizeof(text),"host=rdp.local\n%s%s%s%s%s%s",
+                     input[0] ? "username=" : "", input,
+                     input[0] ? "\n" : "",
+                     ui->current.domain[0] ? "domain=" : "",
+                     ui->current.domain,
+                     ui->current.domain[0] ? "\n" : "");
+    if (n < 0 || (size_t)n >= sizeof(text) ||
+        rdp_config_parse(text,&parsed,error,sizeof(error))) {
+        tell(ui,n < 0 || (size_t)n >= sizeof(text) ?
+             "User name too long" : error);
+        return false;
+    }
+    snprintf(ui->current.username,sizeof(ui->current.username),"%s",parsed.username);
+    snprintf(ui->current.domain,sizeof(ui->current.domain),"%s",parsed.domain);
+    return true;
+}
 static bool edit_field(ConnectionUI *ui, int field)
 {
     char buffer[256] = {0}, hint[60];
@@ -78,7 +100,9 @@ static bool edit_field(ConnectionUI *ui, int field)
         if (strlen(buffer) >= cap) {
             tell(ui, "Text is too long"); return false;
         }
-        snprintf(target, cap, "%s", buffer);
+        if (field == F_USER) {
+            if (!normalize_username(ui,buffer)) return false;
+        } else snprintf(target, cap, "%s", buffer);
     }
     ui->focus = field;
     ui->dirty = true;
