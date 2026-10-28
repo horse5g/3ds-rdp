@@ -48,6 +48,7 @@ cmake -S "$src" -B "$build" \
   -DMBEDTLS_LIBRARY="$portlibs/lib/libmbedtls.a" \
   -DMBEDCRYPTO_LIBRARY="$portlibs/lib/libmbedcrypto.a" \
   -DMBEDX509_LIBRARY="$portlibs/lib/libmbedx509.a" \
+  -DWITH_UNICODE_BUILTIN=ON \
   -DWITH_WINPR_TOOLS=OFF \
   -DWITH_CLIENT=OFF \
   -DWITH_CLIENT_COMMON=OFF \
