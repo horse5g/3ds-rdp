@@ -69,8 +69,13 @@ static void draw(void) {
 #endif
     printf("User: %.30s\n",config.username[0]?config.username:"(not set)");
     printf("AD domain: %.27s\n",config.domain[0]?config.domain:"(not set)");
+#ifdef RDP_FULL_CLIENT
+    printf("\nR: NLA (experimental), pinned TLS\n");
+    printf("Password prompted, never saved.\n");
+#else
     printf("\nAuthentication not enabled.\n");
     printf("No passwords saved or sent.\n");
+#endif
 }
 
 int main(int argc,char **argv) {
