@@ -9,6 +9,7 @@
 #include "horizon_sync.h"
 #include "loopback_pair.h"
 #include "horizon_rng.h"
+#include "freerdp_session.h"
 
 #define HOST_FILE "sdmc:/3ds/3ds-rdp/host.txt"
 #define SOC_SIZE (1024*1024)
@@ -56,9 +57,16 @@ static void draw(void) {
     printf("Host: %.38s\nPort: %u\n\n",configured?config.host:"NOT CONFIGURED",
            (unsigned)(configured?config.port:3389));
     printf("Status: %.38s\nDetail: %.38s\n\n",status,detail);
+#ifdef RDP_FULL_CLIENT
+    printf("R: Experimental full FreeRDP session\\n");
+#else
     printf("Negotiation probe only.\nNo login or desktop yet.\n");
+#endif
     consoleSelect(&bottom);
     printf("\x1b[2J\x1b[H A: Connect/probe\n B: Kernel event test\n Y: SOC loopback test\n SELECT: PS entropy test\n X: Reload host.txt\n START: Exit\n\n");
+#ifdef RDP_FULL_CLIENT
+    printf(" R: FreeRDP session (unverified)\\n");
+#endif
     printf("User: %.30s\n",config.username[0]?config.username:"(not set)");
     printf("AD domain: %.27s\n",config.domain[0]?config.domain:"(not set)");
     printf("\nAuthentication not enabled.\n");
@@ -107,6 +115,24 @@ int main(int argc,char **argv) {
             snprintf(detail, sizeof(detail), "%s", result);
             draw();
         }
+#ifdef RDP_FULL_CLIENT
+        if(keys&KEY_R) {
+            char session_result[100] = {0};
+            if (!netok || !configured) {
+                snprintf(status,sizeof(status),"Not ready");
+                snprintf(detail,sizeof(detail),"Check network and host.txt");
+            } else {
+                snprintf(status,sizeof(status),"Experimental FreeRDP...");
+                snprintf(detail,sizeof(detail),"B: Cancel  X: Type  A: Click");
+                draw();
+                gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
+                const int rc=freerdp_3ds_run(&config,session_result,sizeof(session_result));
+                snprintf(status,sizeof(status),"%s",rc == 0 ? "RDP session exited" : "RDP session error");
+                snprintf(detail,sizeof(detail),"%s",session_result);
+            }
+            draw();
+        }
+#endif
         if(keys&KEY_A) {
             if(!netok || !configured) {
                 snprintf(status,sizeof(status),"Not ready");
