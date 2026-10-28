@@ -19,7 +19,7 @@ if [[ "$mode" != build && "$mode" != configure ]]; then
   exit 2
 fi
 
-for cmd in git perl make cmp; do
+for cmd in git perl make cmp patch; do
   command -v "$cmd" >/dev/null || { echo "Missing $cmd" >&2; exit 2; }
 done
 for exe in gcc ar ranlib; do
@@ -47,6 +47,9 @@ if [[ "$src" == "$root/external/openssl" ]]; then
     exit 2
   fi
   cp "$root/cmake/openssl-3ds.conf" "$dest"
+  if ! grep -q 'Horizon SOC socket descriptors require recv/send' "$src/include/internal/sockets.h"; then
+    patch -d "$src" -p1 < "$root/patches/openssl-3.5.9-3ds-sockets.patch"
+  fi
 elif [[ ! -f "$src/Configurations/15-3ds.conf" ]]; then
   echo "Custom OPENSSL_SOURCE requires its own 3ds-armv6k target config" >&2
   exit 2
