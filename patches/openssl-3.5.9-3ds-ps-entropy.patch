@@ -86,8 +86,10 @@ diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/imp
 +#else /* !__3DS__ */
  #ifndef _GNU_SOURCE
  #define _GNU_SOURCE
-@@ -802,3 +882,4 @@
+@@ -799,5 +879,6 @@
+     return time(NULL);
+ }
+ 
  #endif /* (defined(OPENSSL_SYS_UNIX) && !defined(OPENSSL_SYS_VXWORKS)) \
            || defined(__DJGPP__) */
- 
 +#endif /* __3DS__ */
