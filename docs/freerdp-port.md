@@ -55,6 +55,20 @@ Portability issues identified and handled so far:
 
 Use the [experimental ARM11 CI workflow](https://github.com/horse5g/3ds-rdp/actions/workflows/freerdp-port.yml) to inspect the *Configure / compile FreeRDP* step and uploaded logs. The step is non-blocking in the draft PR, so a green overall workflow does **not** mean a successful port. `scripts/check-patches.py` now validates patch hunk syntax as part of the fast host CI checks.
 
+## Next architectural blocker: WinPR pipe/event backend
+
+After the module exclusions above, the next ARM11 compiler error is:
+
+```text
+winpr/libwinpr/pipe/pipe.c:42:10: fatal error: sys/un.h: No such file or directory
+```
+
+This is **not another harmless header omission**: WinPR `pipe.c` implements both anonymous WinPR pipes (which are used by events and waits) and named pipes (which require AF_UNIX and descriptor duplication). Horizon/libctru has no Unix-domain sockets, and its socket file descriptors do not automatically share POSIX `read`/`write` semantics. We must not add fake `sockaddr_un` or `AF_UNIX` definitions to force the compiler through.
+
+The next substantive porting task is an honest 3DS-specific synchronization/pipe implementation. Candidate design: use libctru/3DS kernel events for synchronization, with a separate socket wait strategy for SOC sockets; adapt WinPR's event, wait and pollset layers to avoid assuming everything is a Unix file descriptor. Disable unsupported named pipes and serial endpoints explicitly, and test wait wakeups, cancellation, timeouts and cleanup on real O3DS. Timers require a native implementation as well. Only then is there value in attempting an integrated FreeRDP client or CredSSP authentication.
+
+The compilation pipeline has reached WinPR's core pipe subsystem, but no end-to-end WinPR library link, remote session, or runtime synchronization behavior has been verified.
+
 ## Domains and DNS names
 
 The homebrew configuration parser now accepts `host=rdp01.corp.example.com`, `domain=CORP`, and `username=alice` as future FreeRDP connection settings, along with `CORP\\alice` and `alice@corp.example.com` account formats. Hostname resolution for the **negotiation probe** uses the real libctru `getaddrinfo()` implementation (IPv4). The username/domain are not yet passed to FreeRDP or Windows; there is **no login**.
