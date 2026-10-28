@@ -1,0 +1,70 @@
+diff --git a/winpr/libwinpr/file/file.c b/winpr/libwinpr/file/file.c
+--- a/winpr/libwinpr/file/file.c
++++ b/winpr/libwinpr/file/file.c
+@@ -498,6 +498,10 @@
+ 		return FALSE;
+ 	}
+-#else
+-	if (dwFlags & LOCKFILE_EXCLUSIVE_LOCK)
++#elif defined(__3DS__)
++	/* Horizon does not provide POSIX advisory file locks. */
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return FALSE;
++#else
++	if (dwFlags & LOCKFILE_EXCLUSIVE_LOCK)
+ 		lock = LOCK_EX;
+ 	else
+@@ -543,7 +547,10 @@
+ 		return log_error("F_GETLK", pFile);
+ 
+-#else
+-	if (flock(fileno(pFile->fp), LOCK_UN) < 0)
+-		return log_error("flock", pFile);
++#elif defined(__3DS__)
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return FALSE;
++#else
++	if (flock(fileno(pFile->fp), LOCK_UN) < 0)
++		return log_error("flock", pFile);
+ #endif
+ 
+@@ -584,7 +591,10 @@
+ 	if (fcntl(fileno(pFile->fp), F_GETLK, &lock) == -1)
+ 		return log_error("F_GETLK", pFile);
+-#else
+-	if (flock(fileno(pFile->fp), LOCK_UN) < 0)
+-		return log_error("flock", pFile);
++#elif defined(__3DS__)
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return FALSE;
++#else
++	if (flock(fileno(pFile->fp), LOCK_UN) < 0)
++		return log_error("flock", pFile);
+ #endif
+ 
+@@ -1005,7 +1015,14 @@
+ #endif
+ 
+-	if (dwShareMode & (FILE_SHARE_READ | FILE_SHARE_WRITE))
+-	{
+-#ifdef __sun
++	if (dwShareMode & (FILE_SHARE_READ | FILE_SHARE_WRITE))
++	{
++#ifdef __3DS__
++		/* Do not falsely claim Unix sharing/locking semantics on FAT. */
++		SetLastError(ERROR_NOT_SUPPORTED);
++		FileCloseHandle(pFile);
++		free(pFile);
++		return INVALID_HANDLE_VALUE;
++#else
++#ifdef __sun
+ 		if (fcntl(fileno(pFile->fp), F_SETLKW, &lock) == -1)
+ #else
+@@ -1025,5 +1042,6 @@
+ 		}
+ 
+-		pFile->bLocked = TRUE;
++		pFile->bLocked = TRUE;
++#endif
+ 	}
+ 
