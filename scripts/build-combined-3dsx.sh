@@ -16,4 +16,4 @@ done
 make -C "$root" -j"${JOBS:-2}" \
   BUILD=build-full TARGET=3ds-rdp-full RDP_FULL_CLIENT=1
 test -s "$root/3ds-rdp-full.3dsx"
-echo "Built 3ds-rdp-full.3dsx (not hardware tested; TLS trust not configured)"
+echo "Built 3ds-rdp-full.3dsx (not hardware tested; manual cert-pin.txt required)"
