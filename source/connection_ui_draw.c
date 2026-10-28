@@ -84,7 +84,7 @@ static void fill(int x, int y, int w, int h, uint32_t color)
     if (w <= 0 || h <= 0 || !fb) return;
     for (i=x; i<x+w; ++i) {
         uint16_t *p = fb + (size_t)i*UI_H + (UI_H-1-y);
-        for (j=0; j<h; ++j) *p-- = c;
+        for (j=0; j<h; ++j) p[-j] = c;
     }
 }
 static void outline(int x, int y, int w, int h, uint32_t color)
