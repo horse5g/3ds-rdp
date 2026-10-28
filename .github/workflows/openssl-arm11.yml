@@ -33,6 +33,9 @@ jobs:
       - name: Link native SSL_CTX and X.509 symbols (informational)
         continue-on-error: true
         run: bash scripts/link-openssl-3ds.sh
+      - name: Build standalone OpenSSL PS RNG smoke-test 3DSX
+        continue-on-error: true
+        run: bash scripts/link-openssl-3ds.sh runtime
       - uses: actions/upload-artifact@v4
         if: success()
         with:
@@ -40,4 +43,5 @@ jobs:
           path: |
             build/openssl-3ds/libcrypto.a
             build/openssl-3ds/libssl.a
+            build/openssl-3ds/openssl-rng-smoke.3dsx
           if-no-files-found: error
