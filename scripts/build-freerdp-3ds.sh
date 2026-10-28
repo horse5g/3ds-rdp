@@ -23,6 +23,15 @@ if [[ ! -f "$src/CMakeLists.txt" ]]; then
   mkdir -p "$(dirname "$src")"
   git clone --depth 1 --branch "$freerdp_version" https://github.com/FreeRDP/FreeRDP.git "$src"
 fi
+# Apply a narrow build-system-only patch to our ignored, tagged checkout.
+# Never silently alter a custom FREERDP_SOURCE checkout.
+if [[ "$src" == "$root/external/FreeRDP" ]]; then
+  if ! grep -q '3DS RDP port: allow a toolchain' "$src/CMakeLists.txt"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-mbedtls-only.patch"
+  fi
+else
+  echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
+fi
 mkdir -p "$build"
 cmake -S "$src" -B "$build" \
   -DCMAKE_TOOLCHAIN_FILE="$root/cmake/3ds-armv6k.cmake" \
