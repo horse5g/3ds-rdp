@@ -67,15 +67,7 @@ static void draw(void) {
 #endif
     consoleSelect(&bottom);
     connection_ui_draw(&ui);
-    return;
-    printf("\x1b[2J\x1b[H A: Connect/probe\n B: Kernel event test\n Y: SOC loopback test\n SELECT: PS entropy test\n X: Reload host.txt\n START: Exit\n\n");
-#ifdef RDP_FULL_CLIENT
-    printf(" R: FreeRDP session (unverified)\n");
-#endif
-    printf("User: %.30s\n",config.username[0]?config.username:"(not set)");
-    printf("AD domain: %.27s\n",config.domain[0]?config.domain:"(not set)");
-    printf("\nAuthentication not enabled.\n");
-    printf("No passwords saved or sent.\n");
+
 }
 
 int main(int argc,char **argv) {
@@ -109,7 +101,7 @@ int main(int argc,char **argv) {
         connection_ui_key(&ui,keys,PROFILES_FILE);
         config=ui.current;
         { char validation[96]; configured=connection_ui_ready(&ui,validation,sizeof(validation)); }
-        if(keys&(KEY_X|KEY_L|KEY_Y|KEY_DUP|KEY_DDOWN|KEY_TOUCH|KEY_SELECT)) draw();
+        if(keys&(KEY_X|KEY_L|KEY_Y|KEY_DUP|KEY_DDOWN|KEY_TOUCH|KEY_SELECT|KEY_A)) draw();
         if(keys&KEY_B) {
             char result[96];
             bool passed = horizon_sync_selftest(result, sizeof(result));
