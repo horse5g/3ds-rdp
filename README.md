@@ -48,7 +48,15 @@ username=alice
 
 Legacy files containing only `192.168.1.100:3389` or `rdp01.corp.example.com` still work. Lines beginning with `#` or `;` are comments. Unknown settings, including `password=`, are rejected intentionally; **do not save passwords on the SD card**.
 
-Press **A** to send an RDP negotiation probe, **X** to reload `host.txt`, or **START** to exit. The bottom screen displays the parsed username and domain. Those fields are **not transmitted to Windows** in this milestone. Domain sign-in requires future FreeRDP + CredSSP/NLA integration (and Kerberos if domain policy requires it).
+Press **A** to send an RDP negotiation probe, **B** to run native Horizon kernel event tests, **X** to reload `host.txt`, or **START** to exit. The bottom screen displays the parsed username and domain. Those fields are **not transmitted to Windows** in this milestone. Domain sign-in requires future FreeRDP + CredSSP/NLA integration (and Kerberos if domain policy requires it).
+
+## Horizon synchronization prototype
+
+The app now includes a small kernel-event backend in `source/horizon_sync.c` (separate from FreeRDP) using the actual 3DS `svcCreateEvent`, `svcSignalEvent`, `svcClearEvent` and `svcWaitSynchronization` APIs. It supports sticky (manual-reset) and one-shot (auto-reset) kernel events, a nonblocking poll, bounded waits, and an infinite wait.
+
+Press **B** on your original 3DS to test unsignaled timeouts, auto-reset consumption, manual-reset persistence and clearing, plus cross-thread wakeup from a native libctru thread. Record the on-screen PASS/FAIL output. This is intended to establish real kernel-event behavior before connecting WinPR's event/wait layers to it.
+
+**It is not connected to WinPR yet.** Kernel handles are not POSIX file descriptors, so the existing WinPR `pollset` and socket wait code must be adapted separately. The FreeRDP cross-build still stops at its pipe/event implementation.
 
 ## FreeRDP / WinPR port investigation
 
