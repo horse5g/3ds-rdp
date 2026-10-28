@@ -8,7 +8,8 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-PATTERNS = sorted((ROOT / "patches").glob("freerdp-*.patch"))
+PATTERNS = sorted(list((ROOT / "patches").glob("freerdp-*.patch")) +
+                  list((ROOT / "patches").glob("openssl-*.patch")))
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 def validate(path: pathlib.Path) -> list[str]:
