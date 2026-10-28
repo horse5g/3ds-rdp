@@ -134,6 +134,14 @@ Following the corrected timeout classification and loopback bind diagnostics, th
 
 The user has not provided the detail line identifying whether the socket test used ephemeral port zero or the fixed-loopback-port fallback. Do not assume which succeeded. This does **not** establish WinPR event correctness under resource pressure, numerous simultaneous events, concurrent resets, or suspend/resume. No actual RDP session, TLS/CredSSP login, or desktop has been validated.
 
+## FreeRDP core build milestone and cryptography boundary (October 28, 2026)
+
+GitHub Actions now **successfully compiles the full WinPR static-library target** (`Built target winpr`) for ARMv6K, along with `freerdp-primitives` and `freerdp-codecs`. The Mbed TLS-only FreeRDP core remains incomplete. A run reached `libfreerdp/emu/scard/smartcard_virtual_gids.c` and failed on `openssl/x509.h`; optional smartcard emulation has since been disabled via `WITH_SMARTCARD_EMULATE=OFF`. The subsequent core failure was `libfreerdp/utils/passphrase.c` including `termios.h`; the 3DS build now uses the upstream fallback that returns no terminal passphrase rather than reading secrets without protected terminal echo. An interactive 3DS credential UI will need a separate secure implementation.
+
+**Security-critical dependency:** FreeRDP 3.32.2's `libfreerdp/crypto/certificate.c`, `crypto.c`, `tls.c`, and related headers are substantially OpenSSL-specific even with `WITH_MBEDTLS=ON`. Upstream explicitly describes Mbed TLS as experimental and warns about incompatibilities. We must not substitute fake OpenSSL declarations, ignore certificate verification, disable NLA, or claim that Mbed TLS is a drop-in replacement. The viable next investigation is either (a) a maintained, compatible static OpenSSL build for ARM11 and real native TLS/NLA, or (b) a carefully reviewed, complete Mbed TLS backend for FreeRDP's certificate/TLS abstraction. Both require substantial implementation and hardware security testing.
+
+The build script had an unreachable duplicate CMake invocation appended after the first block; this was removed. Fast host CI now runs `bash -n scripts/build-freerdp-3ds.sh` to check syntax as well as parser and patch-format tests. No FreeRDP/WinPR library is linked into the current `.3dsx` app yet, and domain sign-in remains configuration metadata only.
+
 ## Domains and DNS names
 
 The homebrew configuration parser now accepts `host=rdp01.corp.example.com`, `domain=CORP`, and `username=alice` as future FreeRDP connection settings, along with `CORP\\alice` and `alice@corp.example.com` account formats. Hostname resolution for the **negotiation probe** uses the real libctru `getaddrinfo()` implementation (IPv4). The username/domain are not yet passed to FreeRDP or Windows; there is **no login**.
