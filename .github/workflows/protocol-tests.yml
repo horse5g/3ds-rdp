@@ -13,4 +13,6 @@ jobs:
         run: python3 scripts/check-patches.py
 
       - name: Validate experimental build script syntax
-        run: bash -n scripts/build-freerdp-3ds.sh
+        run: |
+          bash -n scripts/build-freerdp-3ds.sh
+          bash -n scripts/build-openssl-3ds.sh
