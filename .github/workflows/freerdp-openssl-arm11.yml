@@ -147,3 +147,15 @@ jobs:
             3ds-rdp-full.3dsx
             3ds-rdp-full.elf
             3ds-rdp-full.map
+      - name: Require completed full integration for a green workflow
+        if: always()
+        shell: bash
+        run: |
+          echo "FreeRDP core: ${{ steps.freerdp.outcome }}"
+          echo "Full-client syntax: ${{ steps.fullsyntax.outcome }}"
+          echo "Combined ARM11 link: ${{ steps.combined.outcome }}"
+          echo "Integrated 3DSX: ${{ steps.fullapp.outcome }}"
+          test "${{ steps.freerdp.outcome }}" = success
+          test "${{ steps.fullsyntax.outcome }}" = success
+          test "${{ steps.combined.outcome }}" = success
+          test "${{ steps.fullapp.outcome }}" = success
