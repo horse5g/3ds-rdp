@@ -35,6 +35,38 @@ int main(void)
     assert(loaded.count == 1 && strcmp(loaded.items[0].name, "office") == 0);
     assert(strcmp(loaded.items[0].config.host, cfg.host) == 0);
     assert(strcmp(loaded.items[0].config.domain, "CORP") == 0);
+    /* Stale transaction sidecars must never be overwritten or deleted. */
+    {
+        FILE *side = fopen("test-profiles.tmp.bak", "wb");
+        assert(side);
+        assert(fputs("Important previous backup\n", side) >= 0);
+        assert(fclose(side) == 0);
+        assert(rdp_profiles_save(file, &store, error, sizeof(error)) < 0);
+        assert(rdp_profiles_load(file, &loaded, error, sizeof(error)) == 0);
+        assert(remove("test-profiles.tmp.bak") == 0);
+        side = fopen("test-profiles.tmp.tmp", "wb");
+        assert(side);
+        assert(fputs("Interrupted old save\n", side) >= 0);
+        assert(fclose(side) == 0);
+        assert(rdp_profiles_save(file, &store, error, sizeof(error)) < 0);
+        assert(remove("test-profiles.tmp.tmp") == 0);
+    }
+    /* Refuse to destroy a malformed primary even without a backup. */
+    {
+        const char *guard = "test-profiles-corrupt.tmp";
+        FILE *bad = fopen(guard, "wb");
+        assert(bad);
+        assert(fputs("INVALID FILE\n", bad) >= 0);
+        assert(fclose(bad) == 0);
+        assert(rdp_profiles_save(guard, &store, error, sizeof(error)) < 0);
+        bad = fopen(guard, "rb");
+        assert(bad);
+        char line[40] = {0};
+        assert(fgets(line, sizeof(line), bad));
+        assert(strcmp(line, "INVALID FILE\n") == 0);
+        assert(fclose(bad) == 0);
+        assert(remove(guard) == 0);
+    }
     assert(rename(file, "test-profiles.tmp.bak") == 0);
     {
         FILE *broken = fopen(file, "wb");
