@@ -1,0 +1,43 @@
+diff --git a/winpr/libwinpr/thread/thread.c b/winpr/libwinpr/thread/thread.c
+--- a/winpr/libwinpr/thread/thread.c
++++ b/winpr/libwinpr/thread/thread.c
+@@ -659,18 +659,23 @@
+ 	}
+-#if defined(_POSIX_C_SOURCE) && (_POSIX_C_SOURCE >= 200809L) && defined(PTHREAD_SETSCHEDPRIO)
+-	WINPR_THREAD* thread = (WINPR_THREAD*)Object;
+-	const int rc = pthread_setschedprio(thread->thread, sched_priority);
+-	if (rc != 0)
+-	{
+-		char buffer[256] = WINPR_C_ARRAY_INIT;
+-		WLog_ERR(TAG, "pthread_setschedprio(%d) %s [%d]", sched_priority,
+-		         winpr_strerror(rc, buffer, sizeof(buffer)), rc);
+-	}
+-	return rc == 0;
+-#else
+-	WLog_WARN(TAG, "pthread_setschedprio(%d) not implemented, requires POSIX 2008 or later",
+-	          sched_priority);
+-	return TRUE;
+-#endif
+-}
++#if !defined(__3DS__) && defined(_POSIX_C_SOURCE) && (_POSIX_C_SOURCE >= 200809L) && defined(PTHREAD_SETSCHEDPRIO)
++	WINPR_THREAD* thread = (WINPR_THREAD*)Object;
++	const int rc = pthread_setschedprio(thread->thread, sched_priority);
++	if (rc != 0)
++	{
++		char buffer[256] = WINPR_C_ARRAY_INIT;
++		WLog_ERR(TAG, "pthread_setschedprio(%d) %s [%d]", sched_priority,
++		         winpr_strerror(rc, buffer, sizeof(buffer)), rc);
++	}
++	return rc == 0;
++#else
++	WLog_WARN(TAG, "pthread_setschedprio(%d) not implemented, requires POSIX 2008 or later",
++	          sched_priority);
++#ifdef __3DS__
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return FALSE;
++#else
++	return TRUE;
++#endif
++#endif
++}
+ 
