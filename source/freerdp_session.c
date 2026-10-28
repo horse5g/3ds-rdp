@@ -555,6 +555,19 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         /* Software keyboard is transient, not a permanent overlay. It never
          * stores entered text and the pad layout returns after dismissal. */
         if (down & KEY_X || action.keyboard) {
+            /* The software keyboard takes over HID until it closes. Release
+               held remote buttons first or a drag can remain stuck while
+               HID key-up events are consumed by the keyboard applet. */
+            if (input && left_down) {
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                left_down = false;
+            }
+            if (input && right_down) {
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON2,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                right_down = false;
+            }
             if (input) send_text(input);
             pad_redraw = true;
         }
