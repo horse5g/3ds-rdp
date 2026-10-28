@@ -6,6 +6,7 @@
 #include <string.h>
 #include "config.h"
 #include "network.h"
+#include "horizon_sync.h"
 
 #define HOST_FILE "sdmc:/3ds/3ds-rdp/host.txt"
 #define SOC_SIZE (1024*1024)
@@ -83,6 +84,13 @@ int main(int argc,char **argv) {
         keys=hidKeysDown();
         if(keys&KEY_START) break;
         if(keys&KEY_X) {load_host();draw();}
+        if(keys&KEY_B) {
+            char result[96];
+            bool passed = horizon_sync_selftest(result, sizeof(result));
+            snprintf(status, sizeof(status), passed ? "Kernel events PASS" : "Kernel events FAIL");
+            snprintf(detail, sizeof(detail), "%s", result);
+            draw();
+        }
         if(keys&KEY_A) {
             if(!netok || !configured) {
                 snprintf(status,sizeof(status),"Not ready");
