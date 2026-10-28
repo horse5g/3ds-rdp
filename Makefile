@@ -26,7 +26,7 @@ CFLAGS += -DRDP_FULL_CLIENT
 CFLAGS += -I$(FRROOT)/include -I$(FRROOT)/winpr/include
 CFLAGS += -I$(FRBUILD) -I$(FRBUILD)/include -I$(FRBUILD)/winpr -I$(FRBUILD)/winpr/include
 CFLAGS += -I$(SSLBUILD)/include -I$(SSLROOT)/include
-LIBDIRS += $(FRBUILD)/libfreerdp $(FRBUILD)/winpr/libwinpr $(SSLBUILD) $(DEVKITPRO)/portlibs/3ds
+LIBDIRS += $(DEVKITPRO)/portlibs/3ds
 LIBS := -Wl,--start-group -lfreerdp3 -lwinpr3 -lssl -lcrypto -lz -lctru -lm -Wl,--end-group
 endif
 export APP_TITLE := 3DS RDP Probe
@@ -41,6 +41,11 @@ CFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
 export OFILES := $(CFILES:.c=.o)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) $(foreach dir,$(LIBDIRS),-I$(dir)/include) -I$(CURDIR)/$(BUILD)
 export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+ifeq ($(RDP_FULL_CLIENT),1)
+# FreeRDP/OpenSSL CMake and Configure emit archives directly in these build dirs,
+# not their /lib subdirectories, unlike devkitPro portlibs.
+export LIBPATHS += -L$(FRBUILD)/libfreerdp -L$(FRBUILD)/winpr/libwinpr -L$(SSLBUILD)
+endif
 export LD := $(CC)
 export _3DSXDEPS := $(OUTPUT).smdh
 export _3DSXFLAGS += --smdh=$(OUTPUT).smdh
