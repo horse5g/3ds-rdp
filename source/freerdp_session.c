@@ -6,7 +6,6 @@
 #include "session_zoom.h"
 #include "rdp_pixels.h"
 #include "session_wait.h"
-#include <freerdp/error.h>
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -24,6 +23,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
  * changed certificates are always rejected until manually removed. */
 #include <3ds.h>
 #include <freerdp/freerdp.h>
+#include <freerdp/error.h>
 #include <freerdp/settings.h>
 #include <freerdp/gdi/gdi.h>
 #include <freerdp/update.h>
