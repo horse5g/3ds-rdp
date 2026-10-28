@@ -48,7 +48,7 @@ username=alice
 
 Legacy files containing only `192.168.1.100:3389` or `rdp01.corp.example.com` still work. Lines beginning with `#` or `;` are comments. Unknown settings, including `password=`, are rejected intentionally; **do not save passwords on the SD card**.
 
-Press **A** to send an RDP negotiation probe, **B** to run native Horizon kernel event tests, **X** to reload `host.txt`, or **START** to exit. The bottom screen displays the parsed username and domain. Those fields are **not transmitted to Windows** in this milestone. Domain sign-in requires future FreeRDP + CredSSP/NLA integration (and Kerberos if domain policy requires it).
+Press **A** to send an RDP negotiation probe, **B** to run native Horizon kernel event tests, **Y** to test the SOC loopback/select wakeup transport, **X** to reload `host.txt`, or **START** to exit. The bottom screen displays the parsed username and domain. Those fields are **not transmitted to Windows** in this milestone. Domain sign-in requires future FreeRDP + CredSSP/NLA integration (and Kerberos if domain policy requires it).
 
 ## Horizon synchronization prototype
 
@@ -57,6 +57,14 @@ The app now includes a small kernel-event backend in `source/horizon_sync.c` (se
 Press **B** on your original 3DS to test unsignaled timeouts, auto-reset consumption, manual-reset persistence and clearing, plus cross-thread wakeup from a native libctru thread. Record the on-screen PASS/FAIL output. This is intended to establish real kernel-event behavior before connecting WinPR's event/wait layers to it.
 
 **It is not connected to WinPR yet.** Kernel handles are not POSIX file descriptors, so the existing WinPR `pollset` and socket wait code must be adapted separately. The FreeRDP cross-build still stops at its pipe/event implementation.
+
+## Experimental WinPR socket-notification bridge
+
+The source now includes `loopback_pair.c`, a bounded IPv4 localhost TCP pair using libctru's SOC sockets. On original 3DS hardware, press **Y** to test local `bind`/`listen`/`connect`/`accept`, `select()` wakeups, `send()/recv()`, and cleanup. This test does not need an RDP server, but it requires successful `socInit()`. Failures report the stage and `errno`.
+
+A new **experimental upstream patch** changes WinPR's anonymous pipes and event-fd notifications to use these socket pairs, allowing the same SOC `select()` path to observe event notifications and TCP RDP socket readiness. Unix-domain named-pipe creation explicitly returns unsupported.
+
+**Resource and correctness warning:** 3DS SOC has a limited global socket budget; every emulated WinPR event consumes **two sockets**, and pair construction transiently consumes a third listening socket. The WinPR adapter is not yet authenticated, linked into the homebrew application, or tested on hardware. Repeated signaling, timeouts, auto-reset semantics, mixed waits, memory pressure, network initialization, and socket exhaustion need more work. This is a diagnostic porting strategy, not a finished RDP synchronization backend.
 
 ## FreeRDP / WinPR port investigation
 
