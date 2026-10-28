@@ -66,6 +66,14 @@ events; L+Y checks SOC loopback and L+SELECT checks PS entropy. START exits.
 Other tabs currently explain fixed settings and limitations; they are **not**
 working configuration switches.
 
+In a connected experimental FreeRDP session, the bottom screen becomes a
+relative **touchpad**, with scroll buttons / a drag-to-scroll strip on the
+right, on-screen left/right buttons, and a top toolbar for **Disconnect**,
+**Settings**, and **Keyboard**. Hold A and move a finger to drag, use B for
+right-click, and START as a disconnect shortcut. Settings adjusts sensitivity
+and wheel behavior for this session only. The top screen stays the remote
+desktop. See the in-session section of the UI documentation for details.
+
 See [Connection UI details](docs/connection-ui.md). This interface is a build
 milestone, **not** evidence that Windows login or desktop rendering work.
 
