@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          bash scripts/build-freerdp-3ds.sh '${{ inputs.phase }}' 2>&1 | tee freerdp-port.log
+          bash scripts/build-freerdp-3ds.sh '${{ inputs.phase || 'build' }}' 2>&1 | tee freerdp-port.log
       - name: Report upstream port result
         if: always()
         shell: bash
