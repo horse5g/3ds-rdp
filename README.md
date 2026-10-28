@@ -72,7 +72,10 @@ right, on-screen left/right buttons, and a top toolbar for **Disconnect**,
 **Settings**, and **Keyboard**. Hold A and move a finger to drag, use B for
 right-click, and START as a disconnect shortcut. Settings adjusts sensitivity
 and wheel behavior for this session only. The top screen stays the remote
-desktop. See the in-session section of the UI documentation for details.
+desktop. Hold **L** and rotate the Circle Pad clockwise to zoom into the
+mouse pointer or counterclockwise to zoom back out (100%-300% local zoom,
+smoothly interpolated, without altering RDP resolution). See the in-session
+section of the UI documentation for details.
 
 See [Connection UI details](docs/connection-ui.md). This interface is a build
 milestone, **not** evidence that Windows login or desktop rendering work.
