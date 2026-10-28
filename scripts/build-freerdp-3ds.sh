@@ -71,6 +71,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'The target has no matching errno' "$src/winpr/libwinpr/winsock/winsock.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-winsock-compat.patch"
   fi
+  if ! grep -q 'devkitARM newlib does not provide POSIX getline' "$src/winpr/libwinpr/crt/string.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-getline.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
