@@ -1,7 +1,7 @@
 diff --git a/winpr/include/winpr/winsock.h b/winpr/include/winpr/winsock.h
 --- a/winpr/include/winpr/winsock.h
 +++ b/winpr/include/winpr/winsock.h
-@@ -100,3 +100,7 @@
+@@ -100,3 +100,8 @@
  
 +#ifdef __3DS__
 +/* libctru socket handles are signed ints (see sys/socket.h). */
@@ -10,7 +10,7 @@ diff --git a/winpr/include/winpr/winsock.h b/winpr/include/winpr/winsock.h
  typedef UINT_PTR SOCKET;
 +#endif
  typedef struct sockaddr_storage SOCKADDR_STORAGE;
-@@ -172,3 +176,7 @@
+@@ -172,3 +177,7 @@
  #endif
  
 +#ifdef __3DS__
