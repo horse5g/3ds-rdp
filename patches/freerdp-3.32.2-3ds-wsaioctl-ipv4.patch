@@ -57,7 +57,7 @@ diff --git a/winpr/libwinpr/winsock/winsock.c b/winpr/libwinpr/winsock/winsock.c
 -	*lpcbBytesReturned = (DWORD)(numInterfaces * sizeof(INTERFACE_INFO));
 -	return 0;
 -}
-+ 	*lpcbBytesReturned = (DWORD)(numInterfaces * sizeof(INTERFACE_INFO));
++	*lpcbBytesReturned = (DWORD)(numInterfaces * sizeof(INTERFACE_INFO));
 +	return 0;
 +#endif
 +}
