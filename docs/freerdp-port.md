@@ -97,6 +97,10 @@ This is deliberately **not a complete native event implementation**. Future hard
 
 Newlib's `struct tm` on devkitARM lacks the nonstandard `tm_gmtoff` and `tm_zone` fields that FreeRDP 3.32.2 normally uses. The `freerdp-3.32.2-3ds-portable-timezone.patch` computes the current UTC offset from standard `mktime` / `gmtime_r` / `difftime` and uses `strftime("%Z")` for the timezone abbreviation, instead of pretending the device is always UTC. This remains dependent on correct device time and timezone configuration, and daylight-saving edge cases need hardware verification. The patch does not affect TLS validation or CredSSP.
 
+### Thread priority portability
+
+After the timezone fix, the ARM11 compiler reached `winpr/libwinpr/thread/thread.c` and found `pthread_setschedprio()`, another POSIX scheduling function not supplied by devkitARM. A 3DS-specific conditional now avoids calling it; unlike WinPR's existing generic fallback, the 3DS path returns `ERROR_CALL_NOT_IMPLEMENTED` and `FALSE` so caller code does not assume the thread priority changed. This is not a substitute for a tested `svcSetThreadPriority` adapter.
+
 ## Domains and DNS names
 
 The homebrew configuration parser now accepts `host=rdp01.corp.example.com`, `domain=CORP`, and `username=alice` as future FreeRDP connection settings, along with `CORP\\alice` and `alice@corp.example.com` account formats. Hostname resolution for the **negotiation probe** uses the real libctru `getaddrinfo()` implementation (IPv4). The username/domain are not yet passed to FreeRDP or Windows; there is **no login**.
