@@ -1,7 +1,17 @@
 name: O3DS homebrew build
 on:
   push:
+    paths:
+      - '.github/workflows/3ds-build.yml'
+      - 'Makefile'
+      - 'source/**'
+      - 'include/**'
   pull_request:
+    paths:
+      - '.github/workflows/3ds-build.yml'
+      - 'Makefile'
+      - 'source/**'
+      - 'include/**'
   workflow_dispatch:
 jobs:
   homebrew:
