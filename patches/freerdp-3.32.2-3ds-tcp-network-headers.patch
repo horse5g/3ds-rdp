@@ -1,0 +1,12 @@
+diff --git a/libfreerdp/core/tcp.c b/libfreerdp/core/tcp.c
+--- a/libfreerdp/core/tcp.c
++++ b/libfreerdp/core/tcp.c
+@@ -41,7 +41,9 @@
+ #include <sys/socket.h>
+ #include <netinet/in.h>
+ #include <netinet/tcp.h>
++#ifndef __3DS__
+ #include <net/if.h>
++#endif
+ #include <sys/types.h>
+ #include <arpa/inet.h>
