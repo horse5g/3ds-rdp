@@ -54,6 +54,6 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
 
 /* Implementation is in connection_ui_draw.c; draws GSP_RGB565_OES bottom
  * screen through the same small font / framebuffer renderer as the menu. */
-void session_pad_draw(const SessionPad *pad);
+void session_pad_draw(const SessionPad *pad, int zoom_percent);
 
 #endif
