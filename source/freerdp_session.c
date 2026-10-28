@@ -1,5 +1,6 @@
 #include "freerdp_session.h"
 #include "cert_pin.h"
+#include "cert_pool.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -13,7 +14,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #else
 
 /* Experimental full client. Build/link first; no runtime behavior has been
- * validated on O3DS. Never accept an untrusted or changed certificate. */
+ * validated on O3DS. Unknown certificates require explicit approval;
+ * changed certificates are always rejected until manually removed. */
 #include <3ds.h>
 #include <freerdp/freerdp.h>
 #include <freerdp/settings.h>
@@ -28,6 +30,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #include <openssl/evp.h>
 #include <arpa/inet.h>
 #include <limits.h>
+#include <errno.h>
 #include <time.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -39,34 +42,140 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 
 #define PIN_FILE "sdmc:/3ds/3ds-rdp/cert-pin.txt"
 #define PIN_MAX_BYTES 1024
+#define POOL_FILE "sdmc:/3ds/3ds-rdp/trusted-certs.txt"
+#define POOL_MAX_BYTES (RDP_CERT_POOL_MAX * RDP_CERT_POOL_LINE_MAX + 1024)
 
 /* Single-session homebrew app: no concurrent RDP sessions. */
 static RdpCertPin active_pin;
+static RdpCertPool active_pool;
+static bool have_manual_pin;
+static char requested_host[RDP_HOST_CAP];
+static uint16_t requested_port;
+static PrintConsole trust_console;
 static char cert_failure[100];
 static bool desktop_dirty;
 
-static bool load_cert_pin(RdpCertPin *pin)
+/* 0 = optional pin absent, 1 = loaded, -1 = malformed or I/O error */
+static int load_cert_pin(RdpCertPin *pin)
 {
     char text[PIN_MAX_BYTES + 1];
     size_t n;
     FILE *f = fopen(PIN_FILE, "rb");
     if (!f)
-        return false;
+        return errno == ENOENT ? 0 : -1;
     n = fread(text, 1, sizeof(text), f);
     const bool read_error = ferror(f) != 0;
-    fclose(f);
-    if (read_error || n >= sizeof(text) || memchr(text, 0, n))
-        return false;
+    const int closed = fclose(f);
+    if (read_error || closed != 0 || n >= sizeof(text) || memchr(text, 0, n))
+        return -1;
     text[n] = '\0';
-    return rdp_cert_pin_parse(text, pin) == 0;
+    return rdp_cert_pin_parse(text, pin) == 0 ? 1 : -1;
 }
 
-/* FreeRDP ExternalCertificateManagement callback. Never trust on first use.
- * Pin supplied out of band; require leaf SHA256, expected endpoint, name and
- * validity dates. Returning 2 accepts for THIS SESSION without saving a
- * FreeRDP known_hosts entry. */
-static int verify_x509_pin(freerdp *instance, const BYTE *pem, size_t length,
-                           const char *host, UINT16 port, DWORD flags)
+static bool load_cert_pool(RdpCertPool *pool)
+{
+    char text[POOL_MAX_BYTES + 1];
+    size_t n;
+    FILE *f = fopen(POOL_FILE, "rb");
+    if (!f) {
+        if (errno != ENOENT)
+            return false;
+        memset(pool, 0, sizeof(*pool));
+        return true;
+    }
+    n = fread(text, 1, sizeof(text), f);
+    const bool read_error = ferror(f) != 0;
+    const int closed = fclose(f);
+    if (read_error || closed != 0 || n >= sizeof(text) || memchr(text, 0, n))
+        return false;
+    text[n] = '\0';
+    return rdp_cert_pool_parse(text, pool) == 0;
+}
+
+/* Always verify the existing file before append. Never replace or overwrite
+ * a previous decision; interrupted writes will be rejected by strict parser.
+ * SD/FAT does not promise power-fail-atomic appends. */
+static bool save_cert_to_pool(const RdpCertPin *pin)
+{
+    RdpCertPool disk = {0}, updated = {0}, verified = {0};
+    char record[RDP_CERT_POOL_LINE_MAX];
+    int n;
+    FILE *f;
+
+    if (!load_cert_pool(&disk) || disk.count != active_pool.count)
+        return false;
+    for (size_t i = 0; i < disk.count; ++i) {
+        const RdpCertPin *e = &active_pool.entries[i];
+        if (rdp_cert_pool_lookup(&disk, e->host, e->port, e->sha256) != 1)
+            return false;
+    }
+    updated = disk;
+    if (rdp_cert_pool_add(&updated, pin) != 1)
+        return false;
+    n = rdp_cert_pool_format(pin, record, sizeof(record));
+    if (n <= 0)
+        return false;
+    f = fopen(POOL_FILE, "ab");
+    if (!f)
+        return false;
+    const bool written = fwrite(record, 1, (size_t)n, f) == (size_t)n &&
+                         fflush(f) == 0;
+    const int closed = fclose(f);
+    if (!written || closed != 0 || !load_cert_pool(&verified) ||
+        rdp_cert_pool_lookup(&verified, pin->host, pin->port, pin->sha256) != 1 ||
+        verified.count != updated.count)
+        return false;
+    active_pool = verified;
+    return true;
+}
+
+/* No automatic first-use trust: the user must see the complete SHA-256 and
+ * expressly choose a single session or append to the trusted endpoint pool. */
+static int ask_unknown_certificate(const char *host, uint16_t port,
+                                   const unsigned char sha256[32])
+{
+    static const char hex[] = "0123456789ABCDEF";
+    char fingerprint[65];
+    for (size_t i = 0; i < 32; i++) {
+        fingerprint[i * 2] = hex[sha256[i] >> 4];
+        fingerprint[i * 2 + 1] = hex[sha256[i] & 15];
+    }
+    fingerprint[64] = 0;
+    consoleInit(GFX_TOP, &trust_console);
+    consoleSelect(&trust_console);
+    printf("\x1b[2J\x1b[HUNKNOWN RDP CERTIFICATE\n");
+    printf("This server is NOT yet trusted.\n\n");
+    printf("Host: %.40s\nPort: %u\n\n", host, (unsigned)port);
+    printf("Leaf SHA-256 (check independently):\n");
+    printf("%.32s\n%s\n\n", fingerprint, fingerprint + 32);
+    printf("First-use trust can allow MITM attacks!\n");
+    printf("Verify this hash on the Windows host.\n\n");
+    printf("B / START: Reject\n");
+    printf("A: Accept for this session ONLY\n");
+    printf("X: Trust and SAVE to SD card\n");
+    gfxFlushBuffers();
+    gfxSwapBuffers();
+    gspWaitForVBlank();
+    while (aptMainLoop()) {
+        hidScanInput();
+        u32 keys = hidKeysDown();
+        if (keys & (KEY_B | KEY_START))
+            return 0;
+        if (keys & KEY_A)
+            return 1;
+        if (keys & KEY_X)
+            return 2;
+        gspWaitForVBlank();
+    }
+    return 0;
+}
+
+/* FreeRDP ExternalCertificateManagement callback. Requires a valid name and
+ * date BEFORE any pool decision, then enforces a manual pin when configured.
+ * For unknown endpoints only, permit an explicit, visible trust decision.
+ * Returning 2 accepts just this session in FreeRDP's certificate code. */
+static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
+                            const char *host, UINT16 port, DWORD flags)
 {
     BIO *bio = NULL;
     X509 *cert = NULL;
@@ -78,8 +187,8 @@ static int verify_x509_pin(freerdp *instance, const BYTE *pem, size_t length,
     (void)instance;
 
     snprintf(cert_failure, sizeof(cert_failure), "RDP certificate rejected");
-    if (!pem || !length || length > INT_MAX ||
-        !rdp_cert_pin_matches(&active_pin, host, port) ||
+    if (!pem || !length || length > INT_MAX || !host ||
+        strcmp(host, requested_host) != 0 || port != requested_port ||
         flags != VERIFY_CERT_FLAG_NONE)
         return 0;
 
@@ -90,32 +199,65 @@ static int verify_x509_pin(freerdp *instance, const BYTE *pem, size_t length,
     if (!cert)
         goto finish;
 
-    /* Fail closed if the 3DS real-time clock is unset or clearly invalid. */
     now = time(NULL);
     if (now < (time_t)1577836800) {
         snprintf(cert_failure, sizeof(cert_failure), "Set the 3DS date/time first");
         goto finish;
     }
     if (X509_cmp_time(X509_get0_notBefore(cert), &now) >= 0 ||
-        X509_cmp_time(X509_get0_notAfter(cert), &now) <= 0)
+        X509_cmp_time(X509_get0_notAfter(cert), &now) <= 0) {
+        snprintf(cert_failure, sizeof(cert_failure), "RDP certificate expired/not yet valid");
         goto finish;
-
+    }
     if (inet_pton(AF_INET, host, &ipv4) == 1) {
-        if (X509_check_ip_asc(cert, host, 0) != 1)
+        if (X509_check_ip_asc(cert, host, 0) != 1) {
+            snprintf(cert_failure, sizeof(cert_failure), "RDP certificate IP name mismatch");
             goto finish;
-    } else {
-        /* DNS SAN preferred; OpenSSL can fall back to a CN if no SAN exists. */
-        if (X509_check_host(cert, host, 0, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS, NULL) != 1)
-            goto finish;
+        }
+    } else if (X509_check_host(cert, host, 0,
+                               X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS, NULL) != 1) {
+        snprintf(cert_failure, sizeof(cert_failure), "RDP certificate DNS name mismatch");
+        goto finish;
     }
 
     if (X509_digest(cert, EVP_sha256(), digest, &digest_length) != 1 ||
-        digest_length != sizeof(active_pin.sha256) ||
-        CRYPTO_memcmp(digest, active_pin.sha256, sizeof(active_pin.sha256)) != 0)
+        digest_length != 32)
         goto finish;
 
+    if (have_manual_pin && rdp_cert_pin_matches(&active_pin, host, port)) {
+        if (CRYPTO_memcmp(digest, active_pin.sha256, 32) != 0) {
+            snprintf(cert_failure, sizeof(cert_failure), "Manual certificate pin changed; blocked");
+            goto finish;
+        }
+        result = 2;
+    } else {
+        const int known = rdp_cert_pool_lookup(&active_pool, host, port, digest);
+        if (known < 0) {
+            snprintf(cert_failure, sizeof(cert_failure), "Saved certificate changed; blocked");
+            goto finish;
+        }
+        if (known > 0) {
+            result = 2;
+        } else {
+            const int approval = ask_unknown_certificate(host, port, digest);
+            if (approval == 0) {
+                snprintf(cert_failure, sizeof(cert_failure), "Unknown RDP certificate rejected");
+                goto finish;
+            }
+            if (approval == 2) {
+                RdpCertPin pin = {0};
+                memcpy(pin.host, host, strlen(host) + 1);
+                pin.port = port;
+                memcpy(pin.sha256, digest, 32);
+                if (!save_cert_to_pool(&pin)) {
+                    snprintf(cert_failure, sizeof(cert_failure), "Could not save certificate trust pool");
+                    goto finish;
+                }
+            }
+            result = 2;
+        }
+    }
     cert_failure[0] = '\0';
-    result = 2;
 finish:
     OPENSSL_cleanse(digest, sizeof(digest));
     X509_free(cert);
@@ -260,15 +402,20 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         return -1;
     snprintf(reason, reason_size, "FreeRDP startup failed");
 
-    /* A pin must already have been installed from a trusted source.
-       Do not request a password before verifying its configuration. */
+    /* Load both trust sources before prompting for credentials. Missing files
+       are allowed (new server); malformed or unreadable files fail closed. */
     memset(&active_pin, 0, sizeof(active_pin));
+    memset(&active_pool, 0, sizeof(active_pool));
     cert_failure[0] = '\0';
-    if (!load_cert_pin(&active_pin) ||
-        !rdp_cert_pin_matches(&active_pin, cfg->host, cfg->port)) {
-        snprintf(reason, reason_size, "Missing/invalid cert-pin.txt or host mismatch");
+    memset(requested_host, 0, sizeof(requested_host));
+    memcpy(requested_host, cfg->host, strlen(cfg->host) + 1);
+    requested_port = cfg->port;
+    const int pin_state = load_cert_pin(&active_pin);
+    if (pin_state < 0 || !load_cert_pool(&active_pool)) {
+        snprintf(reason, reason_size, "Invalid or unreadable RDP certificate trust file");
         goto done;
     }
+    have_manual_pin = (pin_state > 0);
 
     /* Password is prompted for at runtime; never accepted from host.txt. */
     if (!prompt_password(password, sizeof(password))) {
@@ -282,7 +429,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         goto done;
     }
     client->VerifyCertificateEx = deny_unknown_certificate;
-    client->VerifyX509Certificate = verify_x509_pin;
+    client->VerifyX509Certificate = verify_x509_cert;
     client->PostConnect = post_connect;
     client->PostDisconnect = post_disconnect;
     if (!freerdp_context_new(client)) {
@@ -406,6 +553,10 @@ done:
         freerdp_free(client);
     }
     OPENSSL_cleanse(&active_pin, sizeof(active_pin));
+    OPENSSL_cleanse(&active_pool, sizeof(active_pool));
+    OPENSSL_cleanse(requested_host, sizeof(requested_host));
+    have_manual_pin = false;
+    requested_port = 0;
     OPENSSL_cleanse(cert_failure, sizeof(cert_failure));
     return result;
 }
