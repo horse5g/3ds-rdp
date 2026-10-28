@@ -73,3 +73,42 @@ FreeRDP build currently fails closed on unknown certificates.
 Do not treat a passing experimental full-session workflow as evidence of
 functional TLS/NLA, RDP authentication or desktop graphics. Its steps are
 intentionally allowed to fail during porting.
+
+
+## In-session touchpad mode (experimental full-client builds)
+
+After a FreeRDP session connects, the top 400x240 display remains the remote
+desktop. The **bottom 320x240 touchscreen switches from the connection
+launcher to a laptop-style trackpad**. The top edge of the *bottom screen*
+has three buttons: Disconnect, Settings, Keyboard.
+
+- The large left area is a **relative touchpad**. Swipe to move the remote
+  mouse, lift, and swipe again without moving the pointer to the touch
+  contact position. A quick stationary tap is a left click.
+- Physical **A** is a holdable left mouse button, so hold A and swipe for
+  drag-and-drop. Physical **B** is a holdable right mouse button.
+- There are also on-screen left and right click buttons along the bottom.
+- The right-hand strip has **UP**, a vertical drag-to-scroll region, and
+  **DOWN**. Each button sends a mouse-wheel notch; vertical dragging sends
+  incremental notches proportional to the swipe distance.
+- **Settings** opens a lightweight overlay; tap settings again to return.
+  Tap Cursor speed (1x/2x/3x), Scroll step (1/2/3 notches for buttons), or
+  Reverse scroll. These preferences are **session-only** for now; they are
+  not written to profiles or shared with the Windows server.
+- **Keyboard** opens the libctru software keyboard; confirmed ASCII text is
+  sent to the RDP session and the touchpad returns after dismissal. The
+  keyboard is also available with physical X. Unicode IME, modifier keys,
+  and non-ASCII remote text still need a fuller mapping.
+- **Disconnect** takes two deliberate taps; pressing physical START also
+  ends the session. Once disconnected, the normal launcher reappears.
+
+The source is split between portable touch gesture logic in
+`include/session_pad.h` / `source/session_pad.c`, the RGB565 pad drawing in
+`source/connection_ui_draw.c`, and FreeRDP event dispatch in
+`source/freerdp_session.c`. Host tests for gestures, scrolling,
+clicks, and toolbar state run under `make -C tests test`.
+
+The **normal probe-only build does not enter this mode**; it continues to
+use the launcher to test X.224 security negotiation. Full session rendering,
+network waits, authentication and pad input still need physical O3DS
+validation. No changes were made to certificate validation.
