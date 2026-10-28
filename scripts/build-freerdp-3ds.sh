@@ -59,6 +59,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q '#ifndef __3DS__' "$src/winpr/libwinpr/io/io.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-unix-io-header.patch"
   fi
+  if ! grep -q 'Compute GMT offset without the nonstandard' "$src/winpr/libwinpr/timezone/timezone.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-portable-timezone.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
