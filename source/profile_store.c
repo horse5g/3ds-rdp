@@ -17,14 +17,15 @@ static int problem(char *error, size_t cap, const char *reason)
 
 static int safe_field(const char *s, size_t cap, int allow_empty)
 {
-    size_t n = 0;
-    if (!s) return 0;
-    while (s[n]) {
-        unsigned char c = (unsigned char)s[n];
-        if (n + 1 >= cap || c < 32 || c > 126 || c == '|') return 0;
-        ++n;
+    if (!s || !cap) return 0;
+    /* Read only inside the supplied fixed-size field. A corrupted or
+     * unterminated RdpConfig must not cause an out-of-bounds read. */
+    for (size_t n = 0; n < cap; ++n) {
+        const unsigned char c = (unsigned char)s[n];
+        if (!c) return allow_empty || n > 0;
+        if (c < 32 || c > 126 || c == '|') return 0;
     }
-    return allow_empty || n > 0;
+    return 0;
 }
 
 static int safe_name(const char *name)
