@@ -1,0 +1,31 @@
+diff --git a/winpr/libwinpr/CMakeLists.txt b/winpr/libwinpr/CMakeLists.txt
+--- a/winpr/libwinpr/CMakeLists.txt
++++ b/winpr/libwinpr/CMakeLists.txt
+@@ -195,5 +195,10 @@
+ )
+ 
+-foreach(DIR ${WINPR_CORE})
++# The O3DS client does not support serial/COM-port redirection.
++if(WINPR_TARGET_3DS)
++  list(REMOVE_ITEM WINPR_CORE comm)
++endif()
++
++foreach(DIR ${WINPR_CORE})
+   add_subdirectory(${DIR})
+   source_group("${DIR}" REGULAR_EXPRESSION "${DIR}/.*\\.[ch]")
+diff --git a/winpr/libwinpr/file/generic.c b/winpr/libwinpr/file/generic.c
+--- a/winpr/libwinpr/file/generic.c
++++ b/winpr/libwinpr/file/generic.c
+@@ -211,7 +211,9 @@
+ 	 */
+ 	ArrayList_Append(HandleCreators, GetNamedPipeClientHandleCreator());
+-	const HANDLE_CREATOR* serial = GetCommHandleCreator();
+-	if (serial)
+-		ArrayList_Append(HandleCreators, serial);
++#ifndef __3DS__
++	const HANDLE_CREATOR* serial = GetCommHandleCreator();
++	if (serial)
++		ArrayList_Append(HandleCreators, serial);
++#endif
+ 	ArrayList_Append(HandleCreators, GetFileHandleCreator());
+ }
