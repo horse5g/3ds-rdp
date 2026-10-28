@@ -343,11 +343,11 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
     /* 16.16 nearest-neighbor crop avoids floating point or divide in the
        96,000-pixel inner loops. Zoom never changes remote pointer coords. */
     for (x=0;x<RDP_W;++x) {
-        int sx=(int)((view.left_q16+(int64_t)x*step_x)>>16);
+        int sx=(int)((view.left_q16+(int64_t)x*step_x+32768)>>16);
         if (sx < 0) sx=0;
         if (sx >= gdi->width) sx=gdi->width-1;
         for (y=0;y<RDP_H;++y) {
-            int sy=(int)((view.top_q16+(int64_t)y*step_y)>>16);
+            int sy=(int)((view.top_q16+(int64_t)y*step_y+32768)>>16);
             const u8 *src;
             u8 *dst;
             if (sy < 0) sy=0;
