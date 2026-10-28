@@ -10,13 +10,16 @@
 #include "loopback_pair.h"
 #include "horizon_rng.h"
 #include "freerdp_session.h"
+#include "connection_ui.h"
 
 #define HOST_FILE "sdmc:/3ds/3ds-rdp/host.txt"
+#define PROFILES_FILE "sdmc:/3ds/3ds-rdp/connections.txt"
 #define SOC_SIZE (1024*1024)
 #define MAX_CONFIG_BYTES 4096
 
 static PrintConsole top,bottom;
 static RdpConfig config;
+static ConnectionUI ui;
 static char status[100]="Ready",detail[100]="Press A to probe";
 static int configured=0;
 
@@ -63,6 +66,8 @@ static void draw(void) {
     printf("Negotiation probe only.\nNo login or desktop yet.\n");
 #endif
     consoleSelect(&bottom);
+    connection_ui_draw(&ui);
+    return;
     printf("\x1b[2J\x1b[H A: Connect/probe\n B: Kernel event test\n Y: SOC loopback test\n SELECT: PS entropy test\n X: Reload host.txt\n START: Exit\n\n");
 #ifdef RDP_FULL_CLIENT
     printf(" R: FreeRDP session (unverified)\n");
@@ -83,6 +88,9 @@ int main(int argc,char **argv) {
     buffer=memalign(0x1000,SOC_SIZE);
     if(buffer && R_SUCCEEDED(socInit(buffer,SOC_SIZE))) netok=1;
     load_host();
+    connection_ui_init(&ui,HOST_FILE,PROFILES_FILE);
+    config=ui.current;
+    { char validation[96]; configured=connection_ui_ready(&ui,validation,sizeof(validation)); }
     if(!netok) {
         snprintf(status,sizeof(status),"Network initialization failed");
         snprintf(detail,sizeof(detail),"socInit failed");
@@ -93,7 +101,15 @@ int main(int argc,char **argv) {
         hidScanInput();
         keys=hidKeysDown();
         if(keys&KEY_START) break;
-        if(keys&KEY_X) {load_host();draw();}
+        if(keys&KEY_TOUCH) {
+            touchPosition touch;
+            hidTouchRead(&touch);
+            connection_ui_touch(&ui,touch.px,touch.py,PROFILES_FILE);
+        }
+        connection_ui_key(&ui,keys,PROFILES_FILE);
+        config=ui.current;
+        { char validation[96]; configured=connection_ui_ready(&ui,validation,sizeof(validation)); }
+        if(keys&(KEY_X|KEY_L|KEY_Y|KEY_DUP|KEY_DDOWN|KEY_TOUCH|KEY_SELECT)) draw();
         if(keys&KEY_B) {
             char result[96];
             bool passed = horizon_sync_selftest(result, sizeof(result));
@@ -116,7 +132,7 @@ int main(int argc,char **argv) {
             draw();
         }
 #ifdef RDP_FULL_CLIENT
-        if(keys&KEY_R) {
+        if(keys&KEY_ZR) {
             char session_result[100] = {0};
             if (!netok || !configured) {
                 snprintf(status,sizeof(status),"Not ready");
@@ -133,7 +149,7 @@ int main(int argc,char **argv) {
             draw();
         }
 #endif
-        if(keys&KEY_A) {
+        if((keys&KEY_R) && !(keys&KEY_A)) {
             if(!netok || !configured) {
                 snprintf(status,sizeof(status),"Not ready");
                 snprintf(detail,sizeof(detail),"Check network and host.txt");
