@@ -1,7 +1,7 @@
 diff --git a/winpr/libwinpr/io/io.c b/winpr/libwinpr/io/io.c
 --- a/winpr/libwinpr/io/io.c
 +++ b/winpr/libwinpr/io/io.c
-@@ -35,7 +35,9 @@
+@@ -35,6 +35,8 @@
  #include <dirent.h>
  
  #include <fcntl.h>
