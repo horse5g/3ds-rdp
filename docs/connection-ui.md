@@ -108,6 +108,28 @@ The source is split between portable touch gesture logic in
 `source/freerdp_session.c`. Host tests for gestures, scrolling,
 clicks, and toolbar state run under `make -C tests test`.
 
+### Local zoom with L + Circle Pad
+
+While an experimental FreeRDP session is open, **hold L and rotate the
+Circle Pad clockwise to zoom in or counterclockwise to zoom out**. One full
+rotation changes magnification by approximately 100 percentage points
+(subject to 100%-300% bounds). Changes interpolate smoothly; releasing L
+finishes the easing animation, and recentering the stick does not jump zoom.
+
+This is **local screen magnification**, not Ctrl+mouse-wheel and not a
+Windows display-resolution change. The top screen samples a zoomed 400x240
+viewport whose center follows the **remote mouse position**; near edges the
+view is clamped to the desktop boundaries. Relative touchpad input and mouse
+clicks continue to use unchanged remote desktop coordinates. The bottom
+touchpad shows the current zoom percentage. Zoom resets to 100% for each
+new session; nothing is persisted or sent to the RDP server.
+
+The pure geometry/controller code is in `session_zoom.h/.c` and has host
+tests for the rotation direction, dead zone, angle wrap, smoothing, crop
+clamping and sample-point alignment. On physical hardware, confirm
+`hidCircleRead()`'s directional orientation and performance before
+considering the controls final.
+
 The **normal probe-only build does not enter this mode**; it continues to
 use the launcher to test X.224 security negotiation. Full session rendering,
 network waits, authentication and pad input still need physical O3DS
