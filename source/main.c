@@ -42,6 +42,7 @@ static void draw_status(int network_ready)
     else if (!valid) printf("Set a valid host before connecting.\n");
 #ifdef RDP_FULL_CLIENT
     printf("R: Probe  L+R: Experimental RDP\n");
+    printf("L+X: Manage trusted RDP certs\n");
 #else
     printf("R: RDP negotiation probe only\n");
     printf("Full client not linked.\n");

@@ -10,6 +10,17 @@ int main(void)
     RdpConfig cfg = {0};
     char error[128];
     int index;
+    /* Fixed fields must reject unterminated values without reading beyond
+     * RdpConfig's structure (important for damaged SD configuration). */
+    {
+        RdpConfig malformed = {0};
+        memset(malformed.host, 'x', sizeof(malformed.host));
+        malformed.port = 3389;
+        assert(rdp_profile_validate(&malformed, error, sizeof(error)) < 0);
+        memset(malformed.username, 'u', sizeof(malformed.username));
+        malformed.host[0] = 'h'; malformed.host[1] = 0;
+        assert(rdp_profile_validate(&malformed, error, sizeof(error)) < 0);
+    }
     cfg.port = 3389;
     strcpy(cfg.host, "workstation.example.com");
     strcpy(cfg.username, "alice");

@@ -4,6 +4,7 @@
 #include "cert_store.h"
 #include "session_pad.h"
 #include "session_zoom.h"
+#include "rdp_pixels.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -300,7 +301,7 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
 {
     rdpGdi *gdi;
     u16 fb_width=0, fb_height=0;
-    u8 *frame;
+    uint16_t *frame;
     SessionZoomView view;
     int x,y;
     int sample_y[RDP_H];
@@ -309,10 +310,12 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
     if (!context || !(gdi=context->gdi) || !gdi->primary_buffer ||
         gdi->width < RDP_W || gdi->height < RDP_H ||
         gdi->stride < (size_t)gdi->width * 4 ||
-        gfxGetScreenFormat(GFX_TOP) != GSP_BGR8_OES)
+        gfxGetScreenFormat(GFX_TOP) != GSP_RGB565_OES)
         return FALSE;
 
-    frame=gfxGetFramebuffer(GFX_TOP,GFX_LEFT,&fb_width,&fb_height);
+    /* consoleInit(GFX_TOP, ...) sets RGB565 and single buffering.
+       Match that real format rather than rejecting every first paint. */
+    frame=(uint16_t *)gfxGetFramebuffer(GFX_TOP,GFX_LEFT,&fb_width,&fb_height);
     if (!frame || fb_width < RDP_H || fb_height < RDP_W) return FALSE;
 
     view=session_zoom_view(zoom,pointer_x,pointer_y,RDP_W,RDP_H);
@@ -333,8 +336,7 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
         for (y=0;y<RDP_H;++y) {
             const u8 *src=gdi->primary_buffer+
                      (size_t)sample_y[y]*gdi->stride+(size_t)sx*4;
-            u8 *dst=frame+((size_t)x*RDP_H+(RDP_H-1-y))*3;
-            dst[0]=src[0]; dst[1]=src[1]; dst[2]=src[2];
+            frame[(size_t)x*RDP_H+(RDP_H-1-y)]=rdp_bgrx_to_rgb565(src);
         }
     }
     return TRUE;

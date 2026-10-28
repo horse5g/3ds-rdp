@@ -18,6 +18,9 @@ on:
       - 'cmake/openssl-3ds.conf'
       - 'patches/freerdp-*.patch'
       - 'patches/openssl-*.patch'
+      - 'source/**'
+      - 'include/**'
+      - 'tests/**'
       - 'source/loopback_pair.c'
       - 'include/loopback_pair.h'
   pull_request:
@@ -37,6 +40,9 @@ on:
       - 'cmake/openssl-3ds.conf'
       - 'patches/freerdp-*.patch'
       - 'patches/openssl-*.patch'
+      - 'source/**'
+      - 'include/**'
+      - 'tests/**'
       - 'source/loopback_pair.c'
       - 'include/loopback_pair.h'
   workflow_dispatch:

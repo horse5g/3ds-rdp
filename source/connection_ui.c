@@ -112,6 +112,10 @@ static bool edit_field(ConnectionUI *ui, int field)
 }
 static void save_profile(ConnectionUI *ui, const char *path)
 {
+    if (ui->profiles_unavailable) {
+        tell(ui, "Repair the saved profiles on SD first");
+        return;
+    }
     RdpProfileStore candidate = ui->store;
     char error[96];
     int index;
@@ -151,6 +155,10 @@ static void request_load(ConnectionUI *ui, int index)
 }
 static void delete_profile(ConnectionUI *ui, const char *path)
 {
+    if (ui->profiles_unavailable) {
+        tell(ui, "Repair the saved profiles on SD first");
+        return;
+    }
     RdpProfileStore candidate = ui->store;
     char error[96];
     int index = ui->show_saved ? ui->highlight : ui->selected;
@@ -197,8 +205,13 @@ void connection_ui_init(ConnectionUI *ui, const char *legacy_file, const char *p
     size_t size;
     memset(ui, 0, sizeof(*ui));
     clear_profile(ui);
-    if (rdp_profiles_load(profile_file, &ui->store, error, sizeof(error)))
-        tell(ui, error);
+    if (rdp_profiles_load(profile_file, &ui->store, error, sizeof(error))) {
+        /* A damaged profile store must not be overwritten by an empty UI.
+         * Preserve both the primary and backup for offline recovery. */
+        ui->profiles_unavailable = true;
+        tell(ui, "Profiles damaged; repair the SD file");
+        return;
+    }
     if (ui->store.count) { select_profile(ui, 0); return; }
     file = fopen(legacy_file, "rb");
     if (!file) return;
