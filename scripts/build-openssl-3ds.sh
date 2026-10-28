@@ -80,7 +80,7 @@ build="$(cd "$build" && pwd)"
     PATH="$DEVKITARM/bin:$PATH" make -j"${JOBS:-2}" build_libs
     test -s libcrypto.a
     test -s libssl.a
-    "$DEVKITARM/bin/arm-none-eabi-ar" t libcrypto.a | head -n 3
-    "$DEVKITARM/bin/arm-none-eabi-ar" t libssl.a | head -n 3
+    "$DEVKITARM/bin/arm-none-eabi-ar" t libcrypto.a | sed -n '1,3p'
+    "$DEVKITARM/bin/arm-none-eabi-ar" t libssl.a | sed -n '1,3p'
   fi
 )
