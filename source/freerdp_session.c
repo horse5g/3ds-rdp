@@ -112,10 +112,11 @@ static bool prompt_password(char *password, size_t size)
 {
     SwkbdState keyboard;
     SwkbdButton button;
-    swkbdInit(&keyboard, SWKBD_TYPE_NORMAL, 1, (int)size - 1);
+    swkbdInit(&keyboard, SWKBD_TYPE_NORMAL, 2, (int)size - 1);
     swkbdSetHintText(&keyboard, "RDP password (not saved)");
     swkbdSetPasswordMode(&keyboard, SWKBD_PASSWORD_HIDE);
     button = swkbdInputText(&keyboard, password, size);
+    OPENSSL_cleanse(&keyboard, sizeof(keyboard));
     return button == SWKBD_BUTTON_CONFIRM;
 }
 
