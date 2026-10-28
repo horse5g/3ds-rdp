@@ -7,6 +7,11 @@ on:
       - 'scripts/build-freerdp-3ds.sh'
       - 'scripts/link-freerdp-3ds.sh'
       - 'tests/freerdp-arm11-link.c'
+      - 'scripts/build-combined-3dsx.sh'
+      - 'source/freerdp_session.c'
+      - 'include/freerdp_session.h'
+      - 'source/main.c'
+      - 'Makefile'
       - 'scripts/build-openssl-3ds.sh'
       - 'cmake/3ds-armv6k.cmake'
       - 'cmake/openssl-3ds.conf'
@@ -20,6 +25,11 @@ on:
       - 'scripts/build-freerdp-3ds.sh'
       - 'scripts/link-freerdp-3ds.sh'
       - 'tests/freerdp-arm11-link.c'
+      - 'scripts/build-combined-3dsx.sh'
+      - 'source/freerdp_session.c'
+      - 'include/freerdp_session.h'
+      - 'source/main.c'
+      - 'Makefile'
       - 'scripts/build-openssl-3ds.sh'
       - 'cmake/3ds-armv6k.cmake'
       - 'cmake/openssl-3ds.conf'
@@ -55,6 +65,14 @@ jobs:
         run: |
           set -o pipefail
           bash scripts/link-freerdp-3ds.sh 2>&1 | tee combined-arm11-link.log
+      - name: Build full experimental 3DS application
+        id: fullapp
+        if: steps.combined.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-combined-3dsx.sh 2>&1 | tee combined-3dsx.log
       - name: Report FreeRDP compile and link results
         if: always()
         shell: bash
@@ -63,6 +81,7 @@ jobs:
             echo '## FreeRDP + OpenSSL cross-build'
             echo 'FreeRDP compile step: **${{ steps.freerdp.outcome }}**.'
             echo 'Combined ELF link step: **${{ steps.combined.outcome }}**.'
+            echo 'Experimental full application 3DSX: **${{ steps.fullapp.outcome }}**.'
             echo 'A successful ELF/3DSX link is NOT a verified TLS/NLA session or a hardware-tested RDP client.'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload compiler diagnostics
@@ -75,6 +94,7 @@ jobs:
             openssl-arm11.log
             freerdp-openssl-arm11.log
             combined-arm11-link.log
+            combined-3dsx.log
             build/freerdp-3ds/CMakeCache.txt
             build/freerdp-3ds/CMakeFiles/CMakeConfigureLog.yaml
       - name: Upload compiled FreeRDP libraries
@@ -89,3 +109,6 @@ jobs:
             build/freerdp-3ds/combined-arm11-link.elf
             build/freerdp-3ds/combined-arm11-link.3dsx
             build/freerdp-3ds/combined-arm11-link.map
+            3ds-rdp-full.3dsx
+            3ds-rdp-full.elf
+            3ds-rdp-full.map
