@@ -16,3 +16,4 @@ jobs:
         run: |
           bash -n scripts/build-freerdp-3ds.sh
           bash -n scripts/build-openssl-3ds.sh
+          bash -n scripts/link-openssl-3ds.sh
