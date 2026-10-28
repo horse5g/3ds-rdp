@@ -56,7 +56,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'loopback_pair_open' "$src/winpr/libwinpr/synch/event.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-loopback-waits.patch"
   fi
-  if grep -q '^#include <sys/un.h>
+  if ! grep -q '#ifndef __3DS__' "$src/winpr/libwinpr/io/io.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-unix-io-header.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
