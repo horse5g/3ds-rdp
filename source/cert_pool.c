@@ -1,5 +1,6 @@
 #include "cert_pool.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int valid_pin(const RdpCertPin *pin)
@@ -72,8 +73,13 @@ int rdp_cert_pool_format(const RdpCertPin *pin, char *buffer, size_t size)
 
 int rdp_cert_pool_parse(const char *text, RdpCertPool *out)
 {
-    RdpCertPool tmp = {0};
+    /* A 32-entry pool is almost 10 KiB: keep it off the O3DS thread stack. */
+    RdpCertPool *tmp;
+    int result = -1;
     if (!text || !out)
+        return -1;
+    tmp = (RdpCertPool *)calloc(1, sizeof(*tmp));
+    if (!tmp)
         return -1;
     for (const char *p = text; *p;) {
         const char *end = strchr(p, '\n');
@@ -84,7 +90,7 @@ int rdp_cert_pool_parse(const char *text, RdpCertPool *out)
         if (size && p[size - 1] == '\r')
             size--;
         if (size >= sizeof(line))
-            return -1;
+            goto finish;
         memcpy(line, p, size);
         line[size] = 0;
         p = end ? end + 1 : p + strlen(p);
@@ -92,22 +98,25 @@ int rdp_cert_pool_parse(const char *text, RdpCertPool *out)
             continue;
         first = strchr(line, '\t');
         if (!first)
-            return -1;
+            goto finish;
         *first++ = 0;
         second = strchr(first, '\t');
         if (!second)
-            return -1;
+            goto finish;
         *second++ = 0;
         if (strchr(second, '\t'))
-            return -1;
-        int n = snprintf(stanza, sizeof(stanza),
-                         "host=%s\nport=%s\nsha256=%s\n",
-                         line, first, second);
+            goto finish;
+        const int n = snprintf(stanza, sizeof(stanza),
+                               "host=%s\nport=%s\nsha256=%s\n",
+                               line, first, second);
         if (n < 0 || (size_t)n >= sizeof(stanza) ||
             rdp_cert_pin_parse(stanza, &pin) != 0 ||
-            rdp_cert_pool_add(&tmp, &pin) != 1)
-            return -1;
+            rdp_cert_pool_add(tmp, &pin) != 1)
+            goto finish;
     }
-    *out = tmp;
-    return 0;
+    *out = *tmp;
+    result = 0;
+finish:
+    free(tmp);
+    return result;
 }
