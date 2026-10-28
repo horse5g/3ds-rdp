@@ -77,9 +77,13 @@ Verify the fingerprint independently on the Windows host: first-use approval
 alone cannot prevent an active MITM. Changed or mismatched certificates are
 never silently accepted. The stricter optional pre-provisioned
 `sdmc:/3ds/3ds-rdp/cert-pin.txt` is still supported. See
-[certificate trust and provisioning](docs/certificate-pinning.md). In the opt-in app,
-R attempts a session, B/START exits, A clicks, touch moves the pointer, and
-X opens a limited text keyboard. This code has **not been hardware tested**.
+[certificate trust and provisioning](docs/certificate-pinning.md).
+In the opt-in application's **main menu**, press **L** for the Trusted
+Certificates manager (browse hosts, inspect fingerprints, remove with
+confirmation), or **R** to attempt an RDP session. During a session,
+B/START exits, A clicks, touch moves the pointer, and X opens a limited
+text keyboard. Deleted certificates must be reapproved on the next
+connection; a changed certificate is never silently replaced. This code has **not been hardware tested**.
 Unknown certificates require explicit approval; changed certificates are blocked, and
 passwords are entered at runtime, never loaded from `host.txt`.
 See [porting details](docs/freerdp-port.md) for remaining trust, login, rendering
