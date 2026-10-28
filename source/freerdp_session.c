@@ -1,4 +1,5 @@
 #include "freerdp_session.h"
+#include "cert_pin.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -21,6 +22,13 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #include <freerdp/input.h>
 #include <winpr/synch.h>
 #include <openssl/crypto.h>
+#include <openssl/pem.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
+#include <openssl/evp.h>
+#include <arpa/inet.h>
+#include <limits.h>
+#include <time.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -28,6 +36,91 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #define RDP_W 400
 #define RDP_H 240
 #define RDP_MAX_EVENTS 64
+
+#define PIN_FILE "sdmc:/3ds/3ds-rdp/cert-pin.txt"
+#define PIN_MAX_BYTES 1024
+
+/* Single-session homebrew app: no concurrent RDP sessions. */
+static RdpCertPin active_pin;
+static char cert_failure[100];
+
+static bool load_cert_pin(RdpCertPin *pin)
+{
+    char text[PIN_MAX_BYTES + 1];
+    size_t n;
+    FILE *f = fopen(PIN_FILE, "rb");
+    if (!f)
+        return false;
+    n = fread(text, 1, sizeof(text), f);
+    const bool read_error = ferror(f) != 0;
+    fclose(f);
+    if (read_error || n >= sizeof(text) || memchr(text, 0, n))
+        return false;
+    text[n] = '\0';
+    return rdp_cert_pin_parse(text, pin) == 0;
+}
+
+/* FreeRDP ExternalCertificateManagement callback. Never trust on first use.
+ * Pin supplied out of band; require leaf SHA256, expected endpoint, name and
+ * validity dates. Returning 2 accepts for THIS SESSION without saving a
+ * FreeRDP known_hosts entry. */
+static int verify_x509_pin(freerdp *instance, const BYTE *pem, size_t length,
+                           const char *host, UINT16 port, DWORD flags)
+{
+    BIO *bio = NULL;
+    X509 *cert = NULL;
+    unsigned char digest[EVP_MAX_MD_SIZE] = {0};
+    unsigned int digest_length = 0;
+    struct in_addr ipv4;
+    time_t now;
+    int result = 0;
+    (void)instance;
+
+    snprintf(cert_failure, sizeof(cert_failure), "RDP certificate rejected");
+    if (!pem || !length || length > INT_MAX ||
+        !rdp_cert_pin_matches(&active_pin, host, port) ||
+        flags != VERIFY_CERT_FLAG_NONE)
+        return 0;
+
+    bio = BIO_new_mem_buf(pem, (int)length);
+    if (!bio)
+        return 0;
+    cert = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+    if (!cert)
+        goto finish;
+
+    /* Fail closed if the 3DS real-time clock is unset or clearly invalid. */
+    now = time(NULL);
+    if (now < (time_t)1577836800) {
+        snprintf(cert_failure, sizeof(cert_failure), "Set the 3DS date/time first");
+        goto finish;
+    }
+    if (X509_cmp_time(X509_get0_notBefore(cert), &now) >= 0 ||
+        X509_cmp_time(X509_get0_notAfter(cert), &now) <= 0)
+        goto finish;
+
+    if (inet_pton(AF_INET, host, &ipv4) == 1) {
+        if (X509_check_ip_asc(cert, host, 0) != 1)
+            goto finish;
+    } else {
+        /* DNS SAN preferred; OpenSSL can fall back to a CN if no SAN exists. */
+        if (X509_check_host(cert, host, 0, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS, NULL) != 1)
+            goto finish;
+    }
+
+    if (X509_digest(cert, EVP_sha256(), digest, &digest_length) != 1 ||
+        digest_length != sizeof(active_pin.sha256) ||
+        CRYPTO_memcmp(digest, active_pin.sha256, sizeof(active_pin.sha256)) != 0)
+        goto finish;
+
+    cert_failure[0] = '\0';
+    result = 2;
+finish:
+    OPENSSL_cleanse(digest, sizeof(digest));
+    X509_free(cert);
+    BIO_free(bio);
+    return result;
+}
 
 static DWORD deny_unknown_certificate(freerdp *instance, const char *host, UINT16 port,
                                       const char *common_name, const char *subject,
@@ -155,6 +248,16 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         return -1;
     snprintf(reason, reason_size, "FreeRDP startup failed");
 
+    /* A pin must already have been installed from a trusted source.
+       Do not request a password before verifying its configuration. */
+    memset(&active_pin, 0, sizeof(active_pin));
+    cert_failure[0] = '\0';
+    if (!load_cert_pin(&active_pin) ||
+        !rdp_cert_pin_matches(&active_pin, cfg->host, cfg->port)) {
+        snprintf(reason, reason_size, "Missing/invalid cert-pin.txt or host mismatch");
+        goto done;
+    }
+
     /* Password is prompted for at runtime; never accepted from host.txt. */
     if (!prompt_password(password, sizeof(password))) {
         snprintf(reason, reason_size, "Password input cancelled");
@@ -167,6 +270,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         goto done;
     }
     client->VerifyCertificateEx = deny_unknown_certificate;
+    client->VerifyX509Certificate = verify_x509_pin;
     client->PostConnect = post_connect;
     client->PostDisconnect = post_disconnect;
     if (!freerdp_context_new(client)) {
@@ -186,6 +290,10 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
            FreeRDP otherwise defaults TCP keepalive to enabled. */
         !freerdp_settings_set_uint32(settings, FreeRDP_ForceIPvX, 4) ||
         !freerdp_settings_set_bool(settings, FreeRDP_TcpKeepAlive, FALSE) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_ExternalCertificateManagement, TRUE) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_IgnoreCertificate, FALSE) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_AutoAcceptCertificate, FALSE) ||
+        !freerdp_settings_set_uint32(settings, FreeRDP_AuthenticationLevel, 2) ||
         !freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, TRUE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_ExtSecurity, TRUE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_RdpSecurity, FALSE) ||
@@ -201,6 +309,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
     if (!freerdp_connect(client)) {
+        if (cert_failure[0])
+            snprintf(reason, reason_size, "%.90s", cert_failure);
+        else
         snprintf(reason, reason_size, "RDP connect failed (0x%08lx)",
                  (unsigned long)freerdp_get_last_error(client->context));
         goto done;
@@ -258,6 +369,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     }
 done:
     OPENSSL_cleanse(password, sizeof(password));
+    OPENSSL_cleanse(&active_pin, sizeof(active_pin));
+    OPENSSL_cleanse(cert_failure, sizeof(cert_failure));
     if (connected)
         freerdp_disconnect(client);
     if (client) {
