@@ -41,6 +41,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'Dynamic libraries are not supported in this 3DS static build' "$src/winpr/libwinpr/library/library.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-static-loader.patch"
   fi
+  if ! grep -q '#ifndef __3DS__' "$src/winpr/libwinpr/file/generic.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-unix-file-sockets.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
