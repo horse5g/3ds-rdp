@@ -102,7 +102,7 @@ int main(int argc,char **argv) {
             hidTouchRead(&touch);
             connection_ui_touch(&ui,touch.px,touch.py,PROFILES_FILE);
         }
-        connection_ui_key(&ui,keys,PROFILES_FILE);
+        connection_ui_key(&ui,(keys & ~((hidKeysHeld()&KEY_L) ? (KEY_L|KEY_Y|KEY_SELECT) : 0)),PROFILES_FILE);
         config=ui.current;
         { char validation[96]; configured=connection_ui_ready(&ui,validation,sizeof(validation)); }
         if(keys&(KEY_X|KEY_L|KEY_Y|KEY_DUP|KEY_DDOWN|KEY_TOUCH|KEY_SELECT|KEY_A)) draw();
@@ -113,14 +113,14 @@ int main(int argc,char **argv) {
             snprintf(detail, sizeof(detail), "%s", result);
             draw();
         }
-        if(keys&KEY_Y) {
+        if((keys&KEY_Y) && (hidKeysHeld()&KEY_L)) {
             char result[96];
             bool passed = netok && loopback_pair_selftest(result, sizeof(result));
             snprintf(status, sizeof(status), "%s", passed ? "SOC wakeup PASS" : "SOC wakeup FAIL");
             snprintf(detail, sizeof(detail), "%s", netok ? result : "SOC initialization failed");
             draw();
         }
-        if(keys&KEY_SELECT) {
+        if((keys&KEY_SELECT) && (hidKeysHeld()&KEY_L)) {
             char result[96];
             bool passed = horizon_rng_selftest(result, sizeof(result));
             snprintf(status, sizeof(status), "%s", passed ? "PS service PASS" : "PS service FAIL");
