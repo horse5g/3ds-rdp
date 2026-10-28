@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/freerdp-openssl-arm11.yml'
       - 'scripts/build-freerdp-3ds.sh'
+      - 'scripts/link-freerdp-3ds.sh'
+      - 'tests/freerdp-arm11-link.c'
       - 'scripts/build-openssl-3ds.sh'
       - 'cmake/3ds-armv6k.cmake'
       - 'cmake/openssl-3ds.conf'
@@ -16,6 +18,8 @@ on:
     paths:
       - '.github/workflows/freerdp-openssl-arm11.yml'
       - 'scripts/build-freerdp-3ds.sh'
+      - 'scripts/link-freerdp-3ds.sh'
+      - 'tests/freerdp-arm11-link.c'
       - 'scripts/build-openssl-3ds.sh'
       - 'cmake/3ds-armv6k.cmake'
       - 'cmake/openssl-3ds.conf'
@@ -43,14 +47,23 @@ jobs:
         run: |
           set -o pipefail
           FREERDP_CRYPTO_BACKEND=openssl bash scripts/build-freerdp-3ds.sh build 2>&1 | tee freerdp-openssl-arm11.log
-      - name: Report FreeRDP compile result
+      - name: Link FreeRDP, WinPR, OpenSSL and libctru into ARM11 ELF
+        id: combined
+        if: steps.freerdp.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/link-freerdp-3ds.sh 2>&1 | tee combined-arm11-link.log
+      - name: Report FreeRDP compile and link results
         if: always()
         shell: bash
         run: |
           {
             echo '## FreeRDP + OpenSSL cross-build'
             echo 'FreeRDP compile step: **${{ steps.freerdp.outcome }}**.'
-            echo 'This is not a linked or hardware-validated RDP client.'
+            echo 'Combined ELF link step: **${{ steps.combined.outcome }}**.'
+            echo 'A successful ELF/3DSX link is NOT a verified TLS/NLA session or a hardware-tested RDP client.'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload compiler diagnostics
         if: always()
@@ -61,6 +74,7 @@ jobs:
           path: |
             openssl-arm11.log
             freerdp-openssl-arm11.log
+            combined-arm11-link.log
             build/freerdp-3ds/CMakeCache.txt
             build/freerdp-3ds/CMakeFiles/CMakeConfigureLog.yaml
       - name: Upload compiled FreeRDP libraries
@@ -72,3 +86,6 @@ jobs:
           path: |
             build/freerdp-3ds/libfreerdp/**/*.a
             build/freerdp-3ds/winpr/**/*.a
+            build/freerdp-3ds/combined-arm11-link.elf
+            build/freerdp-3ds/combined-arm11-link.3dsx
+            build/freerdp-3ds/combined-arm11-link.map
