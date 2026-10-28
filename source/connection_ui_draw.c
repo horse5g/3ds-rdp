@@ -247,7 +247,7 @@ void connection_ui_draw(const ConnectionUI *ui)
 
 /* The session screen shares the menu's tiny font and 16-bit framebuffer.
  * The top 3DS screen remains dedicated to the Windows desktop. */
-void session_pad_draw(const SessionPad *pad)
+void session_pad_draw(const SessionPad *pad, int zoom_percent)
 {
     u16 width=0, height=0;
     uint32_t active, panel;
@@ -287,16 +287,19 @@ void session_pad_draw(const SessionPad *pad)
         outline(12,160,296,48,BORDER);
         label(20,180,pad->reverse_scroll ?
               "REVERSE SCROLL: ON" : "REVERSE SCROLL: OFF",301,INK);
-        label(16,220,"OPTIONS ARE FOR THIS SESSION ONLY",304,MUTED);
+        label(16,220,"L+CIRCLE ROTATE: ZOOM 100%-300%",304,MUTED);
         return;
     }
 
     fill(4,36,262,175,C(249,251,254));
     outline(4,36,262,175,BORDER);
     label(20,45,"TOUCHPAD",256,MUTED);
+    snprintf(line,sizeof(line),"ZOOM %d%%",zoom_percent);
+    label(190,45,line,263,BLUE);
     label(24,94,"DRAG FINGER TO MOVE MOUSE",258,MUTED);
     label(28,109,"LIFT AND REPOSITION ANYTIME",258,MUTED);
     label(57,126,"TAP TO LEFT CLICK",258,MUTED);
+    label(20,177,"L+CIRCLE ROTATE: ZOOM",262,BLUE);
     label(20,193,"A: DRAG  B: RIGHT CLICK",262,MUTED);
     /* Thin inner grip marks, no cursor teleport on contact. */
     fill(16,62,238,1,C(226,234,243));
