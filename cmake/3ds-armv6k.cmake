@@ -13,6 +13,16 @@ set(CMAKE_RANLIB "$ENV{DEVKITARM}/bin/arm-none-eabi-ranlib")
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 set(CMAKE_C_FLAGS_INIT "-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft -D__3DS__ -I$ENV{DEVKITPRO}/libctru/include -I${CMAKE_CURRENT_LIST_DIR}/../include")
 set(CMAKE_CXX_FLAGS_INIT "-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft -D__3DS__ -fno-exceptions -fno-rtti")
+# OpenSSL's generated configuration headers live in the cross-build tree,
+# while ssl.h and other public headers remain in its pinned source tree.
+# Only the OpenSSL-backed FreeRDP mode supplies this optional path.
+if(DEFINED OPENSSL_3DS_GENERATED_INCLUDE AND NOT "${OPENSSL_3DS_GENERATED_INCLUDE}" STREQUAL "")
+  if(NOT EXISTS "${OPENSSL_3DS_GENERATED_INCLUDE}/openssl/configuration.h")
+    message(FATAL_ERROR "Missing generated ARM11 OpenSSL configuration.h")
+  endif()
+  string(APPEND CMAKE_C_FLAGS_INIT " -I${OPENSSL_3DS_GENERATED_INCLUDE}")
+  string(APPEND CMAKE_CXX_FLAGS_INIT " -I${OPENSSL_3DS_GENERATED_INCLUDE}")
+endif()
 set(CMAKE_FIND_ROOT_PATH "$ENV{DEVKITPRO}/portlibs/3ds" "$ENV{DEVKITPRO}/libctru" "$ENV{DEVKITARM}/arm-none-eabi")
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
