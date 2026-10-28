@@ -23,9 +23,12 @@ typedef struct {
     int focus;          /* General tab field 0..4 */
     int tab;
     int scroll;         /* saved-connections list first visible item */
+    int highlight;      /* selected row in saved connections view */
+    int pending_load;   /* second tap confirms discarding unsaved edits */
     int pending_delete; /* -1 normally; requires second deliberate action */
     bool show_saved;
     bool dirty;
+    bool connect_requested;
 } ConnectionUI;
 
 /* O3DS bottom-screen framebuffer UI, top console reserved for diagnostics.
