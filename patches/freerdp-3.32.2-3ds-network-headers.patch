@@ -1,14 +1,14 @@
 diff --git a/winpr/include/winpr/winsock.h b/winpr/include/winpr/winsock.h
 --- a/winpr/include/winpr/winsock.h
 +++ b/winpr/include/winpr/winsock.h
-@@ -83,3 +83,7 @@
+@@ -83,3 +83,6 @@
  #include <netdb.h>
  #include <unistd.h>
 +#ifndef __3DS__
-+/* 3DS has no AF_UNIX; do not include unavailable Unix-domain socket declarations. */
++/* 3DS has no AF_UNIX; Unix-domain socket types are not available. */
  #include <sys/un.h>
 +#endif
-@@ -89,3 +93,7 @@
+@@ -89,3 +92,6 @@
  #include <netinet/in.h>
  #include <netinet/tcp.h>
 +#ifndef __3DS__
