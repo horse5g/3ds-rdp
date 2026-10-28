@@ -83,6 +83,10 @@ int main(int argc,char **argv) {
     connection_ui_init(&ui,HOST_FILE,PROFILES_FILE);
     config=ui.current;
     { char validation[96]; configured=connection_ui_ready(&ui,validation,sizeof(validation)); }
+    if(configured) {
+        snprintf(status,sizeof(status),"Connection settings ready");
+        snprintf(detail,sizeof(detail),"Press R to probe; L+R for full RDP");
+    }
     if(!netok) {
         snprintf(status,sizeof(status),"Network initialization failed");
         snprintf(detail,sizeof(detail),"socInit failed");
@@ -124,7 +128,7 @@ int main(int argc,char **argv) {
             draw();
         }
 #ifdef RDP_FULL_CLIENT
-        if(keys&KEY_ZR) {
+        if((keys&KEY_R) && (hidKeysHeld()&KEY_L)) {
             char session_result[100] = {0};
             if (!netok || !configured) {
                 snprintf(status,sizeof(status),"Not ready");
@@ -141,7 +145,7 @@ int main(int argc,char **argv) {
             draw();
         }
 #endif
-        if((keys&KEY_R) && !(keys&KEY_A)) {
+        if((keys&KEY_R) && !(hidKeysHeld()&KEY_L)) {
             if(!netok || !configured) {
                 snprintf(status,sizeof(status),"Not ready");
                 snprintf(detail,sizeof(detail),"Check network and host.txt");
