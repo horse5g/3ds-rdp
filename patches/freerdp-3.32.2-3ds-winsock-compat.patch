@@ -1,0 +1,227 @@
+diff --git a/winpr/include/winpr/winsock.h b/winpr/include/winpr/winsock.h
+--- a/winpr/include/winpr/winsock.h
++++ b/winpr/include/winpr/winsock.h
+@@ -279,8 +279,17 @@
+ #define SG_CONSTRAINED_GROUP 0x02
+ 
+-#define SIO_GET_INTERFACE_LIST _IOR('t', 127, ULONG)
+-#define SIO_GET_INTERFACE_LIST_EX _IOR('t', 126, ULONG)
+-#define SIO_SET_MULTICAST_FILTER _IOW('t', 125, ULONG)
+-#define SIO_GET_MULTICAST_FILTER _IOW('t', 124 | IOC_IN, ULONG)
++#ifdef __3DS__
++/* BSD ioctl encodings, only used as WinPR-internal dispatch constants.
++   libctru does not provide the corresponding _IOR/_IOW definitions. */
++#define SIO_GET_INTERFACE_LIST    0x4004747FUL
++#define SIO_GET_INTERFACE_LIST_EX 0x4004747EUL
++#define SIO_SET_MULTICAST_FILTER  0x8004747DUL
++#define SIO_GET_MULTICAST_FILTER  0x8004747CUL
++#else
++#define SIO_GET_INTERFACE_LIST _IOR('t', 127, ULONG)
++#define SIO_GET_INTERFACE_LIST_EX _IOR('t', 126, ULONG)
++#define SIO_SET_MULTICAST_FILTER _IOW('t', 125, ULONG)
++#define SIO_GET_MULTICAST_FILTER _IOW('t', 124 | IOC_IN, ULONG)
++#endif
+ #define SIOCSIPMSFILTER SIO_SET_MULTICAST_FILTER
+ #define SIOCGIPMSFILTER SIO_GET_MULTICAST_FILTER
+diff --git a/winpr/libwinpr/winsock/winsock.c b/winpr/libwinpr/winsock/winsock.c
+--- a/winpr/libwinpr/winsock/winsock.c
++++ b/winpr/libwinpr/winsock/winsock.c
+@@ -382,7 +382,12 @@
+ 			break;
+ 
+-		case WSAESOCKTNOSUPPORT:
+-			errno = ESOCKTNOSUPPORT;
+-			break;
++		case WSAESOCKTNOSUPPORT:
++#ifdef ESOCKTNOSUPPORT
++			errno = ESOCKTNOSUPPORT;
++#else
++			/* The target has no matching errno; use a portable failure. */
++			errno = EOPNOTSUPP;
++#endif
++			break;
+ 
+ 		case WSAEOPNOTSUPP:
+@@ -438,7 +443,12 @@
+ 			break;
+ 
+-		case WSAESHUTDOWN:
+-			errno = ESHUTDOWN;
+-			break;
++		case WSAESHUTDOWN:
++#ifdef ESHUTDOWN
++			errno = ESHUTDOWN;
++#else
++			/* The target has no matching errno; use a portable failure. */
++			errno = ENOTCONN;
++#endif
++			break;
+ 
+ 		case WSAETOOMANYREFS:
+@@ -480,7 +490,12 @@
+ #endif
+ 
+-		case WSAEUSERS:
+-			errno = EUSERS;
+-			break;
++		case WSAEUSERS:
++#ifdef EUSERS
++			errno = EUSERS;
++#else
++			/* The target has no matching errno; use a portable failure. */
++			errno = EMFILE;
++#endif
++			break;
+ 
+ 		case WSAEDQUOT:
+@@ -492,7 +507,12 @@
+ 			break;
+ 
+-		case WSAEREMOTE:
+-			errno = EREMOTE;
+-			break;
++		case WSAEREMOTE:
++#ifdef EREMOTE
++			errno = EREMOTE;
++#else
++			/* The target has no matching errno; use a portable failure. */
++			errno = EOPNOTSUPP;
++#endif
++			break;
+ 		default:
+ 			break;
+@@ -569,7 +589,9 @@
+ 			break;
+ 
+-		case ESOCKTNOSUPPORT:
+-			iError = WSAESOCKTNOSUPPORT;
+-			break;
++#ifdef ESOCKTNOSUPPORT
++		case ESOCKTNOSUPPORT:
++			iError = WSAESOCKTNOSUPPORT;
++			break;
++#endif
+ 
+ 		case EOPNOTSUPP:
+@@ -625,7 +647,9 @@
+ 			break;
+ 
+-		case ESHUTDOWN:
+-			iError = WSAESHUTDOWN;
+-			break;
++#ifdef ESHUTDOWN
++		case ESHUTDOWN:
++			iError = WSAESHUTDOWN;
++			break;
++#endif
+ 
+ 		case ETOOMANYREFS:
+@@ -667,7 +691,9 @@
+ #endif
+ 
+-		case EUSERS:
+-			iError = WSAEUSERS;
+-			break;
++#ifdef EUSERS
++		case EUSERS:
++			iError = WSAEUSERS;
++			break;
++#endif
+ 
+ 		case EDQUOT:
+@@ -679,7 +705,9 @@
+ 			break;
+ 
+-		case EREMOTE:
+-			iError = WSAEREMOTE;
+-			break;
++#ifdef EREMOTE
++		case EREMOTE:
++			iError = WSAEREMOTE;
++			break;
++#endif
+ 			/* Special cases */
+ #if (EAGAIN != EWOULDBLOCK)
+@@ -1270,30 +1298,56 @@
+ }
+ 
+-struct servent* /* codespell:ignore servent */ _getservbyport(int port, const char* proto)
+-{
+-	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+-	return getservbyport(port, proto);
+-}
+-
+-struct servent*                                     /* codespell:ignore servent */
+-_getservbyname(const char* name, const char* proto) // codespell:ignore servent
+-
+-{
+-	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+-	return getservbyname(name, proto);
+-}
+-
+-struct protoent* _getprotobynumber(int number)
+-{
+-	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+-	return getprotobynumber(number);
+-}
+-
+-struct protoent* _getprotobyname(const char* name)
+-{
+-	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+-	return getprotobyname(name);
+-}
+-
++struct servent* /* codespell:ignore servent */ _getservbyport(int port, const char* proto)
++{
++#ifdef __3DS__
++	(void)port;
++	(void)proto;
++	errno = ENOSYS;
++	return nullptr;
++#else
++	// NOLINTNEXTLINE(concurrency-mt-unsafe)
++	return getservbyport(port, proto);
++#endif
++}
++
++struct servent*                                     /* codespell:ignore servent */
++_getservbyname(const char* name, const char* proto) // codespell:ignore servent
++
++{
++#ifdef __3DS__
++	(void)name;
++	(void)proto;
++	errno = ENOSYS;
++	return nullptr;
++#else
++	// NOLINTNEXTLINE(concurrency-mt-unsafe)
++	return getservbyname(name, proto);
++#endif
++}
++
++struct protoent* _getprotobynumber(int number)
++{
++#ifdef __3DS__
++	(void)number;
++	errno = ENOSYS;
++	return nullptr;
++#else
++	// NOLINTNEXTLINE(concurrency-mt-unsafe)
++	return getprotobynumber(number);
++#endif
++}
++
++struct protoent* _getprotobyname(const char* name)
++{
++#ifdef __3DS__
++	(void)name;
++	errno = ENOSYS;
++	return nullptr;
++#else
++	// NOLINTNEXTLINE(concurrency-mt-unsafe)
++	return getprotobyname(name);
++#endif
++}
++
+ #endif /* _WIN32 */
+ 
