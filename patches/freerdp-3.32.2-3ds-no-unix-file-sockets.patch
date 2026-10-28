@@ -1,0 +1,11 @@
+diff --git a/winpr/libwinpr/file/generic.c b/winpr/libwinpr/file/generic.c
+--- a/winpr/libwinpr/file/generic.c
++++ b/winpr/libwinpr/file/generic.c
+@@ -50,5 +50,7 @@
+ 
+ #include <arpa/inet.h>
++#ifndef __3DS__
+ #include <sys/un.h>
++#endif
+ #include <sys/stat.h>
+ #include <sys/socket.h>
