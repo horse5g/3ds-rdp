@@ -11,6 +11,41 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#ifdef __3DS__
+#include <3ds.h>
+
+/* Diagnostic only: binds and immediately closes without listening.  Never
+ * substitute a LAN-facing address for loopback in the WinPR event transport. */
+static int probe_bind_errno(uint32_t address, uint16_t port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int result = 0;
+    struct sockaddr_in testaddr;
+    if (fd < 0) return errno;
+    memset(&testaddr, 0, sizeof(testaddr));
+    testaddr.sin_family = AF_INET;
+    testaddr.sin_addr.s_addr = htonl(address);
+    testaddr.sin_port = htons(port);
+    if (bind(fd, (struct sockaddr *)&testaddr, sizeof(testaddr)) < 0)
+        result = errno;
+    close(fd);
+    return result;
+}
+
+/* Show whether EINVAL comes from loopback itself or port-zero binding.
+ * A bind to ANY or Wi-Fi IP is used ONLY for this short diagnostic. */
+static void report_loopback_bind_failure(char *message, size_t length, int loop_err) {
+    struct in_addr ip = {0}, mask = {0}, broadcast = {0};
+    int fixed = probe_bind_errno(INADDR_LOOPBACK, 49152);
+    int any = probe_bind_errno(INADDR_ANY, 0);
+    int wifi = -1;
+    if (SOCU_GetIPInfo(&ip, &mask, &broadcast) == 0 && ip.s_addr != 0)
+        wifi = probe_bind_errno(ntohl(ip.s_addr), 0);
+    if (message && length)
+        snprintf(message, length, "lo0:%d loP:%d any:%d wifi:%d",
+                 loop_err, fixed, any, wifi);
+}
+#endif
+
 static void diagnostic(char *error, size_t size, const char *stage) {
     if (error && size) snprintf(error, size, "%s (errno=%d)", stage, errno);
 }
@@ -50,6 +85,7 @@ static bool nonblocking(int fd) {
 
 bool loopback_pair_open(LoopbackPair *pair, char *error, size_t error_len) {
     int listener = -1, client = -1, accepted = -1, rc, so_error = 0;
+    bool used_fixed_port = false;
     socklen_t length;
     struct sockaddr_in addr;
 
@@ -66,7 +102,27 @@ bool loopback_pair_open(LoopbackPair *pair, char *error, size_t error_len) {
     listener = socket(AF_INET, SOCK_STREAM, 0);
     if (listener < 0) { diagnostic(error, error_len, "listen socket"); goto fail; }
     if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        diagnostic(error, error_len, "loopback bind"); goto fail;
+        const int loop_err = errno;
+#ifdef __3DS__
+        /* Some SOC implementations reject port zero. Try loopback ONLY
+         * with short-lived fixed high ports; never expose the listener
+         * by falling back to INADDR_ANY or the Wi-Fi interface. */
+        if (loop_err == EINVAL) {
+            uint16_t port;
+            for (port = 49152; port < 49184; ++port) {
+                addr.sin_port = htons(port);
+                if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
+                    used_fixed_port = true;
+                    break;
+                }
+            }
+        }
+        if (!used_fixed_port)
+            report_loopback_bind_failure(error, error_len, loop_err);
+#else
+        diagnostic(error, error_len, "loopback bind");
+#endif
+        if (!used_fixed_port) goto fail;
     }
     if (listen(listener, 1) < 0) { diagnostic(error, error_len, "listen"); goto fail; }
     length = (socklen_t)sizeof(addr);
@@ -101,7 +157,13 @@ bool loopback_pair_open(LoopbackPair *pair, char *error, size_t error_len) {
     close(listener);
     pair->read_fd = accepted;
     pair->write_fd = client;
-    if (error && error_len) error[0] = 0;
+    if (error && error_len) {
+        if (used_fixed_port)
+            snprintf(error, error_len, "Fixed loopback port %u",
+                     (unsigned)ntohs(addr.sin_port));
+        else
+            error[0] = 0;
+    }
     return true;
 
 fail:
@@ -118,8 +180,11 @@ bool loopback_pair_selftest(char *error, size_t error_len) {
     unsigned char byte = 0xa5, received = 0;
     bool ok = false;
     int rc;
+    char selected_port[64] = {0};
     loopback_pair_init(&pair);
     if (!loopback_pair_open(&pair, error, error_len)) return false;
+    if (error && error_len)
+        snprintf(selected_port, sizeof(selected_port), "%s", error);
     FD_ZERO(&rset);
     FD_SET(pair.read_fd, &rset);
     rc = select(pair.read_fd + 1, &rset, NULL, NULL, &tv);
@@ -139,7 +204,8 @@ bool loopback_pair_selftest(char *error, size_t error_len) {
     rc = select(pair.read_fd + 1, &rset, NULL, NULL, &tv);
     if (rc != 0) { diagnostic(error, error_len, "not drained"); goto done; }
     ok = true;
-    if (error && error_len) snprintf(error, error_len, "Loopback SOC/select PASS");
+    if (error && error_len)
+        snprintf(error, error_len, "%s", selected_port[0] ? "SOC fixed-port/select PASS" : "Loopback SOC/select PASS");
 
 done:
     loopback_pair_close(&pair);
