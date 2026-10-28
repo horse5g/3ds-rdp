@@ -74,7 +74,7 @@ A separate [ARM11 FreeRDP build investigation](docs/freerdp-port.md) now provide
 
 The experimental build now produces the complete `winpr` static-library target for O3DS alongside `freerdp-primitives` and `freerdp-codecs`. The main FreeRDP library is **not** complete: FreeRDP 3.32.2 contains OpenSSL-specific TLS, certificate and HTTP code despite its experimental Mbed TLS selection. Optional smart-card emulation and desktop-terminal passphrase handling are excluded for the current 3DS target, without changing certificate verification or NLA behavior.
 
-The next substantive dependency decision is to port a supported static OpenSSL 3.5 LTS release to ARM11, or develop and review a complete Mbed TLS-backed FreeRDP cryptography layer. Neither approach has passed a native 3DS link or TLS handshake yet. See [port notes](docs/freerdp-port.md) for the exact compiler findings.
+An independent [OpenSSL ARM11 build experiment](docs/openssl-arm11.md) now targets pinned OpenSSL 3.5.9 with actual pthread support and libctru socket compatibility. Static compilation remains experimental; the full FreeRDP core is not linked. Neither approach has passed a native 3DS link or TLS handshake yet. See [port notes](docs/freerdp-port.md) for the exact compiler findings.
 
 ## Planned work
 
