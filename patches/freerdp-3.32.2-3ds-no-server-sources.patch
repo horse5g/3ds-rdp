@@ -1,0 +1,17 @@
+diff --git a/libfreerdp/core/CMakeLists.txt b/libfreerdp/core/CMakeLists.txt
+--- a/libfreerdp/core/CMakeLists.txt
++++ b/libfreerdp/core/CMakeLists.txt
+@@ -153,7 +153,13 @@
+     timer.h
+ )
+ 
+ set(${MODULE_PREFIX}_SRCS ${${MODULE_PREFIX}_SRCS} ${${MODULE_PREFIX}_GATEWAY_SRCS})
++
++if(WINPR_TARGET_3DS AND NOT WITH_SERVER)
++  # This native 3DS client cannot host RDP sessions or Unix socket listeners.
++  # Avoid compiling server-only peer/listener implementations on Horizon SOC.
++  list(REMOVE_ITEM ${MODULE_PREFIX}_SRCS server.c listener.c peer.c)
++endif()
+ 
+ freerdp_module_add(${${MODULE_PREFIX}_SRCS})
+ 

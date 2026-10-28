@@ -1,0 +1,95 @@
+diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/implementations/rands/seeding/rand_unix.c
+--- a/providers/implementations/rands/seeding/rand_unix.c
++++ b/providers/implementations/rands/seeding/rand_unix.c
+@@ -8,4 +8,84 @@
+  */
+ 
++#if defined(__3DS__)
++/*
++ * Horizon entropy provider for OpenSSL's default DRBG.
++ * libctru documents PS_GenerateRandomBytes as cryptographically secure.
++ * Never fall back to uninitialized /dev/urandom, clocks, or timestamps.
++ * Keep requests small to bound individual PS IPC buffer sizes.
++ */
++#include <3ds.h>
++#include <openssl/crypto.h>
++#include "crypto/rand_pool.h"
++#include "prov/seeding.h"
++
++#define OSSL_3DS_PS_CHUNK 32
++
++int ossl_rand_pool_init(void)
++{
++    return 1;
++}
++
++void ossl_rand_pool_cleanup(void)
++{
++}
++
++void ossl_rand_pool_keep_random_devices_open(int keep)
++{
++    (void)keep;
++}
++
++size_t ossl_pool_acquire_entropy(RAND_POOL *pool)
++{
++    size_t remaining = ossl_rand_pool_bytes_needed(pool, 1);
++    size_t entropy;
++
++    if (remaining == 0)
++        return ossl_rand_pool_entropy_available(pool);
++
++    if (psInit() != 0)
++        return 0;
++
++    while (remaining != 0) {
++        const size_t amount = remaining > OSSL_3DS_PS_CHUNK
++                                  ? OSSL_3DS_PS_CHUNK : remaining;
++        unsigned char *dest = ossl_rand_pool_add_begin(pool, amount);
++
++        if (dest == NULL)
++            break;
++        if (PS_GenerateRandomBytes(dest, amount) != 0) {
++            OPENSSL_cleanse(dest, amount);
++            break;
++        }
++        if (!ossl_rand_pool_add_end(pool, amount, amount * 8)) {
++            OPENSSL_cleanse(dest, amount);
++            break;
++        }
++        remaining -= amount;
++    }
++    psExit();
++
++    if (remaining != 0)
++        return 0;
++
++    entropy = ossl_rand_pool_entropy_available(pool);
++    return entropy;
++}
++
++int ossl_pool_add_nonce_data(RAND_POOL *pool)
++{
++    unsigned char nonce[32];
++    int added = 0;
++
++    if (psInit() != 0)
++        return 0;
++    if (PS_GenerateRandomBytes(nonce, sizeof(nonce)) == 0)
++        added = ossl_rand_pool_add(pool, nonce, sizeof(nonce), 0);
++    OPENSSL_cleanse(nonce, sizeof(nonce));
++    psExit();
++    return added;
++}
++
++#else /* !__3DS__ */
+ #ifndef _GNU_SOURCE
+ #define _GNU_SOURCE
+@@ -799,5 +879,6 @@
+     return time(NULL);
+ }
+ 
+ #endif /* (defined(OPENSSL_SYS_UNIX) && !defined(OPENSSL_SYS_VXWORKS)) \
+           || defined(__DJGPP__) */
++#endif /* __3DS__ */

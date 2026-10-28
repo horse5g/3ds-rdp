@@ -5,3 +5,16 @@ build/
 *.map
 *.o
 tests/test_rdp_probe
+
+# Vendored upstream source and cross-compile artifacts
+external/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Separate opt-in full client build intermediates
+build-full/
+3ds-rdp-full.3dsx
+3ds-rdp-full.elf
+3ds-rdp-full.map
+3ds-rdp-full.smdh

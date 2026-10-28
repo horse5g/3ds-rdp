@@ -1,0 +1,108 @@
+diff --git a/winpr/libwinpr/library/library.c b/winpr/libwinpr/library/library.c
+--- a/winpr/libwinpr/library/library.c
++++ b/winpr/libwinpr/library/library.c
+@@ -68,3 +68,5 @@
+ 
+-#include <dlfcn.h>
++#ifndef __3DS__
++#include <dlfcn.h>
++#endif
+ #include <stdio.h>
+@@ -130,4 +132,8 @@
+ 	return hModule;
+-#else
+-	HMODULE library = dlopen(lpLibFileName, RTLD_LOCAL | RTLD_LAZY);
++#elif defined(__3DS__)
++	/* Dynamic libraries are not supported in this 3DS static build. */
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return nullptr;
++#else
++	HMODULE library = dlopen(lpLibFileName, RTLD_LOCAL | RTLD_LAZY);
+ 
+@@ -187,16 +193,26 @@
+ 
+-FARPROC GetProcAddress(HMODULE hModule, LPCSTR lpProcName)
+-{
+-	FARPROC proc = nullptr;
+-	proc = dlsym(hModule, lpProcName);
+-
+-	if (proc == nullptr)
+-	{
+-		// NOLINTNEXTLINE(concurrency-mt-unsafe)
+-		WLog_ERR(TAG, "GetProcAddress: could not find procedure %s: %s", lpProcName, dlerror());
+-		return (FARPROC) nullptr;
+-	}
+-
+-	return proc;
+-}
++#ifdef __3DS__
++FARPROC GetProcAddress(HMODULE hModule, LPCSTR lpProcName)
++{
++	WINPR_UNUSED(hModule);
++	WINPR_UNUSED(lpProcName);
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return nullptr;
++}
++#else
++FARPROC GetProcAddress(HMODULE hModule, LPCSTR lpProcName)
++{
++	FARPROC proc = nullptr;
++	proc = dlsym(hModule, lpProcName);
++
++	if (proc == nullptr)
++	{
++		// NOLINTNEXTLINE(concurrency-mt-unsafe)
++		WLog_ERR(TAG, "GetProcAddress: could not find procedure %s: %s", lpProcName, dlerror());
++		return (FARPROC) nullptr;
++	}
++
++	return proc;
++}
++#endif
+ 
+@@ -202,9 +218,18 @@
+ 
+-BOOL FreeLibrary(HMODULE hLibModule)
+-{
+-	int status = 0;
+-	status = dlclose(hLibModule);
+-
+-	return (status == 0);
+-}
++#ifdef __3DS__
++BOOL FreeLibrary(HMODULE hLibModule)
++{
++	WINPR_UNUSED(hLibModule);
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return FALSE;
++}
++#else
++BOOL FreeLibrary(HMODULE hLibModule)
++{
++	int status = 0;
++	status = dlclose(hLibModule);
++
++	return (status == 0);
++}
++#endif
+ 
+@@ -210,6 +235,15 @@
+ 
+-HMODULE GetModuleHandleA(LPCSTR lpModuleName)
+-{
+-	return dlopen(lpModuleName, RTLD_NOLOAD | RTLD_LOCAL | RTLD_LAZY);
+-}
++#ifdef __3DS__
++HMODULE GetModuleHandleA(LPCSTR lpModuleName)
++{
++	WINPR_UNUSED(lpModuleName);
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return nullptr;
++}
++#else
++HMODULE GetModuleHandleA(LPCSTR lpModuleName)
++{
++	return dlopen(lpModuleName, RTLD_NOLOAD | RTLD_LOCAL | RTLD_LAZY);
++}
++#endif
+ 

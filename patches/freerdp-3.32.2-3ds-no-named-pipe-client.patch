@@ -1,0 +1,40 @@
+diff --git a/winpr/libwinpr/file/namedPipeClient.c b/winpr/libwinpr/file/namedPipeClient.c
+--- a/winpr/libwinpr/file/namedPipeClient.c
++++ b/winpr/libwinpr/file/namedPipeClient.c
+@@ -33,7 +33,7 @@
+ #define TAG WINPR_TAG("file")
+ 
+-#ifndef _WIN32
+-
+-#ifdef ANDROID
++#if !defined(_WIN32) && !defined(__3DS__)
++
++#ifdef ANDROID
+ #include <sys/vfs.h>
+ #else
+@@ -229,7 +229,15 @@
+ }
+ 
+-#endif
+-
+-/* Extended API */
++#endif
++
++#ifdef __3DS__
++/* Named-pipe client requires Unix-domain sockets unavailable on Horizon. */
++const HANDLE_CREATOR* GetNamedPipeClientHandleCreator(void)
++{
++	return nullptr;
++}
++#endif
++
++/* Extended API */
+ 
+ #define NAMED_PIPE_PREFIX_PATH "\\\\.\\pipe\\"
+@@ -283,5 +291,5 @@
+ int GetNamePipeFileDescriptor(HANDLE hNamedPipe)
+ {
+-#ifndef _WIN32
++#if !defined(_WIN32) && !defined(__3DS__)
+ 	int fd = 0;
+ 	WINPR_NAMED_PIPE* pNamedPipe = (WINPR_NAMED_PIPE*)hNamedPipe;

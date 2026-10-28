@@ -1,0 +1,47 @@
+diff --git a/crypto/mem.c b/crypto/mem.c
+--- a/crypto/mem.c
++++ b/crypto/mem.c
+@@ -252,5 +252,5 @@
+     /* Allow non-malloc() allocations as long as no malloc_impl is provided. */
+     if (malloc_impl == CRYPTO_malloc) {
+-#if defined(_BSD_SOURCE) || (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L)
++#if !defined(__3DS__) && (defined(_BSD_SOURCE) || (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L))
+         if (posix_memalign(&ret, alignment, num))
+             return NULL;
+@@ -257,5 +257,5 @@
+         *freeptr = ret;
+         return ret;
+-#elif defined(_ISOC11_SOURCE)
++#elif defined(_ISOC11_SOURCE) && !defined(__3DS__)
+         ret = *freeptr = aligned_alloc(alignment, num);
+         return ret;
+@@ -277,5 +277,11 @@
+      * bytes bigger than requested
+      */
+-    *freeptr = CRYPTO_malloc(num + alignment, file, line);
++#ifdef __3DS__
++    /* newlib lacks posix_memalign; use OpenSSL's own padded allocation.
++       Reject size wraparound before adding the alignment overhead. */
++    if (num > ((size_t)-1) - alignment)
++        return NULL;
++#endif
++    *freeptr = CRYPTO_malloc(num + alignment, file, line);
+     if (*freeptr == NULL)
+         return NULL;
+diff --git a/crypto/uid.c b/crypto/uid.c
+--- a/crypto/uid.c
++++ b/crypto/uid.c
+@@ -11,5 +11,12 @@
+ #include <openssl/opensslconf.h>
+ 
+-#if defined(OPENSSL_SYS_WIN32) || defined(OPENSSL_SYS_VXWORKS) || defined(OPENSSL_SYS_UEFI) || defined(__wasi__)
++#if defined(__3DS__)
++/* Horizon has no Unix UIDs. Be conservative: environment-based OpenSSL
++ * configuration overrides are not trusted on this target. */
++int OPENSSL_issetugid(void)
++{
++    return 1;
++}
++#elif defined(OPENSSL_SYS_WIN32) || defined(OPENSSL_SYS_VXWORKS) || defined(OPENSSL_SYS_UEFI) || defined(__wasi__)
+ 
+ int OPENSSL_issetugid(void)

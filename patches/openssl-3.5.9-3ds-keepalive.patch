@@ -1,0 +1,67 @@
+diff --git a/crypto/bio/bio_sock2.c b/crypto/bio/bio_sock2.c
+--- a/crypto/bio/bio_sock2.c
++++ b/crypto/bio/bio_sock2.c
+@@ -91,14 +91,21 @@
+         return 0;
+ 
+-    if (options & BIO_SOCK_KEEPALIVE) {
+-        if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
+-                (const void *)&on, sizeof(on))
+-            != 0) {
+-            ERR_raise_data(ERR_LIB_SYS, get_last_socket_error(),
+-                "calling setsockopt()");
+-            ERR_raise(ERR_LIB_BIO, BIO_R_UNABLE_TO_KEEPALIVE);
+-            return 0;
+-        }
+-    }
++    if (options & BIO_SOCK_KEEPALIVE) {
++#ifdef SO_KEEPALIVE
++        if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
++                (const void *)&on, sizeof(on))
++            != 0) {
++            ERR_raise_data(ERR_LIB_SYS, get_last_socket_error(),
++                "calling setsockopt()");
++            ERR_raise(ERR_LIB_BIO, BIO_R_UNABLE_TO_KEEPALIVE);
++            return 0;
++        }
++#else
++        /* Not a supported Horizon SOC socket option. Reject explicitly. */
++        errno = ENOTSUP;
++        ERR_raise(ERR_LIB_BIO, BIO_R_UNABLE_TO_KEEPALIVE);
++        return 0;
++#endif
++    }
+ 
+     if (options & BIO_SOCK_NODELAY) {
+@@ -306,14 +313,21 @@
+         return 0;
+ 
+-    if (options & BIO_SOCK_KEEPALIVE) {
+-        if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
+-                (const void *)&on, sizeof(on))
+-            != 0) {
+-            ERR_raise_data(ERR_LIB_SYS, get_last_socket_error(),
+-                "calling setsockopt()");
+-            ERR_raise(ERR_LIB_BIO, BIO_R_UNABLE_TO_KEEPALIVE);
+-            return 0;
+-        }
+-    }
++    if (options & BIO_SOCK_KEEPALIVE) {
++#ifdef SO_KEEPALIVE
++        if (setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
++                (const void *)&on, sizeof(on))
++            != 0) {
++            ERR_raise_data(ERR_LIB_SYS, get_last_socket_error(),
++                "calling setsockopt()");
++            ERR_raise(ERR_LIB_BIO, BIO_R_UNABLE_TO_KEEPALIVE);
++            return 0;
++        }
++#else
++        /* Not a supported Horizon SOC socket option. Reject explicitly. */
++        errno = ENOTSUP;
++        ERR_raise(ERR_LIB_BIO, BIO_R_UNABLE_TO_KEEPALIVE);
++        return 0;
++#endif
++    }
+ 
+     if (options & BIO_SOCK_NODELAY) {

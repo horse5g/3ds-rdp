@@ -1,0 +1,182 @@
+diff --git a/winpr/libwinpr/pipe/pipe.c b/winpr/libwinpr/pipe/pipe.c
+--- a/winpr/libwinpr/pipe/pipe.c
++++ b/winpr/libwinpr/pipe/pipe.c
+@@ -40,5 +40,9 @@
+ #include <fcntl.h>
+ #include <errno.h>
+-#include <sys/un.h>
++#ifndef __3DS__
++#include <sys/un.h>
++#else
++#include "loopback_pair.h"
++#endif
+ #include <sys/socket.h>
+ #include <winpr/assert.h>
+@@ -128,5 +132,9 @@
+ 	do
+ 	{
+-		io_status = read(pipe->fd, lpBuffer, nNumberOfBytesToRead);
++#ifdef __3DS__
++		io_status = recv(pipe->fd, lpBuffer, nNumberOfBytesToRead, 0);
++#else
++		io_status = read(pipe->fd, lpBuffer, nNumberOfBytesToRead);
++#endif
+ 	} while ((io_status < 0) && (errno == EINTR));
+ 
+@@ -168,5 +176,9 @@
+ 	do
+ 	{
+-		io_status = write(pipe->fd, lpBuffer, nNumberOfBytesToWrite);
++#ifdef __3DS__
++		io_status = send(pipe->fd, lpBuffer, nNumberOfBytesToWrite, 0);
++#else
++		io_status = write(pipe->fd, lpBuffer, nNumberOfBytesToWrite);
++#endif
+ 	} while ((io_status < 0) && (errno == EINTR));
+ 
+@@ -488,6 +500,13 @@
+ 	 * there's no window between pipe creation and marking it close-on-exec during which a
+ 	 * concurrent fork() elsewhere in the process could leak the fd into an unrelated child. */
+-#ifdef WINPR_HAVE_PIPE2
+-	const int pipe2flags = inherit ? 0 : O_CLOEXEC;
++#if defined(__3DS__)
++	LoopbackPair pair;
++	loopback_pair_init(&pair);
++	if (!loopback_pair_open(&pair, NULL, 0))
++		goto fail_close_fd;
++	pipe_fd[0] = pair.read_fd;
++	pipe_fd[1] = pair.write_fd;
++#elif defined(WINPR_HAVE_PIPE2)
++	const int pipe2flags = inherit ? 0 : O_CLOEXEC;
+ 	if (pipe2(pipe_fd, pipe2flags) < 0)
+ #else
+@@ -600,6 +619,18 @@
+                         LPSECURITY_ATTRIBUTES lpSecurityAttributes)
+ {
+-	char* lpPipePath = nullptr;
+-	WINPR_NAMED_PIPE* pNamedPipe = nullptr;
++#ifdef __3DS__
++	WINPR_UNUSED(lpName);
++	WINPR_UNUSED(dwOpenMode);
++	WINPR_UNUSED(dwPipeMode);
++	WINPR_UNUSED(nMaxInstances);
++	WINPR_UNUSED(nOutBufferSize);
++	WINPR_UNUSED(nInBufferSize);
++	WINPR_UNUSED(nDefaultTimeOut);
++	WINPR_UNUSED(lpSecurityAttributes);
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return INVALID_HANDLE_VALUE;
++#else
++	char* lpPipePath = nullptr;
++	WINPR_NAMED_PIPE* pNamedPipe = nullptr;
+ 	int serverfd = -1;
+ 	NamedPipeServerSocketEntry* baseSocket = nullptr;
+@@ -774,7 +805,8 @@
+ 		close(serverfd);
+ 
+-	ArrayList_Unlock(g_NamedPipeServerSockets);
+-	return INVALID_HANDLE_VALUE;
+-}
++	ArrayList_Unlock(g_NamedPipeServerSockets);
++	return INVALID_HANDLE_VALUE;
++#endif
++}
+ 
+ HANDLE CreateNamedPipeW(WINPR_ATTR_UNUSED LPCWSTR lpName, WINPR_ATTR_UNUSED DWORD dwOpenMode,
+@@ -792,7 +824,13 @@
+ BOOL ConnectNamedPipe(HANDLE hNamedPipe, LPOVERLAPPED lpOverlapped)
+ {
+-	int status = 0;
+-	socklen_t length = 0;
+-	WINPR_NAMED_PIPE* pNamedPipe = nullptr;
++#ifdef __3DS__
++	WINPR_UNUSED(hNamedPipe);
++	WINPR_UNUSED(lpOverlapped);
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return FALSE;
++#else
++	int status = 0;
++	socklen_t length = 0;
++	WINPR_NAMED_PIPE* pNamedPipe = nullptr;
+ 
+ 	if (lpOverlapped)
+@@ -852,8 +890,9 @@
+ 	}
+ 
+-	return TRUE;
+-}
+-
+-BOOL DisconnectNamedPipe(HANDLE hNamedPipe)
++	return TRUE;
++#endif
++}
++
++BOOL DisconnectNamedPipe(HANDLE hNamedPipe)
+ {
+ 	WINPR_NAMED_PIPE* pNamedPipe = nullptr;
+diff --git a/winpr/libwinpr/synch/event.c b/winpr/libwinpr/synch/event.c
+--- a/winpr/libwinpr/synch/event.c
++++ b/winpr/libwinpr/synch/event.c
+@@ -44,5 +44,9 @@
+ 
+ #include "../handle/handle.h"
+-#include "../pipe/pipe.h"
++#include "../pipe/pipe.h"
++#ifdef __3DS__
++#include "loopback_pair.h"
++#include <sys/socket.h>
++#endif
+ 
+ #include "../log.h"
+@@ -117,6 +121,13 @@
+ 	return event->fds[0] >= 0;
+ #else
+-#ifdef WINPR_HAVE_PIPE2
+-	if (pipe2(event->fds, O_CLOEXEC) < 0)
++#if defined(__3DS__)
++	LoopbackPair pair;
++	loopback_pair_init(&pair);
++	if (!loopback_pair_open(&pair, NULL, 0))
++		return FALSE;
++	event->fds[0] = pair.read_fd;
++	event->fds[1] = pair.write_fd;
++#elif defined(WINPR_HAVE_PIPE2)
++	if (pipe2(event->fds, O_CLOEXEC) < 0)
+ 		return FALSE;
+ #else
+@@ -156,5 +167,9 @@
+ 		ret = eventfd_write(event->fds[0], value);
+ #else
+-		ret = write(event->fds[1], "-", 1);
++#ifdef __3DS__
++		ret = send(event->fds[1], "-", 1, 0);
++#else
++		ret = write(event->fds[1], "-", 1);
++#endif
+ #endif
+ 	} while (ret < 0 && errno == EINTR);
+@@ -175,5 +190,9 @@
+ #else
+ 			char value;
+-			ret = read(event->fds[0], &value, 1);
++#ifdef __3DS__
++			ret = recv(event->fds[0], &value, 1, 0);
++#else
++			ret = read(event->fds[0], &value, 1);
++#endif
+ #endif
+ 		} while (ret < 0 && errno == EINTR);
+diff --git a/winpr/libwinpr/CMakeLists.txt b/winpr/libwinpr/CMakeLists.txt
+--- a/winpr/libwinpr/CMakeLists.txt
++++ b/winpr/libwinpr/CMakeLists.txt
+@@ -217,6 +217,10 @@
+   add_subdirectory(${DIR})
+   source_group("${DIR}" REGULAR_EXPRESSION "${DIR}/.*\\.[ch]")
+ endforeach()
+ 
++if(WINPR_TARGET_3DS)
++  list(APPEND WINPR_SRCS "${WINPR_3DS_ROOT}/source/loopback_pair.c")
++endif()
++
+ set(MODULE_NAME winpr)
+ list(REMOVE_DUPLICATES WINPR_DEFINITIONS)

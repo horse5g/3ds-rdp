@@ -1,0 +1,171 @@
+# Proof-of-build only. This does not enable authentication or desktop on O3DS.
+name: FreeRDP ARM11 with OpenSSL
+on:
+  push:
+    paths:
+      - '.github/workflows/freerdp-openssl-arm11.yml'
+      - 'scripts/build-freerdp-3ds.sh'
+      - 'scripts/link-freerdp-3ds.sh'
+      - 'tests/freerdp-arm11-link.c'
+      - 'scripts/build-combined-3dsx.sh'
+      - 'scripts/check-full-session-3ds.sh'
+      - 'source/freerdp_session.c'
+      - 'include/freerdp_session.h'
+      - 'source/main.c'
+      - 'Makefile'
+      - 'scripts/build-openssl-3ds.sh'
+      - 'cmake/3ds-armv6k.cmake'
+      - 'cmake/openssl-3ds.conf'
+      - 'patches/freerdp-*.patch'
+      - 'patches/openssl-*.patch'
+      - 'source/loopback_pair.c'
+      - 'include/loopback_pair.h'
+  pull_request:
+    paths:
+      - '.github/workflows/freerdp-openssl-arm11.yml'
+      - 'scripts/build-freerdp-3ds.sh'
+      - 'scripts/link-freerdp-3ds.sh'
+      - 'tests/freerdp-arm11-link.c'
+      - 'scripts/build-combined-3dsx.sh'
+      - 'scripts/check-full-session-3ds.sh'
+      - 'source/freerdp_session.c'
+      - 'include/freerdp_session.h'
+      - 'source/main.c'
+      - 'Makefile'
+      - 'scripts/build-openssl-3ds.sh'
+      - 'cmake/3ds-armv6k.cmake'
+      - 'cmake/openssl-3ds.conf'
+      - 'patches/freerdp-*.patch'
+      - 'patches/openssl-*.patch'
+      - 'source/loopback_pair.c'
+      - 'include/loopback_pair.h'
+  workflow_dispatch:
+concurrency:
+  group: freerdp-arm11-openssl-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  cross-compile:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm
+    env:
+      JOBS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM11 zlib for combined linking
+        shell: bash
+        run: |
+          if ! test -s "$DEVKITPRO/portlibs/3ds/lib/libz.a"; then
+            dkp-pacman -Syu --noconfirm --needed 3ds-zlib
+          fi
+      - name: Restore compiled ARM11 OpenSSL prerequisite
+        id: ssl-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            external/openssl
+            build/openssl-3ds
+          key: arm11-ssl359-dkp-v1-${{ hashFiles('scripts/build-openssl-3ds.sh', 'cmake/openssl-3ds.conf', 'patches/openssl-*.patch') }}
+      - name: Build PS-backed OpenSSL 3.5 static libraries
+        if: steps.ssl-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-openssl-3ds.sh build 2>&1 | tee openssl-arm11.log
+      - name: Check ARM11 OpenSSL archives and generated headers
+        shell: bash
+        run: |
+          test -s build/openssl-3ds/libssl.a
+          test -s build/openssl-3ds/libcrypto.a
+          test -s build/openssl-3ds/include/openssl/configuration.h
+      - name: Save validated OpenSSL prerequisite for later iterations
+        if: steps.ssl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            external/openssl
+            build/openssl-3ds
+          key: arm11-ssl359-dkp-v1-${{ hashFiles('scripts/build-openssl-3ds.sh', 'cmake/openssl-3ds.conf', 'patches/openssl-*.patch') }}
+      - name: Configure and compile FreeRDP against ARM11 OpenSSL
+        id: freerdp
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          FREERDP_CRYPTO_BACKEND=openssl bash scripts/build-freerdp-3ds.sh build 2>&1 | tee freerdp-openssl-arm11.log
+      - name: Compile experimental full-client C code independently
+        id: fullsyntax
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/check-full-session-3ds.sh 2>&1 | tee full-client-syntax.log
+      - name: Link FreeRDP, WinPR, OpenSSL and libctru into ARM11 ELF
+        id: combined
+        if: steps.freerdp.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/link-freerdp-3ds.sh 2>&1 | tee combined-arm11-link.log
+      - name: Build full experimental 3DS application
+        id: fullapp
+        if: steps.combined.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-combined-3dsx.sh 2>&1 | tee combined-3dsx.log
+      - name: Report FreeRDP compile and link results
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## FreeRDP + OpenSSL cross-build'
+            echo 'FreeRDP compile step: **${{ steps.freerdp.outcome }}**.'
+            echo 'Full-client ARM11 syntax: **${{ steps.fullsyntax.outcome }}**.'
+            echo 'Combined ELF link step: **${{ steps.combined.outcome }}**.'
+            echo 'Experimental full application 3DSX: **${{ steps.fullapp.outcome }}**.'
+            echo 'A successful ELF/3DSX link is NOT a verified TLS/NLA session or a hardware-tested RDP client.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload compiler diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freerdp-openssl-arm11-diagnostics
+          if-no-files-found: ignore
+          path: |
+            openssl-arm11.log
+            freerdp-openssl-arm11.log
+            combined-arm11-link.log
+            combined-3dsx.log
+            full-client-syntax.log
+            build/freerdp-3ds/CMakeCache.txt
+            build/freerdp-3ds/CMakeFiles/CMakeConfigureLog.yaml
+      - name: Upload compiled FreeRDP libraries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freerdp-openssl-arm11-archives
+          if-no-files-found: ignore
+          path: |
+            build/freerdp-3ds/libfreerdp/**/*.a
+            build/freerdp-3ds/winpr/**/*.a
+            build/freerdp-3ds/combined-arm11-link.elf
+            build/freerdp-3ds/combined-arm11-link.3dsx
+            build/freerdp-3ds/combined-arm11-link.map
+            3ds-rdp-full.3dsx
+            3ds-rdp-full.elf
+            3ds-rdp-full.map
+      - name: Require completed full integration for a green workflow
+        if: always()
+        shell: bash
+        run: |
+          echo "FreeRDP core: ${{ steps.freerdp.outcome }}"
+          echo "Full-client syntax: ${{ steps.fullsyntax.outcome }}"
+          echo "Combined ARM11 link: ${{ steps.combined.outcome }}"
+          echo "Integrated 3DSX: ${{ steps.fullapp.outcome }}"
+          test "${{ steps.freerdp.outcome }}" = success
+          test "${{ steps.fullsyntax.outcome }}" = success
+          test "${{ steps.combined.outcome }}" = success
+          test "${{ steps.fullapp.outcome }}" = success

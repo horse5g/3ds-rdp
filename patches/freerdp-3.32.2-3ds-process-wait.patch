@@ -1,0 +1,26 @@
+diff --git a/winpr/libwinpr/synch/wait.c b/winpr/libwinpr/synch/wait.c
+--- a/winpr/libwinpr/synch/wait.c
++++ b/winpr/libwinpr/synch/wait.c
+@@ -150,7 +150,12 @@
+ 		/* note: if we have pidfd support (under linux and we have managed to associate a
+ 		 * 		pidfd with our process), we use the regular method with pollset below.
+ 		 * 		If not (on other platforms) we do a waitpid */
+-		WINPR_PROCESS* process = (WINPR_PROCESS*)Object;
++#ifdef __3DS__
++		/* Horizon has no POSIX child processes or waitpid(). */
++		SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++		return WAIT_FAILED;
++#else
++		WINPR_PROCESS* process = (WINPR_PROCESS*)Object;
+ 
+ 		while (TRUE)
+ 		{
+@@ -190,7 +195,8 @@
+ 			if (status != 0)
+ 				return status;
+ 		}
++#endif
+ 	}
+ 
+ 	if (Type == HANDLE_TYPE_MUTEX)
+ 	{

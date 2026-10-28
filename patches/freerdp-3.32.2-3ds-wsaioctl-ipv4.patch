@@ -1,0 +1,66 @@
+diff --git a/winpr/libwinpr/winsock/winsock.c b/winpr/libwinpr/winsock/winsock.c
+--- a/winpr/libwinpr/winsock/winsock.c
++++ b/winpr/libwinpr/winsock/winsock.c
+@@ -294,5 +294,10 @@
+ #include <netinet/in.h>
+ #include <netinet/tcp.h>
+-#include <net/if.h>
++#ifndef __3DS__
++#include <net/if.h>
++#else
++#include <3ds/types.h>
++#include <3ds/services/soc.h>
++#endif
+ 
+ #ifndef MSG_NOSIGNAL
+@@ -797,6 +801,36 @@
+              WINPR_ATTR_UNUSED LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine)
+ {
+-	int fd = 0;
+-	int index = 0;
++#ifdef __3DS__
++	/* Horizon exposes its IPv4 settings through SOC, not SIOCGIFCONF. */
++	WINPR_UNUSED(s);
++	if ((dwIoControlCode != SIO_GET_INTERFACE_LIST) || !lpvOutBuffer ||
++	    !lpcbBytesReturned || cbOutBuffer < sizeof(INTERFACE_INFO))
++	{
++		WSASetLastError(WSAEINVAL);
++		return SOCKET_ERROR;
++	}
++	struct in_addr ip = { 0 }, mask = { 0 }, broadcast = { 0 };
++	if (SOCU_GetIPInfo(&ip, &mask, &broadcast) != 0 || ip.s_addr == 0)
++	{
++		WSASetLastError(WSAENETDOWN);
++		return SOCKET_ERROR;
++	}
++	INTERFACE_INFO* info = (INTERFACE_INFO*)lpvOutBuffer;
++	ZeroMemory(info, sizeof(*info));
++	struct sockaddr_in* address = (struct sockaddr_in*)&info->iiAddress;
++	struct sockaddr_in* netmask = (struct sockaddr_in*)&info->iiNetmask;
++	struct sockaddr_in* bcast = (struct sockaddr_in*)&info->iiBroadcastAddress;
++	address->sin_family = AF_INET;
++	netmask->sin_family = AF_INET;
++	bcast->sin_family = AF_INET;
++	address->sin_addr = ip;
++	netmask->sin_addr = mask;
++	bcast->sin_addr = broadcast;
++	info->iiFlags = _IFF_UP | _IFF_BROADCAST;
++	*lpcbBytesReturned = sizeof(INTERFACE_INFO);
++	return 0;
++#else
++	int fd = 0;
++	int index = 0;
+ 	ULONG nFlags = 0;
+ 	size_t offset = 0;
+@@ -1002,7 +1036,8 @@
+ 	}
+ 
+-	*lpcbBytesReturned = (DWORD)(numInterfaces * sizeof(INTERFACE_INFO));
+-	return 0;
+-}
++	*lpcbBytesReturned = (DWORD)(numInterfaces * sizeof(INTERFACE_INFO));
++	return 0;
++#endif
++}
+ 
+ SOCKET _accept(SOCKET s, struct sockaddr* addr, int* addrlen)

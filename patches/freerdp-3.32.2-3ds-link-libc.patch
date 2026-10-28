@@ -1,0 +1,16 @@
+diff --git a/libfreerdp/core/utils.c b/libfreerdp/core/utils.c
+--- a/libfreerdp/core/utils.c
++++ b/libfreerdp/core/utils.c
+@@ -634,9 +634,9 @@
+ 
+ BOOL utils_set_umask(void)
+ {
+-#if !defined(_WIN32)
+-	(void)umask(S_IRWXG | S_IRWXO);
+-#endif
++#if !defined(_WIN32) && !defined(__3DS__)
++	(void)umask(S_IRWXG | S_IRWXO);
++#endif
+ 	return TRUE;
+ }
+ 

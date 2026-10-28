@@ -1,0 +1,67 @@
+diff --git a/libfreerdp/core/utils.c b/libfreerdp/core/utils.c
+--- a/libfreerdp/core/utils.c
++++ b/libfreerdp/core/utils.c
+@@ -622,55 +622,63 @@
+ WINPR_ATTR_NODISCARD
+ static BOOL isValidIPv6(const char* ipAddress)
+ {
++#ifdef __3DS__
++    /* Horizon SOC supports IPv4 only; do not fabricate IPv6 socket types. */
++	(void)ipAddress;
++	return FALSE;
++#else
+ 	struct sockaddr_in6 sa = WINPR_C_ARRAY_INIT;
+ 	int result = inet_pton(AF_INET6, ipAddress, &(sa.sin6_addr));
+ 	return result != 0;
++#endif
+ }
+ 
+ BOOL utils_is_valid_ip(const char* ipAddress)
+ {
+ 	return isValidIPv4(ipAddress) || isValidIPv6(ipAddress);
+ }
+ 
+ BOOL utils_set_umask(void)
+ {
+ #if !defined(_WIN32)
+ 	(void)umask(S_IRWXG | S_IRWXO);
+ #endif
+ 	return TRUE;
+ }
+ 
+ BOOL utils_compare_ip_strings(const char* ipAddressA, size_t lenA, const char* ipAddressB,
+                               size_t lenB)
+ {
+ 	if (!ipAddressA || (lenA == 0))
+ 		return FALSE;
+ 	if (!ipAddressB || (lenB == 0))
+ 		return FALSE;
+ 	if (strnlen(ipAddressA, lenA + 1) > lenA)
+ 		return FALSE;
+ 	if (strnlen(ipAddressB, lenB + 1) > lenB)
+ 		return FALSE;
+ 
+ 	if (isValidIPv4(ipAddressA) && isValidIPv4(ipAddressB))
+ 	{
+ 		struct sockaddr_in sa = WINPR_C_ARRAY_INIT;
+ 		struct sockaddr_in sb = WINPR_C_ARRAY_INIT;
+ 		const int resultA = inet_pton(AF_INET, ipAddressA, &(sa.sin_addr));
+ 		const int resultB = inet_pton(AF_INET, ipAddressB, &(sb.sin_addr));
+ 		if ((resultA != resultB) || (resultA != 0))
+ 			return FALSE;
+ 		return memcmp(&sa, &sb, sizeof(sa)) == 0;
+ 	}
++#ifndef __3DS__
+ 	if (isValidIPv6(ipAddressA) && isValidIPv6(ipAddressB))
+ 	{
+ 		struct sockaddr_in6 sa = WINPR_C_ARRAY_INIT;
+ 		struct sockaddr_in6 sb = WINPR_C_ARRAY_INIT;
+ 		const int resultA = inet_pton(AF_INET6, ipAddressA, &(sa.sin6_addr));
+ 		const int resultB = inet_pton(AF_INET6, ipAddressB, &(sb.sin6_addr));
+ 		if ((resultA != resultB) || (resultA != 0))
+ 			return FALSE;
+ 		return memcmp(&sa, &sb, sizeof(sa)) == 0;
+ 	}
++#endif
+ 	return FALSE;
+ }

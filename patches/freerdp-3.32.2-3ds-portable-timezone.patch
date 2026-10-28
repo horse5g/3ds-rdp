@@ -1,0 +1,63 @@
+diff --git a/winpr/libwinpr/timezone/timezone.c b/winpr/libwinpr/timezone/timezone.c
+--- a/winpr/libwinpr/timezone/timezone.c
++++ b/winpr/libwinpr/timezone/timezone.c
+@@ -379,5 +379,19 @@
+ {
+ 	WINPR_ASSERT(t);
+-	return -(LONG)(t->tm_gmtoff / 60l);
++#ifdef __3DS__
++	/* Compute GMT offset without the nonstandard tm_gmtoff field. */
++	struct tm local = *t;
++	const time_t timestamp = mktime(&local);
++	struct tm utc = WINPR_C_ARRAY_INIT;
++	if (timestamp == (time_t)-1 || !gmtime_r(&timestamp, &utc))
++		return 0;
++	utc.tm_isdst = -1;
++	const time_t utc_as_local = mktime(&utc);
++	if (utc_as_local == (time_t)-1)
++		return 0;
++	return (LONG)(difftime(utc_as_local, timestamp) / 60.0);
++#else
++	return -(LONG)(t->tm_gmtoff / 60l);
++#endif
+ }
+ 
+@@ -807,9 +821,16 @@
+ 	if (!map_iana_id(tzid, pTimeZoneInformation))
+ 	{
+-		const size_t len = TimeZoneIanaAbbrevGet(local_time->tm_zone, nullptr, 0);
+-		list = (const char**)calloc(len, sizeof(const char*));
+-		if (!list)
+-			goto out_error;
+-		const size_t size = TimeZoneIanaAbbrevGet(local_time->tm_zone, list, len);
++#ifdef __3DS__
++		char zone[64] = { 0 };
++		(void)strftime(zone, sizeof(zone), "%Z", local_time);
++		const char* zoneAbbrev = zone;
++#else
++		const char* zoneAbbrev = local_time->tm_zone;
++#endif
++		const size_t len = TimeZoneIanaAbbrevGet(zoneAbbrev, nullptr, 0);
++		list = (const char**)calloc(len, sizeof(const char*));
++		if (!list)
++			goto out_error;
++		const size_t size = TimeZoneIanaAbbrevGet(zoneAbbrev, list, len);
+ 		for (size_t x = 0; x < size; x++)
+ 		{
+diff --git a/winpr/libwinpr/timezone/TimeZoneIanaAbbrevMap.c b/winpr/libwinpr/timezone/TimeZoneIanaAbbrevMap.c
+--- a/winpr/libwinpr/timezone/TimeZoneIanaAbbrevMap.c
++++ b/winpr/libwinpr/timezone/TimeZoneIanaAbbrevMap.c
+@@ -82,5 +82,12 @@
+ 	struct tm lt = WINPR_C_ARRAY_INIT;
+ 	(void)localtime_r(&t, &lt);
+-	append(tz, lt.tm_zone);
++#ifdef __3DS__
++	/* Use the C standard timezone abbreviation formatter. */
++	char zone[64] = { 0 };
++	if (strftime(zone, sizeof(zone), "%Z", &lt) > 0)
++		append(tz, zone);
++#else
++	append(tz, lt.tm_zone);
++#endif
+ 	restoreSavedTZ(oldtz);
+ 	free(tz);

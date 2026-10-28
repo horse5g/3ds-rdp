@@ -1,0 +1,50 @@
+diff --git a/libfreerdp/utils/CMakeLists.txt b/libfreerdp/utils/CMakeLists.txt
+--- a/libfreerdp/utils/CMakeLists.txt
++++ b/libfreerdp/utils/CMakeLists.txt
+@@ -43,9 +43,11 @@
+ )
+ 
+-if(WIN32)
+-  list(APPEND ${MODULE_PREFIX}_SRCS signal_win32.c)
+-else()
+-  list(APPEND ${MODULE_PREFIX}_SRCS signal_posix.c)
+-endif()
++if(WINPR_TARGET_3DS)
++  list(APPEND ${MODULE_PREFIX}_SRCS signal_3ds.c)
++elseif(WIN32)
++  list(APPEND ${MODULE_PREFIX}_SRCS signal_win32.c)
++else()
++  list(APPEND ${MODULE_PREFIX}_SRCS signal_posix.c)
++endif()
+ 
+ freerdp_module_add(${${MODULE_PREFIX}_SRCS})
+diff --git a/libfreerdp/utils/signal_3ds.c b/libfreerdp/utils/signal_3ds.c
+new file mode 100644
+--- /dev/null
++++ b/libfreerdp/utils/signal_3ds.c
+@@ -0,0 +1,25 @@
++/* Horizon OS has no POSIX signals/terminal. Preserve mutex protection
++ * for FreeRDP's signal cleanup registry, but explicitly reject installing
++ * Unix process signal handlers. Do not pretend these handlers run. */
++#include <errno.h>
++#include <pthread.h>
++#include <freerdp/utils/signal.h>
++#include "platform_signal.h"
++
++static pthread_mutex_t horizon_signal_mutex = PTHREAD_MUTEX_INITIALIZER;
++
++void fsig_lock(void)
++{
++    (void)pthread_mutex_lock(&horizon_signal_mutex);
++}
++
++void fsig_unlock(void)
++{
++    (void)pthread_mutex_unlock(&horizon_signal_mutex);
++}
++
++int freerdp_handle_signals(void)
++{
++    errno = ENOSYS;
++    return -1;
++}

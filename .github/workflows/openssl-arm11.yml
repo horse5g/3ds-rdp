@@ -1,0 +1,52 @@
+# Independent crypto prerequisite probe; NOT a usable or secure RDP client.
+name: OpenSSL ARM11 feasibility
+on:
+  push:
+    paths:
+      - '.github/workflows/openssl-arm11.yml'
+      - 'scripts/build-openssl-3ds.sh'
+      - 'cmake/openssl-3ds.conf'
+      - 'scripts/link-openssl-3ds.sh'
+      - 'tests/openssl-arm11-link.c'
+      - 'tests/openssl-arm11-runtime.c'
+      - 'patches/openssl-*.patch'
+  pull_request:
+    paths:
+      - '.github/workflows/openssl-arm11.yml'
+      - 'scripts/build-openssl-3ds.sh'
+      - 'cmake/openssl-3ds.conf'
+      - 'scripts/link-openssl-3ds.sh'
+      - 'tests/openssl-arm11-link.c'
+      - 'tests/openssl-arm11-runtime.c'
+      - 'patches/openssl-*.patch'
+  workflow_dispatch:
+jobs:
+  cross-compile:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross-compile static libcrypto and libssl for original 3DS
+        run: bash scripts/build-openssl-3ds.sh build
+      - name: Verify archive targets
+        run: |
+          test -s build/openssl-3ds/libcrypto.a
+          test -s build/openssl-3ds/libssl.a
+          "$DEVKITARM/bin/arm-none-eabi-ar" t build/openssl-3ds/libcrypto.a | sed -n '1,2p'
+          "$DEVKITARM/bin/arm-none-eabi-ar" t build/openssl-3ds/libssl.a | sed -n '1,2p'
+      - name: Link native SSL_CTX and X.509 symbols (informational)
+        continue-on-error: true
+        run: bash scripts/link-openssl-3ds.sh
+      - name: Build standalone OpenSSL PS RNG smoke-test 3DSX
+        continue-on-error: true
+        run: bash scripts/link-openssl-3ds.sh runtime
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: openssl-arm11-static-experimental
+          path: |
+            build/openssl-3ds/libcrypto.a
+            build/openssl-3ds/libssl.a
+            build/openssl-3ds/openssl-rng-smoke.3dsx
+          if-no-files-found: error

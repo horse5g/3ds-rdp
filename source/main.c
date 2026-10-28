@@ -4,61 +4,164 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "config.h"
 #include "network.h"
+#include "horizon_sync.h"
+#include "loopback_pair.h"
+#include "horizon_rng.h"
+#include "freerdp_session.h"
+#ifdef RDP_FULL_CLIENT
+#include "cert_manager.h"
+#endif
+
 #define HOST_FILE "sdmc:/3ds/3ds-rdp/host.txt"
 #define SOC_SIZE (1024*1024)
+#define MAX_CONFIG_BYTES 4096
+
 static PrintConsole top,bottom;
-static char host[64],status[100]="Ready",detail[100]="Press A to probe";
-static uint16_t port=3389;
+static RdpConfig config;
+static char status[100]="Ready",detail[100]="Press A to probe";
 static int configured=0;
+
 static void load_host(void) {
-    FILE *f=fopen(HOST_FILE,"r"); char line[128],*colon,*p,*end; unsigned long v;
-    configured=0;host[0]=0;port=3389;
-    if(!f) return;
-    while(fgets(line,sizeof(line),f)) {
-        p=line;while(*p==' '||*p=='\t')p++;
-        if(!*p||*p=='#'||*p=='\n')continue;
-        end=p+strlen(p);
-        while(end>p&&(end[-1]=='\n'||end[-1]=='\r'||end[-1]==' '))*--end=0;
-        colon=strrchr(p,':');
-        if(colon) { char *stop;*colon++=0;v=strtoul(colon,&stop,10);
-            if(!*colon||*stop||v<1||v>65535)break;port=(uint16_t)v; }
-        if(strlen(p)==0||strlen(p)>=sizeof(host))break;
-        strcpy(host,p);configured=1;break;
+    char contents[MAX_CONFIG_BYTES+1],problem[96];
+    size_t bytes;
+    FILE *file=fopen(HOST_FILE,"rb");
+    configured=0;
+    memset(&config,0,sizeof(config));
+    if(!file) {
+        snprintf(problem,sizeof(problem),"Missing host.txt on SD card");
+    } else {
+        bytes=fread(contents,1,sizeof(contents),file);
+        if(ferror(file)) {
+            snprintf(problem,sizeof(problem),"Unable to read host.txt");
+        } else if(bytes>=sizeof(contents)) {
+            snprintf(problem,sizeof(problem),"host.txt too large");
+        } else if(memchr(contents,0,bytes)) {
+            snprintf(problem,sizeof(problem),"host.txt contains NUL byte");
+        } else {
+            contents[bytes]=0;
+            configured=(rdp_config_parse(contents,&config,problem,sizeof(problem))==0);
+        }
+        fclose(file);
     }
-    fclose(f);
+    if(!configured) {
+        snprintf(status,sizeof(status),"Configuration error");
+        snprintf(detail,sizeof(detail),"%s",problem);
+    } else {
+        snprintf(status,sizeof(status),"Config loaded");
+        snprintf(detail,sizeof(detail),"Press A to probe RDP");
+    }
 }
+
 static void draw(void) {
     consoleSelect(&top);
     printf("\x1b[2J\x1b[H3DS RDP - O3DS prototype\n===========================\n\n");
-    printf("Host: %s\nPort: %u\n\n",configured?host:"NOT CONFIGURED",(unsigned)port);
-    printf("Status: %s\nDetail: %s\n\n",status,detail);
-    printf("Negotiation probe only!\nNo login or desktop yet.\n");
+    printf("Host: %.38s\nPort: %u\n\n",configured?config.host:"NOT CONFIGURED",
+           (unsigned)(configured?config.port:3389));
+    printf("Status: %.38s\nDetail: %.38s\n\n",status,detail);
+#ifdef RDP_FULL_CLIENT
+    printf("R: Experimental full FreeRDP session\n");
+#else
+    printf("Negotiation probe only.\nNo login or desktop yet.\n");
+#endif
     consoleSelect(&bottom);
-    printf("\x1b[2J\x1b[H A: Connect/probe\n X: Reload host.txt\n START: Exit\n\n");
-    printf("SD: /3ds/3ds-rdp/host.txt\n192.168.1.100:3389\n\nNo passwords saved.\n");
+    printf("\x1b[2J\x1b[H A: Connect/probe\n B: Kernel event test\n Y: SOC loopback test\n SELECT: PS entropy test\n X: Reload host.txt\n START: Exit\n\n");
+#ifdef RDP_FULL_CLIENT
+    printf(" R: FreeRDP session (unverified)\n");
+    printf(" L: Trusted certificates manager\n");
+#endif
+    printf("User: %.30s\n",config.username[0]?config.username:"(not set)");
+    printf("AD domain: %.27s\n",config.domain[0]?config.domain:"(not set)");
+#ifdef RDP_FULL_CLIENT
+    printf("\nR: NLA + cert trust pool (experimental)\n");
+    printf("Password prompted, never saved.\n");
+#else
+    printf("\nAuthentication not enabled.\n");
+    printf("No passwords saved or sent.\n");
+#endif
 }
+
 int main(int argc,char **argv) {
-    void *buffer; int netok=0;
+    void *buffer;
+    int netok=0;
     (void)argc;(void)argv;
-    gfxInitDefault();consoleInit(GFX_TOP,&top);consoleInit(GFX_BOTTOM,&bottom);
+    gfxInitDefault();
+    consoleInit(GFX_TOP,&top);
+    consoleInit(GFX_BOTTOM,&bottom);
     buffer=memalign(0x1000,SOC_SIZE);
-    if(buffer&&R_SUCCEEDED(socInit(buffer,SOC_SIZE)))netok=1;
-    else snprintf(status,sizeof(status),"socInit failed");
-    load_host();draw();
+    if(buffer && R_SUCCEEDED(socInit(buffer,SOC_SIZE))) netok=1;
+    load_host();
+    if(!netok) {
+        snprintf(status,sizeof(status),"Network initialization failed");
+        snprintf(detail,sizeof(detail),"socInit failed");
+    }
+    draw();
     while(aptMainLoop()) {
-        u32 keys;hidScanInput();keys=hidKeysDown();
-        if(keys&KEY_START)break;
-        if(keys&KEY_X){load_host();snprintf(status,sizeof(status),"Config reloaded");draw();}
-        if(keys&KEY_A) {
-            if(!netok||!configured) {
+        u32 keys;
+        hidScanInput();
+        keys=hidKeysDown();
+        if(keys&KEY_START) break;
+        if(keys&KEY_X) {load_host();draw();}
+        if(keys&KEY_B) {
+            char result[96];
+            bool passed = horizon_sync_selftest(result, sizeof(result));
+            snprintf(status, sizeof(status), "%s", passed ? "Kernel events PASS" : "Kernel events FAIL");
+            snprintf(detail, sizeof(detail), "%s", result);
+            draw();
+        }
+        if(keys&KEY_Y) {
+            char result[96];
+            bool passed = netok && loopback_pair_selftest(result, sizeof(result));
+            snprintf(status, sizeof(status), "%s", passed ? "SOC wakeup PASS" : "SOC wakeup FAIL");
+            snprintf(detail, sizeof(detail), "%s", netok ? result : "SOC initialization failed");
+            draw();
+        }
+        if(keys&KEY_SELECT) {
+            char result[96];
+            bool passed = horizon_rng_selftest(result, sizeof(result));
+            snprintf(status, sizeof(status), "%s", passed ? "PS service PASS" : "PS service FAIL");
+            snprintf(detail, sizeof(detail), "%s", result);
+            draw();
+        }
+#ifdef RDP_FULL_CLIENT
+        if ((keys & KEY_L) && !(keys & KEY_R)) {
+            char manager_result[100] = {0};
+            const int rc = rdp_cert_manager_run(&top, &bottom,
+                                                manager_result, sizeof(manager_result));
+            snprintf(status, sizeof(status), "%s", rc == 0 ?
+                     "Trusted certificates" : "Certificate manager error");
+            snprintf(detail, sizeof(detail), "%s", manager_result);
+            draw();
+        }
+        if(keys&KEY_R) {
+            char session_result[100] = {0};
+            if (!netok || !configured) {
                 snprintf(status,sizeof(status),"Not ready");
                 snprintf(detail,sizeof(detail),"Check network and host.txt");
             } else {
-                RdpNegResult r;char err[96];
-                snprintf(status,sizeof(status),"Connecting...");draw();
+                snprintf(status,sizeof(status),"Experimental FreeRDP...");
+                snprintf(detail,sizeof(detail),"B: Cancel  X: Type  A: Click");
+                draw();
+                gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
+                const int rc=freerdp_3ds_run(&config,session_result,sizeof(session_result));
+                snprintf(status,sizeof(status),"%s",rc == 0 ? "RDP session exited" : "RDP session error");
+                snprintf(detail,sizeof(detail),"%s",session_result);
+            }
+            draw();
+        }
+#endif
+        if(keys&KEY_A) {
+            if(!netok || !configured) {
+                snprintf(status,sizeof(status),"Not ready");
+                snprintf(detail,sizeof(detail),"Check network and host.txt");
+            } else {
+                RdpNegResult r;
+                char err[96];
+                snprintf(status,sizeof(status),"Connecting...");
+                draw();
                 gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
-                if(network_rdp_probe(host,port,&r,err,sizeof(err))) {
+                if(network_rdp_probe(config.host,config.port,&r,err,sizeof(err))) {
                     snprintf(status,sizeof(status),"Probe failed");
                     snprintf(detail,sizeof(detail),"%s",err);
                 } else if(r.kind==RDP_NEG_SELECTED) {
@@ -76,5 +179,8 @@ int main(int argc,char **argv) {
         }
         gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
     }
-    if(netok)socExit();free(buffer);gfxExit();return 0;
+    if(netok) socExit();
+    free(buffer);
+    gfxExit();
+    return 0;
 }

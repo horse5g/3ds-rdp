@@ -1,0 +1,23 @@
+diff --git a/crypto/bio/bio_addr.c b/crypto/bio/bio_addr.c
+--- a/crypto/bio/bio_addr.c
++++ b/crypto/bio/bio_addr.c
+@@ -775,6 +775,7 @@
+         }
+     } else {
+-#endif
+-        const struct hostent *he;
++#endif
++#ifndef __3DS__
++        const struct hostent *he;
+ /*
+  * Because struct hostent is defined for 32-bit pointers only with
+@@ -967,6 +968,7 @@
+         }
+     err:
+-        CRYPTO_THREAD_unlock(bio_lookup_lock);
+-    }
++        CRYPTO_THREAD_unlock(bio_lookup_lock);
++#endif
++    }
+ 
+     return ret;

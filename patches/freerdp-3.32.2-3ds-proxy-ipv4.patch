@@ -1,0 +1,249 @@
+diff --git a/libfreerdp/core/proxy.c b/libfreerdp/core/proxy.c
+--- a/libfreerdp/core/proxy.c
++++ b/libfreerdp/core/proxy.c
+@@ -149,31 +149,34 @@
+ 	return amask == nmask;
+ }
+ 
+-WINPR_ATTR_NODISCARD
+-static BOOL cidr6_match(const struct in6_addr* address, const struct in6_addr* network,
+-                        uint8_t bits)
+-{
+-	const uint32_t* a = (const uint32_t*)address;
+-	const uint32_t* n = (const uint32_t*)network;
+-	const size_t bits_whole = bits >> 5;
+-	const size_t bits_incomplete = bits & 0x1F;
+-
+-	if (bits_whole)
+-	{
+-		if (memcmp(a, n, bits_whole << 2) != 0)
+-			return FALSE;
+-	}
+-
+-	if (bits_incomplete)
+-	{
+-		uint32_t mask = htonl((0xFFFFFFFFu) << (32 - bits_incomplete));
+-
+-		if ((a[bits_whole] ^ n[bits_whole]) & mask)
+-			return FALSE;
+-	}
+-
+-	return TRUE;
+-}
++#ifndef __3DS__
++WINPR_ATTR_NODISCARD
++static BOOL cidr6_match(const struct in6_addr* address, const struct in6_addr* network,
++                        uint8_t bits)
++{
++	const uint32_t* a = (const uint32_t*)address;
++	const uint32_t* n = (const uint32_t*)network;
++	const size_t bits_whole = bits >> 5;
++	const size_t bits_incomplete = bits & 0x1F;
++
++	if (bits_whole)
++	{
++		if (memcmp(a, n, bits_whole << 2) != 0)
++			return FALSE;
++	}
++
++	if (bits_incomplete)
++	{
++		uint32_t mask = htonl((0xFFFFFFFFu) << (32 - bits_incomplete));
++
++		if ((a[bits_whole] ^ n[bits_whole]) & mask)
++			return FALSE;
++	}
++
++	return TRUE;
++}
++
++#endif /* IPv6 subnet matching is unavailable on Horizon. */
+ 
+ WINPR_ATTR_NODISCARD
+ static BOOL option_ends_with(const char* str, const char* ext)
+@@ -220,90 +223,101 @@
+ 	return _strnicmp(val, prefix, plen) == 0;
+ }
+ 
+-WINPR_ATTR_NODISCARD
+-static BOOL no_proxy_match_ip(const char* val, const char* hostname)
+-{
+-	WINPR_ASSERT(val);
+-	WINPR_ASSERT(hostname);
+-
+-	struct sockaddr_in sa4 = WINPR_C_ARRAY_INIT;
+-	struct sockaddr_in6 sa6 = WINPR_C_ARRAY_INIT;
+-
+-	if (inet_pton(AF_INET, hostname, &sa4.sin_addr) == 1)
+-	{
+-		/* Prefix match */
+-		if (starts_with(hostname, val))
+-			return TRUE;
+-
+-		char* sub = strchr(val, '/');
+-		if (sub)
+-			*sub++ = '\0';
+-
+-		struct sockaddr_in mask = WINPR_C_ARRAY_INIT;
+-		if (inet_pton(AF_INET, val, &mask.sin_addr) == 0)
+-			return FALSE;
+-
+-		/* IP address match */
+-		if (memcmp(&mask, &sa4, sizeof(mask)) == 0)
+-			return TRUE;
+-
+-		if (sub)
+-		{
+-			const unsigned long usub = strtoul(sub, nullptr, 0);
+-			if ((errno == 0) && (usub <= UINT8_MAX))
+-				return cidr4_match(&sa4.sin_addr, &mask.sin_addr, (UINT8)usub);
+-		}
+-	}
+-	else if (inet_pton(AF_INET6, hostname, &sa6.sin6_addr) == 1)
+-	{
+-		if (val[0] == '[')
+-			val++;
+-
+-		char str[INET6_ADDRSTRLEN + 1] = WINPR_C_ARRAY_INIT;
+-		strncpy(str, val, INET6_ADDRSTRLEN);
+-
+-		const size_t len = strnlen(str, INET6_ADDRSTRLEN);
+-		if (len > 0)
+-		{
+-			if (str[len - 1] == ']')
+-				str[len - 1] = '\0';
+-		}
+-
+-		/* Prefix match */
+-		if (starts_with(hostname, str))
+-			return TRUE;
+-
+-		char* sub = strchr(str, '/');
+-		if (sub)
+-			*sub++ = '\0';
+-
+-		struct sockaddr_in6 mask = WINPR_C_ARRAY_INIT;
+-		if (inet_pton(AF_INET6, str, &mask.sin6_addr) == 0)
+-			return FALSE;
+-
+-		/* Address match */
+-		if (memcmp(&mask, &sa6, sizeof(mask)) == 0)
+-			return TRUE;
+-
+-		if (sub)
+-		{
+-			const unsigned long usub = strtoul(sub, nullptr, 0);
+-			if ((errno == 0) && (usub <= UINT8_MAX))
+-				return cidr6_match(&sa6.sin6_addr, &mask.sin6_addr, (UINT8)usub);
+-		}
+-	}
+-
+-	return FALSE;
+-}
+-
+-WINPR_ATTR_NODISCARD
+-static BOOL is_ipv6_addr(const char* hostname, size_t len)
+-{
+-	struct sockaddr_in6 sa6 = WINPR_C_ARRAY_INIT;
+-	if (strnlen(hostname, len) > INET6_ADDRSTRLEN)
+-		return FALSE;
+-	return inet_pton(AF_INET6, hostname, &sa6.sin6_addr) == 1;
+-}
++WINPR_ATTR_NODISCARD
++static BOOL no_proxy_match_ip(const char* val, const char* hostname)
++{
++	WINPR_ASSERT(val);
++	WINPR_ASSERT(hostname);
++
++	struct sockaddr_in sa4 = WINPR_C_ARRAY_INIT;
++#ifndef __3DS__
++	struct sockaddr_in6 sa6 = WINPR_C_ARRAY_INIT;
++#endif
++
++	if (inet_pton(AF_INET, hostname, &sa4.sin_addr) == 1)
++	{
++		/* Prefix match */
++		if (starts_with(hostname, val))
++			return TRUE;
++
++		char* sub = strchr(val, '/');
++		if (sub)
++			*sub++ = '\0';
++
++		struct sockaddr_in mask = WINPR_C_ARRAY_INIT;
++		if (inet_pton(AF_INET, val, &mask.sin_addr) == 0)
++			return FALSE;
++
++		/* IP address match */
++		if (memcmp(&mask, &sa4, sizeof(mask)) == 0)
++			return TRUE;
++
++		if (sub)
++		{
++			const unsigned long usub = strtoul(sub, nullptr, 0);
++			if ((errno == 0) && (usub <= UINT8_MAX))
++				return cidr4_match(&sa4.sin_addr, &mask.sin_addr, (UINT8)usub);
++		}
++	}
++#ifndef __3DS__
++	else if (inet_pton(AF_INET6, hostname, &sa6.sin6_addr) == 1)
++	{
++		if (val[0] == '[')
++			val++;
++
++		char str[INET6_ADDRSTRLEN + 1] = WINPR_C_ARRAY_INIT;
++		strncpy(str, val, INET6_ADDRSTRLEN);
++
++		const size_t len = strnlen(str, INET6_ADDRSTRLEN);
++		if (len > 0)
++		{
++			if (str[len - 1] == ']')
++				str[len - 1] = '\0';
++		}
++
++		/* Prefix match */
++		if (starts_with(hostname, str))
++			return TRUE;
++
++		char* sub = strchr(str, '/');
++		if (sub)
++			*sub++ = '\0';
++
++		struct sockaddr_in6 mask = WINPR_C_ARRAY_INIT;
++		if (inet_pton(AF_INET6, str, &mask.sin6_addr) == 0)
++			return FALSE;
++
++		/* Address match */
++		if (memcmp(&mask, &sa6, sizeof(mask)) == 0)
++			return TRUE;
++
++		if (sub)
++		{
++			const unsigned long usub = strtoul(sub, nullptr, 0);
++			if ((errno == 0) && (usub <= UINT8_MAX))
++				return cidr6_match(&sa6.sin6_addr, &mask.sin6_addr, (UINT8)usub);
++		}
++	}
++
++#endif
++	return FALSE;
++}
++
++WINPR_ATTR_NODISCARD
++static BOOL is_ipv6_addr(const char* hostname, size_t len)
++{
++#ifdef __3DS__
++	/* No IPv6 socket address support on Horizon. */
++	(void)hostname;
++	(void)len;
++	return FALSE;
++#else
++	struct sockaddr_in6 sa6 = WINPR_C_ARRAY_INIT;
++	if (strnlen(hostname, len) > INET6_ADDRSTRLEN)
++		return FALSE;
++	return inet_pton(AF_INET6, hostname, &sa6.sin6_addr) == 1;
++#endif
++}
+ 
+ WINPR_ATTR_NODISCARD
+ static BOOL check_no_proxy(rdpSettings* settings, const char* no_proxy)
