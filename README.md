@@ -50,11 +50,12 @@ Legacy files containing only `192.168.1.100:3389` or `rdp01.corp.example.com` st
 
 Press **A** to send an RDP negotiation probe, **B** to run native Horizon kernel event tests, **Y** to test the SOC loopback/select wakeup transport, **SELECT** to check the PS hardware entropy service, **X** to reload `host.txt`, or **START** to exit. The bottom screen displays the parsed username and domain. Those fields are **not transmitted to Windows** in this milestone. Domain sign-in requires future FreeRDP + CredSSP/NLA integration (and Kerberos if domain policy requires it).
 
-## Experimental full FreeRDP/SSL build (not yet verified)
+## Integrated FreeRDP + OpenSSL client (ARM11 build verified)
 
 The existing `3ds-rdp.3dsx` remains a negotiation/diagnostic probe. The
-separate `3ds-rdp-full.3dsx` build attempts to link FreeRDP 3.32.2,
-PS-backed OpenSSL 3.5.9, WinPR and libctru into an actual client entry point:
+separate `3ds-rdp-full.3dsx` is now **successfully cross-compiled, linked,
+and packaged** against FreeRDP 3.32.2, PS-backed OpenSSL 3.5.9, WinPR,
+and libctru in [CI run 40672154636](https://github.com/horse5g/3ds-rdp/actions/runs/40672154636). To reproduce:
 
 ```bash
 bash scripts/build-openssl-3ds.sh build
@@ -63,10 +64,12 @@ bash scripts/link-freerdp-3ds.sh
 bash scripts/build-combined-3dsx.sh
 ```
 
-**Do not assume the experimental build currently succeeds.** Inspect the
-compile, combined-link and full-app steps of
-[FreeRDP ARM11 with OpenSSL CI](.github/workflows/freerdp-openssl-arm11.yml);
-failures may be intentionally non-blocking during porting. In the opt-in app,
+**Build status:** FreeRDP core, full-session source, combined ELF and
+`3ds-rdp-full.3dsx` all passed the final CI gate. Retrieve the
+[full application and static archives](https://github.com/horse5g/3ds-rdp/actions/runs/40672154636/artifacts/12808337729)
+from the successful workflow. **This is a build-only milestone:** the full app
+has not run on O3DS; certificate-trust provisioning and hardware runtime
+validation are still incomplete. In the opt-in app,
 R attempts a session, B/START exits, A clicks, touch moves the pointer, and
 X opens a limited text keyboard. This code has **not been hardware tested**.
 Unknown or changed RDP certificates must not be accepted automatically, and
