@@ -40,20 +40,19 @@ The separate `FreeRDP ARM11 feasibility` GitHub Actions workflow performs a **no
 
 ## Verified CI progress (October 28, 2026)
 
-The experimental `build` job now successfully completes upstream FreeRDP **CMake configuration** for ARMv6K with static Mbed TLS and the built-in Unicode converter. We also disabled `WITH_SWSCALE` and `WITH_CAIRO` so FFmpeg is not required at this stage. The cross-compiler compiled the `freerdp-primitives` library target.
+The experimental `build` job completes FreeRDP **CMake configuration** for ARMv6K using devkitARM, static 3DS Mbed TLS and WinPR's built-in Unicode handling. `freerdp-primitives` builds for ARM11. This does **not** mean the WinPR or FreeRDP core libraries are complete or linked into the homebrew application.
 
-The first **real WinPR compilation blocker** in the CI logs is:
+Portability issues identified and handled so far:
 
-```text
-winpr/include/winpr/winsock.h:83:10:
-fatal error: netdb.h: No such file or directory
-```
+- **DNS and networking headers:** libctru provides `netdb.h`, `getaddrinfo()` and IPv4 sockets, but its include directory was absent from FreeRDP's CMake toolchain. The port now includes it. `sys/un.h` and `net/if.h` are absent and are guarded for the 3DS where only their headers were referenced.
+- **Socket types:** libctru uses signed `int` file descriptors, unlike WinPR's generic `SOCKET` typedef. A 3DS-specific type patch prevents conflicting `closesocket` declarations. IPv6 address structures needed for WinPR headers have a layout-only definition; **IPv6 socket support is not implemented**.
+- **Synchronization:** `pipe2()`, POSIX signal timers, and `pthread_mutex_timedlock()` are incorrectly detected or unavailable in the target environment. The build requests WinPR's existing pipe and timed-mutex fallback paths, and disables false-positive POSIX timer detection. A narrow patch avoids unsupported real-time thread scheduling.
+- **Dynamic loading:** Horizon OS does not have `dlfcn.h`. In this static build, WinPR's module loader returns `ERROR_CALL_NOT_IMPLEMENTED` on 3DS rather than pretending `dlopen` and `dlsym` work.
+- **File APIs:** some WinPR filesystem modules include Unix socket headers despite not using those types; these are guarded for 3DS.
 
-libctru itself **does provide `netdb.h` and `getaddrinfo()`**; the FreeRDP CMake toolchain simply needed `-I$DEVKITPRO/libctru/include`. After adding that header path, CI reached `sys/un.h` (Unix-domain sockets), which is absent on the 3DS. We have a second narrow upstream patch to omit unavailable `sys/un.h` and `net/if.h` includes on `__3DS__`, without supplying invented implementations. The resulting build errors will identify actual WinPR assumptions that need porting.
+**Critical runtime gaps:** These edits remove *compile-time* blockers. `pipe()` and its descriptor semantics are not yet verified on Horizon, WinPR waitable timers need a real native implementation, and CMake feature probes using `STATIC_LIBRARY` can falsely detect symbols that fail to link. We must not present a compiled FreeRDP archive as proof of usable remote sessions. Missing dynamic plugin loading may also require static channel registration later.
 
-This is a devkitARM/Horizon OS portability gap. Next, inventory the actual DNS/socket interfaces supplied by libctru/newlib; implement a proper WinPR adapter (including supported `getaddrinfo` / `getnameinfo` behavior where needed), rather than declaring networking functions that are absent or disabling certificate validation. Then continue compilation and diagnose additional missing POSIX headers / APIs. The CMake feature checks currently use `STATIC_LIBRARY` try-compiles, so a detected function does **not** guarantee a resolved symbol at final link time.
-
-Reproducible evidence is in the `FreeRDP ARM11 feasibility` workflow logs for the PR branch. The experimental step intentionally allows failure while the upstream port is being developed.
+Use the [experimental ARM11 CI workflow](https://github.com/horse5g/3ds-rdp/actions/workflows/freerdp-port.yml) to inspect the *Configure / compile FreeRDP* step and uploaded logs. The step is non-blocking in the draft PR, so a green overall workflow does **not** mean a successful port. `scripts/check-patches.py` now validates patch hunk syntax as part of the fast host CI checks.
 
 ## Domains and DNS names
 
