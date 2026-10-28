@@ -9,7 +9,7 @@ build="${OPENSSL_BUILD_DIR:-$root/build/openssl-3ds}"
 mode="${1:-link}"
 case "$mode" in
   link)
-    source_file="$source_file"
+    source_file="$root/tests/openssl-arm11-link.c"
     output="$build/openssl-link-probe"
     ;;
   runtime)
@@ -36,7 +36,7 @@ mkdir -p "$build"
   -I"$build/include" -I"$root/external/openssl/include" \
   -specs=3dsx.specs -Wl,--gc-sections \
   -Wl,-Map,"$output.map" \
-  "$root/tests/openssl-arm11-link.c" \
+  "$source_file" \
   -L"$build" -L"$DEVKITPRO/libctru/lib" \
   -Wl,--start-group -lssl -lcrypto -lctru -lm -Wl,--end-group \
   -o "$output.elf"
