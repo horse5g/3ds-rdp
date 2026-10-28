@@ -48,7 +48,26 @@ username=alice
 
 Legacy files containing only `192.168.1.100:3389` or `rdp01.corp.example.com` still work. Lines beginning with `#` or `;` are comments. Unknown settings, including `password=`, are rejected intentionally; **do not save passwords on the SD card**.
 
-Press **A** to send an RDP negotiation probe, **B** to run native Horizon kernel event tests, **Y** to test the SOC loopback/select wakeup transport, **SELECT** to check the PS hardware entropy service, **X** to reload `host.txt`, or **START** to exit. The bottom screen displays the parsed username and domain. Those fields are **not transmitted to Windows** in this milestone. Domain sign-in requires future FreeRDP + CredSSP/NLA integration (and Kerberos if domain policy requires it).
+With the connection launcher, press **R** to probe the selected host; use **B** for native kernel-event tests, **L+Y** for SOC loopback, **L+SELECT** for PS entropy, or **START** to exit. The bottom screen edits and saves host/user/domain settings; the normal probe still does **not** send credentials. Actual Windows sign-in requires the experimental FreeRDP/CredSSP/NLA integration.
+
+## Windows-style connection launcher (draft PR #3)
+
+The bottom touchscreen now has a native RGB565, Windows Remote Desktop
+Connection-inspired interface with General/Display/Local/Experience/Advanced
+tabs. General lets you type **Computer, User name, Domain, Port, Save as** using
+the 3DS on-screen keyboard. Save and browse up to 12 named connections under
+`/3ds/3ds-rdp/connections.txt`. Existing `host.txt` can be imported as an
+unsaved connection. Stored passwords are never supported.
+
+Tap **Connect** (or press R) to probe an RDP server in the normal build. The
+experimental full-client build instead attempts a FreeRDP session when Connect
+is tapped; hold L+R for that same experimental attempt. B still tests Horizon
+events; L+Y checks SOC loopback and L+SELECT checks PS entropy. START exits.
+Other tabs currently explain fixed settings and limitations; they are **not**
+working configuration switches.
+
+See [Connection UI details](docs/connection-ui.md). This interface is a build
+milestone, **not** evidence that Windows login or desktop rendering work.
 
 ## Experimental full FreeRDP/SSL build (not yet verified)
 
