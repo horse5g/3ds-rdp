@@ -45,6 +45,12 @@ jobs:
       image: devkitpro/devkitarm
     steps:
       - uses: actions/checkout@v4
+      - name: Install ARM11 zlib for combined linking
+        shell: bash
+        run: |
+          if ! test -s "$DEVKITPRO/portlibs/3ds/lib/libz.a"; then
+            dkp-pacman -Syu --noconfirm --needed 3ds-zlib
+          fi
       - name: Build PS-backed OpenSSL 3.5 static libraries
         shell: bash
         run: |
