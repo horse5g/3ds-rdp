@@ -1,6 +1,7 @@
 /* Native, allocation-free O3DS software UI. No Citro2D dependency.
  * Framebuffer: GSP_RGB565_OES, 240-pixel tall column-major, flipped. */
 #include "connection_ui.h"
+#include "session_pad.h"
 #include <3ds.h>
 #include <ctype.h>
 #include <stdint.h>
@@ -241,4 +242,87 @@ void connection_ui_draw(const ConnectionUI *ui)
         button(160,209,64,"NEW",0);
         button(228,209,88,"CONNECT",1);
     }
+}
+
+
+/* The session screen shares the menu's tiny font and 16-bit framebuffer.
+ * The top 3DS screen remains dedicated to the Windows desktop. */
+void session_pad_draw(const SessionPad *pad)
+{
+    u16 width=0, height=0;
+    uint32_t active, panel;
+    char line[60];
+    if (!pad) return;
+    fb=(uint16_t*)gfxGetFramebuffer(GFX_BOTTOM,GFX_LEFT,&width,&height);
+    if (!fb) return;
+    (void)width;
+    (void)height;
+    fill(0,0,320,240,BG);
+
+    /* Top row of the *touchscreen*: never obscure the desktop above. */
+    fill(0,0,320,32,NAVY);
+    active=pad->disconnect_armed ? C(191,46,47) : C(143,42,54);
+    fill(2,2,104,28,active);
+    label(10,13,pad->disconnect_armed ? "CONFIRM EXIT" : "DISCONNECT",105,WHITE);
+    fill(109,2,101,28,pad->settings_open ? BLUE : NAVY);
+    outline(109,2,101,28,BORDER);
+    label(119,13,pad->settings_open ? "BACK TO PAD" : "SETTINGS",208,WHITE);
+    fill(213,2,105,28,BLUE);
+    label(222,13,"KEYBOARD",316,WHITE);
+
+    if (pad->settings_open) {
+        fill(6,37,308,195,WHITE);
+        outline(6,37,308,195,BORDER);
+        label(15,46,"SESSION INPUT SETTINGS",305,INK);
+        panel=C(233,241,249);
+        fill(12,56,296,48,panel);
+        outline(12,56,296,48,BORDER);
+        snprintf(line,sizeof(line),"CURSOR SPEED: %dX  (TAP TO CHANGE)",pad->sensitivity);
+        label(20,76,line,301,INK);
+        fill(12,108,296,48,panel);
+        outline(12,108,296,48,BORDER);
+        snprintf(line,sizeof(line),"SCROLL STEP: %d  (TAP TO CHANGE)",pad->scroll_amount);
+        label(20,128,line,301,INK);
+        fill(12,160,296,48,panel);
+        outline(12,160,296,48,BORDER);
+        label(20,180,pad->reverse_scroll ?
+              "REVERSE SCROLL: ON" : "REVERSE SCROLL: OFF",301,INK);
+        label(16,220,"OPTIONS ARE FOR THIS SESSION ONLY",304,MUTED);
+        return;
+    }
+
+    fill(4,36,262,175,C(249,251,254));
+    outline(4,36,262,175,BORDER);
+    label(20,45,"TOUCHPAD",256,MUTED);
+    label(24,94,"DRAG FINGER TO MOVE MOUSE",258,MUTED);
+    label(28,109,"LIFT AND REPOSITION ANYTIME",258,MUTED);
+    label(57,126,"TAP TO LEFT CLICK",258,MUTED);
+    label(20,193,"A: DRAG  B: RIGHT CLICK",262,MUTED);
+    /* Thin inner grip marks, no cursor teleport on contact. */
+    fill(16,62,238,1,C(226,234,243));
+    fill(16,184,238,1,C(226,234,243));
+
+    /* Vertical scroll controls occupy the entire right edge. */
+    fill(270,36,46,42,BLUE);
+    outline(270,36,46,42,NAVY);
+    label(277,53,"UP",313,WHITE);
+
+    fill(270,80,46,111,C(222,234,247));
+    outline(270,80,46,111,BORDER);
+    fill(289,88,8,95,BORDER);
+    fill(286,129,14,19,BLUE);
+    label(274,94,"SC",312,INK);
+    label(274,108,"ROLL",312,INK);
+    label(274,171,"DRAG",312,INK);
+
+    fill(270,193,46,45,BLUE);
+    outline(270,193,46,45,NAVY);
+    label(276,213,"DOWN",315,WHITE);
+
+    fill(4,214,128,24,WHITE);
+    outline(4,214,128,24,BORDER);
+    label(45,223,"LEFT",128,INK);
+    fill(137,214,129,24,WHITE);
+    outline(137,214,129,24,BORDER);
+    label(174,223,"RIGHT",260,INK);
 }
