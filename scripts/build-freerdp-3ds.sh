@@ -140,6 +140,15 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'server-only peer/listener implementations on Horizon SOC' "$src/libfreerdp/core/CMakeLists.txt"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-server-sources.patch"
   fi
+  if ! grep -q '^#if !defined(_WIN32) && !defined(__3DS__)' "$src/libfreerdp/core/utils.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-link-libc.patch"
+  fi
+  if ! grep -q 'The allocation already reserves space for WinPR' "$src/winpr/libwinpr/crt/alignment.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-winpr-alignment.patch"
+  fi
+  if ! grep -q 'Horizon has no POSIX child processes or waitpid' "$src/winpr/libwinpr/synch/wait.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-process-wait.patch"
+  fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
 fi
