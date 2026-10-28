@@ -35,6 +35,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'libctru socket handles are signed ints' "$src/winpr/include/winpr/winsock.h"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-socket-types.patch"
   fi
+  if ! grep -q "Horizon's pthreads do not expose POSIX" "$src/winpr/libwinpr/synch/timer.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-timer-thread.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
@@ -56,6 +59,10 @@ cmake -S "$src" -B "$build" \
   -DMBEDX509_LIBRARY="$portlibs/lib/libmbedx509.a" \
   -DWITH_UNICODE_BUILTIN=ON \
   -DWINPR_HAVE_PIPE2=OFF \
+  -DTIMER_CREATE=OFF \
+  -DTIMER_DELETE=OFF \
+  -DTIMER_SETTIME=OFF \
+  -DTIMER_GETTIME=OFF \
   -DWITH_WINPR_TOOLS=OFF \
   -DWITH_CLIENT=OFF \
   -DWITH_CLIENT_COMMON=OFF \
