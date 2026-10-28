@@ -56,6 +56,15 @@ The build omits QUIC with OpenSSL's supported `no-quic` option (Microsoft RDP us
 
 After compiling both archives, CI also attempts a **separate, informational static link** of `tests/openssl-arm11-link.c`, pulling `SSL_CTX_new`, `TLS_client_method`, X.509 store symbols, and libctru into an ARM11 ELF. This test does not run on hardware. Any unresolved symbols or linker failures must be fixed before attempting a real secure TLS session.
 
+The first static-link probe failed only on POSIX libc symbols absent from
+Horizon: `posix_memalign`, `getuid`, `geteuid`, `getgid`, and `getegid`.
+The native patch now routes aligned allocations through OpenSSL's existing
+padded-allocation fallback with a size-overflow check. Horizon has no Unix
+user/group identities, so `OPENSSL_issetugid()` conservatively returns true:
+OpenSSL must **not** trust environment-based configuration overrides on the
+3DS. Do not invent or fake Unix UIDs. These link changes are being rechecked
+by the independent ARM11 workflow.
+
 The native homebrew app now includes an independent **SELECT**-button check for `psInit` and `PS_GenerateRandomBytes`, without retaining or displaying any output bytes. A passing self-test will establish that the PS service is accessible but **not** that OpenSSL's DRBG is securely seeded or that a TLS session is safe. The OpenSSL entropy-provider integration is still required.
 
 ## Security and native integration requirements
