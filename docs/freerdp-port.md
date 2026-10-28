@@ -30,15 +30,16 @@ remote desktop, sends A as a left-click and X as an ASCII-only text keyboard.
 B or START exits the session. No graphical controls or certificate management
 UI is implemented yet.
 
-**Fail-closed security:** the certificate callback explicitly declines
-unknown certificates; the project does not enable `/cert:ignore`, bypass
-TLS verification, or disable NLA to make test hosts connect. There is not
-yet a user-trustworthy CA/pin installation flow, so common self-signed Windows
-RDP endpoints are expected to be rejected. A successful ELF/3DSX build only
-proves the binary can be produced. It does not establish safe TLS/NLA login,
-Windows domain sign-in, framebuffer correctness, thread/event behavior or
-acceptable original-3DS memory/CPU performance. These require subsequent
-software tests and, later, hardware validation.
+**Fail-closed security:** the full client now requires an out-of-band,
+endpoint-specific SHA-256 certificate pin file, as documented in
+[certificate-pinning.md](certificate-pinning.md). It uses FreeRDP's
+external X.509 verification callback and rejects a missing pin, different
+certificate, hostname mismatch, expiry or implausible system time. It does
+not enable `/cert:ignore` or disable NLA. A matched leaf pin is explicit
+trust, not CA-chain validation or revocation checking. A successful ELF/3DSX
+build proves only that the binary can be produced; it does not establish
+safe TLS/NLA runtime, Windows domain sign-in, framebuffer correctness,
+thread/event behavior or acceptable O3DS memory/CPU performance.
 
 Earlier sections below record the development history; compile failures mentioned in those historical notes may have since been resolved.
 
@@ -66,9 +67,10 @@ OpenSSL include directories. The original Mbed TLS experiment remains
 available by omitting `FREERDP_CRYPTO_BACKEND`. Build directories should not
 be reused when switching between the crypto backends.
 
-The new CI workflow intentionally reports FreeRDP's *compiler step outcome*
-separately: it has `continue-on-error` while porting is incomplete. A green
-overall workflow does not mean the FreeRDP library compiled. Full compilation,
+The combined workflow reports per-stage outcomes and has a final gate that
+requires core compilation, full-client syntax, combined link and application
+packaging to succeed. Independent Mbed TLS feasibility checks may still allow
+compile failures. Full compilation,
 static linking into the homebrew application, secure hostname/certificate
 validation, tested OpenSSL entropy on hardware, CredSSP/NLA, and graphics are
 separate milestones. This new build path does **not** disable NLA or weaken
