@@ -58,14 +58,14 @@ static void draw(void) {
            (unsigned)(configured?config.port:3389));
     printf("Status: %.38s\nDetail: %.38s\n\n",status,detail);
 #ifdef RDP_FULL_CLIENT
-    printf("R: Experimental full FreeRDP session\\n");
+    printf("R: Experimental full FreeRDP session\n");
 #else
     printf("Negotiation probe only.\nNo login or desktop yet.\n");
 #endif
     consoleSelect(&bottom);
     printf("\x1b[2J\x1b[H A: Connect/probe\n B: Kernel event test\n Y: SOC loopback test\n SELECT: PS entropy test\n X: Reload host.txt\n START: Exit\n\n");
 #ifdef RDP_FULL_CLIENT
-    printf(" R: FreeRDP session (unverified)\\n");
+    printf(" R: FreeRDP session (unverified)\n");
 #endif
     printf("User: %.30s\n",config.username[0]?config.username:"(not set)");
     printf("AD domain: %.27s\n",config.domain[0]?config.domain:"(not set)");
