@@ -29,15 +29,24 @@ bool horizon_event_reset(HorizonEvent *event) {
     return valid_event(event) && R_SUCCEEDED(svcClearEvent(event->handle));
 }
 
+/* svcWaitSynchronization* returns 0x09401BFE on timeout, which has an
+ * informational (nonnegative) result level. R_SUCCEEDED(timeout) is TRUE!
+ * Check timeout before considering an event signaled. */
+static HorizonWaitResult classify_wait_result(Result rc) {
+    if (R_MODULE(rc) == RM_KERNEL && R_DESCRIPTION(rc) == RD_TIMEOUT)
+        return HORIZON_WAIT_TIMEOUT;
+    if (rc == 0)
+        return HORIZON_WAIT_SIGNALED;
+    return HORIZON_WAIT_ERROR;
+}
+
 HorizonWaitResult horizon_event_wait(HorizonEvent *event, uint32_t timeout_ms) {
     Result rc;
     s64 nanoseconds;
     if (!valid_event(event)) return HORIZON_WAIT_ERROR;
     nanoseconds = (timeout_ms == UINT32_MAX) ? -1 : (s64)timeout_ms * 1000000LL;
     rc = svcWaitSynchronization(event->handle, nanoseconds);
-    if (R_SUCCEEDED(rc)) return HORIZON_WAIT_SIGNALED;
-    if (R_DESCRIPTION(rc) == RD_TIMEOUT) return HORIZON_WAIT_TIMEOUT;
-    return HORIZON_WAIT_ERROR;
+    return classify_wait_result(rc);
 }
 
 HorizonWaitResult horizon_events_wait_any(HorizonEvent *const *events, size_t count,
@@ -55,13 +64,12 @@ HorizonWaitResult horizon_events_wait_any(HorizonEvent *const *events, size_t co
     *signaled_index = SIZE_MAX;
     nanoseconds = (timeout_ms == UINT32_MAX) ? -1 : (s64)timeout_ms * 1000000LL;
     rc = svcWaitSynchronizationN(&selected, handles, (s32)count, false, nanoseconds);
-    if (R_SUCCEEDED(rc)) {
+    const HorizonWaitResult wait = classify_wait_result(rc);
+    if (wait == HORIZON_WAIT_SIGNALED) {
         if (selected < 0 || (size_t)selected >= count) return HORIZON_WAIT_ERROR;
         *signaled_index = (size_t)selected;
-        return HORIZON_WAIT_SIGNALED;
     }
-    if (R_DESCRIPTION(rc) == RD_TIMEOUT) return HORIZON_WAIT_TIMEOUT;
-    return HORIZON_WAIT_ERROR;
+    return wait;
 }
 
 void horizon_event_destroy(HorizonEvent *event) {
@@ -93,10 +101,15 @@ bool horizon_sync_selftest(char *message, size_t capacity) {
         set_message(message, capacity, "svcCreateEvent failed");
         goto cleanup;
     }
-    if (horizon_event_wait(&auto_event, 0) != HORIZON_WAIT_TIMEOUT ||
-        horizon_event_wait(&manual_event, 0) != HORIZON_WAIT_TIMEOUT) {
-        set_message(message, capacity, "Unsignaled event failed to time out");
-        goto cleanup;
+    {
+        const HorizonWaitResult auto_wait = horizon_event_wait(&auto_event, 0);
+        const HorizonWaitResult manual_wait = horizon_event_wait(&manual_event, 0);
+        if (auto_wait != HORIZON_WAIT_TIMEOUT || manual_wait != HORIZON_WAIT_TIMEOUT) {
+            if (message && capacity)
+                snprintf(message, capacity, "Initial waits: auto=%d sticky=%d",
+                         (int)auto_wait, (int)manual_wait);
+            goto cleanup;
+        }
     }
     if (!horizon_event_signal(&auto_event) ||
         horizon_event_wait(&auto_event, 0) != HORIZON_WAIT_SIGNALED ||
