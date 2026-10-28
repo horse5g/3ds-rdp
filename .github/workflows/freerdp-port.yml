@@ -1,0 +1,46 @@
+# Experimental port probe: do not confuse with working FreeRDP support.
+name: FreeRDP ARM11 feasibility
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Attempt CMake configure only or full compile
+        type: choice
+        options:
+          - configure
+          - build
+        default: configure
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install 3DS cryptography libraries
+        run: pacman -Syu --noconfirm --needed 3ds-mbedtls 3ds-zlib
+      - name: Configure / compile FreeRDP (experimental)
+        id: port
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-freerdp-3ds.sh '${{ inputs.phase }}' 2>&1 | tee freerdp-port.log
+      - name: Report upstream port result
+        if: always()
+        shell: bash
+        run: |
+          echo '## Experimental FreeRDP ARM11 port' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Configure/compile outcome: **${{ steps.port.outcome }}**. FreeRDP is not linked into the O3DS application.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freerdp-arm11-diagnostics
+          path: |
+            freerdp-port.log
+            build/freerdp-3ds/CMakeFiles/CMakeConfigureLog.yaml
+            build/freerdp-3ds/CMakeFiles/CMakeError.log
+            build/freerdp-3ds/CMakeCache.txt
