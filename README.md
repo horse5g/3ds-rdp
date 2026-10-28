@@ -22,7 +22,7 @@ Install [devkitPro 3DS development tools](https://devkitpro.org/wiki/Getting_Sta
 make
 ```
 
-Expected output: `3ds-rdp.3dsx`. GitHub Actions has successfully compiled this homebrew target using the official devkitPro Docker image; **physical O3DS hardware testing is still pending**.
+Expected output: `3ds-rdp.3dsx`. GitHub Actions has successfully compiled this homebrew target using the official devkitPro Docker image; **the B/Y diagnostics have now been tested successfully on an original 3DS**; authentication and desktop rendering are not implemented.
 
 Portable packet parser tests (GCC or Clang):
 
@@ -54,9 +54,9 @@ Press **A** to send an RDP negotiation probe, **B** to run native Horizon kernel
 
 The app now includes a small kernel-event backend in `source/horizon_sync.c` (separate from FreeRDP) using the actual 3DS `svcCreateEvent`, `svcSignalEvent`, `svcClearEvent` and `svcWaitSynchronization` APIs. It supports sticky (manual-reset) and one-shot (auto-reset) kernel events, a nonblocking poll, bounded waits, and an infinite wait.
 
-Press **B** on your original 3DS to test unsignaled timeouts, auto-reset consumption, manual-reset persistence and clearing, plus cross-thread wakeup from a native libctru thread. Record the on-screen PASS/FAIL output. This is intended to establish real kernel-event behavior before connecting WinPR's event/wait layers to it.
+Press **B** on your original 3DS to test unsignaled timeouts, auto-reset consumption, manual-reset persistence and clearing, plus cross-thread wakeup from a native libctru thread. The B-button diagnostic **passed on original 3DS hardware** after correcting timeout result handling. This tests the kernel event wrapper independently of the experimental WinPR bridge.
 
-**It is not connected to WinPR yet.** Kernel handles are not POSIX file descriptors, so the existing WinPR `pollset` and socket wait code must be adapted separately. The FreeRDP cross-build still stops at its pipe/event implementation.
+**It is not connected to WinPR yet.** Kernel handles are not POSIX file descriptors, so the existing WinPR `pollset` and socket wait code must be adapted separately. An experimental socket-backed WinPR event/pipe patch now compiles, but its runtime behavior under FreeRDP has not been verified.
 
 ## Experimental WinPR socket-notification bridge
 
@@ -64,11 +64,17 @@ The source now includes `loopback_pair.c`, a bounded IPv4 localhost TCP pair usi
 
 A new **experimental upstream patch** changes WinPR's anonymous pipes and event-fd notifications to use these socket pairs, allowing the same SOC `select()` path to observe event notifications and TCP RDP socket readiness. Unix-domain named-pipe creation explicitly returns unsupported.
 
-**Resource and correctness warning:** 3DS SOC has a limited global socket budget; every emulated WinPR event consumes **two sockets**, and pair construction transiently consumes a third listening socket. The WinPR adapter is not yet authenticated, linked into the homebrew application, or tested on hardware. Repeated signaling, timeouts, auto-reset semantics, mixed waits, memory pressure, network initialization, and socket exhaustion need more work. This is a diagnostic porting strategy, not a finished RDP synchronization backend.
+**Resource and correctness warning:** 3DS SOC has a limited global socket budget; every emulated WinPR event consumes **two sockets**, and pair construction transiently consumes a third listening socket. The standalone Y-button SOC transport test **passed on original 3DS hardware**. The complete WinPR adapter is not linked into the homebrew application and has not been exercised in a real RDP session. Repeated signaling, timeouts, auto-reset semantics, mixed waits, memory pressure, network initialization, and socket exhaustion need more work. This is a diagnostic porting strategy, not a finished RDP synchronization backend.
 
 ## FreeRDP / WinPR port investigation
 
-A separate [ARM11 FreeRDP build investigation](docs/freerdp-port.md) now provides a pinned upstream release, devkitARM CMake toolchain, experimental cross-compilation command and diagnostic CI. **This does not yet mean FreeRDP can build or run on O3DS:** the normal app is still a standalone RDP security-negotiation probe. The separate O3DS CI workflow will publish a test `.3dsx` artifact if the devkitARM build succeeds.
+A separate [ARM11 FreeRDP build investigation](docs/freerdp-port.md) now provides a pinned upstream release, devkitARM CMake toolchain, experimental cross-compilation command and diagnostic CI. **WinPR itself now cross-compiles, but the full FreeRDP core does not yet build or run on O3DS:** the normal app is still a standalone RDP security-negotiation probe. The separate O3DS CI workflow will publish a test `.3dsx` artifact if the devkitARM build succeeds.
+
+## Verified ARM11 port progress
+
+The experimental build now produces the complete `winpr` static-library target for O3DS alongside `freerdp-primitives` and `freerdp-codecs`. The main FreeRDP library is **not** complete: FreeRDP 3.32.2 contains OpenSSL-specific TLS, certificate and HTTP code despite its experimental Mbed TLS selection. Optional smart-card emulation and desktop-terminal passphrase handling are excluded for the current 3DS target, without changing certificate verification or NLA behavior.
+
+The next substantive dependency decision is to port a supported static OpenSSL 3.5 LTS release to ARM11, or develop and review a complete Mbed TLS-backed FreeRDP cryptography layer. Neither approach has passed a native 3DS link or TLS handshake yet. See [port notes](docs/freerdp-port.md) for the exact compiler findings.
 
 ## Planned work
 
