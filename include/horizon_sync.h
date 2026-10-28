@@ -27,6 +27,11 @@ bool horizon_event_reset(HorizonEvent *event);
 HorizonWaitResult horizon_event_wait(HorizonEvent *event, uint32_t timeout_ms);
 void horizon_event_destroy(HorizonEvent *event);
 
+/* Wait on up to 16 kernel events, returning the signaled array index.
+   Only kernel objects are supported: socket fds must use SOC/select separately. */
+HorizonWaitResult horizon_events_wait_any(HorizonEvent *const *events, size_t count,
+                                          uint32_t timeout_ms, size_t *signaled_index);
+
 /* Hardware smoke test, including cross-thread signal/wait. Returns false on failure.
    This tests the kernel event backend, not yet WinPR/FreeRDP integration. */
 bool horizon_sync_selftest(char *message, size_t capacity);
