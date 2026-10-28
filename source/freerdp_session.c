@@ -432,24 +432,105 @@ static bool prompt_password(char *password, size_t size)
     return button == SWKBD_BUTTON_CONFIRM;
 }
 
-static void send_text(rdpInput *input)
+/* Only while the main thread is inside Nintendo's modal software keyboard,
+ * one helper may pump FreeRDP network events. No HID or GPU calls occur on
+ * this worker. The main thread never sends remote input until after join. */
+typedef struct {
+    rdpContext *context;
+    LightLock lock;
+    bool stop_requested;
+    bool failed;
+    DWORD failure_code;
+} RdpKeyboardPump;
+
+static void rdp_keyboard_pump_worker(void *arg)
+{
+    RdpKeyboardPump *pump = (RdpKeyboardPump *)arg;
+    while (true) {
+        HANDLE handles[RDP_MAX_EVENTS + 2];
+        DWORD count, wait_status;
+        LightLock_Lock(&pump->lock);
+        const bool stop = pump->stop_requested;
+        LightLock_Unlock(&pump->lock);
+        if (stop)
+            return;
+        if (freerdp_shall_disconnect_context(pump->context))
+            break;
+        count = freerdp_get_event_handles(pump->context, handles, RDP_MAX_EVENTS);
+        if (!count || count > RDP_MAX_EVENTS) {
+            pump->failure_code = count;
+            break;
+        }
+        wait_status = WaitForMultipleObjects(count, handles, FALSE, 20);
+        if (!rdp_wait_result_valid((uint32_t)wait_status, (uint32_t)count)) {
+            pump->failure_code = wait_status;
+            break;
+        }
+        if (!freerdp_check_event_handles(pump->context)) {
+            pump->failure_code = freerdp_get_last_error(pump->context);
+            break;
+        }
+    }
+    LightLock_Lock(&pump->lock);
+    pump->failed = true;
+    LightLock_Unlock(&pump->lock);
+}
+
+/* The software keyboard still owns main-thread HID/GFX; a network-only
+ * worker can process RDP updates without concurrent input. This is best
+ * effort if the 3DS OS suspends all user threads during an applet. */
+static bool send_text(freerdp *client, char *reason, size_t reason_size)
 {
     char text[128] = {0};
     SwkbdState keyboard;
+    SwkbdButton button;
+    RdpKeyboardPump pump = {0};
+    Thread worker;
     size_t i;
+
+    if (!client || !client->context || !client->context->input)
+        return false;
     swkbdInit(&keyboard, SWKBD_TYPE_NORMAL, 2, sizeof(text) - 1);
     swkbdSetHintText(&keyboard, "Remote text (ASCII only)");
-    if (swkbdInputText(&keyboard, text, sizeof(text)) == SWKBD_BUTTON_CONFIRM) {
+    pump.context = client->context;
+    LightLock_Init(&pump.lock);
+    worker = threadCreate(rdp_keyboard_pump_worker, &pump,
+                          64 * 1024, 0x30, -2, false);
+    if (!worker) {
+        snprintf(reason, reason_size, "Cannot start keyboard network worker");
+        OPENSSL_cleanse(&keyboard, sizeof(keyboard));
+        return false;
+    }
+
+    button = swkbdInputText(&keyboard, text, sizeof(text));
+    LightLock_Lock(&pump.lock);
+    pump.stop_requested = true;
+    LightLock_Unlock(&pump.lock);
+    (void)threadJoin(worker, U64_MAX);
+    threadFree(worker);
+
+    if (pump.failed) {
+        snprintf(reason, reason_size, "RDP disconnected during keyboard (0x%08lx)",
+                 (unsigned long)pump.failure_code);
+        OPENSSL_cleanse(&keyboard, sizeof(keyboard));
+        OPENSSL_cleanse(text, sizeof(text));
+        return false;
+    }
+    if (button == SWKBD_BUTTON_CONFIRM) {
         for (i = 0; text[i]; ++i) {
             /* UTF-8 multi-byte input is not supported by this simple path. */
             const unsigned char ch = (unsigned char)text[i];
             if (ch < 0x20 || ch > 0x7e)
                 continue;
-            (void)freerdp_input_send_unicode_keyboard_event(input, 0, ch);
-            (void)freerdp_input_send_unicode_keyboard_event(input, KBD_FLAGS_RELEASE, ch);
+            (void)freerdp_input_send_unicode_keyboard_event(
+                client->context->input, 0, ch);
+            (void)freerdp_input_send_unicode_keyboard_event(
+                client->context->input, KBD_FLAGS_RELEASE, ch);
         }
     }
+    OPENSSL_cleanse(&keyboard, sizeof(keyboard));
     OPENSSL_cleanse(text, sizeof(text));
+    return true;
 }
 
 /* Worker performs only blocking FreeRDP connect and OpenSSL operations.
@@ -754,7 +835,10 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
                         (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
                 right_down = false;
             }
-            if (input) send_text(input);
+            if (input && !send_text(client, reason, reason_size)) {
+                result = -1;
+                break;
+            }
             pad_redraw = true;
         }
 
