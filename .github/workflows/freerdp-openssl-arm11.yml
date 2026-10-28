@@ -1,0 +1,74 @@
+# Proof-of-build only. This does not enable authentication or desktop on O3DS.
+name: FreeRDP ARM11 with OpenSSL
+on:
+  push:
+    paths:
+      - '.github/workflows/freerdp-openssl-arm11.yml'
+      - 'scripts/build-freerdp-3ds.sh'
+      - 'scripts/build-openssl-3ds.sh'
+      - 'cmake/3ds-armv6k.cmake'
+      - 'cmake/openssl-3ds.conf'
+      - 'patches/freerdp-*.patch'
+      - 'patches/openssl-*.patch'
+      - 'source/loopback_pair.c'
+      - 'include/loopback_pair.h'
+  pull_request:
+    paths:
+      - '.github/workflows/freerdp-openssl-arm11.yml'
+      - 'scripts/build-freerdp-3ds.sh'
+      - 'scripts/build-openssl-3ds.sh'
+      - 'cmake/3ds-armv6k.cmake'
+      - 'cmake/openssl-3ds.conf'
+      - 'patches/freerdp-*.patch'
+      - 'patches/openssl-*.patch'
+      - 'source/loopback_pair.c'
+      - 'include/loopback_pair.h'
+  workflow_dispatch:
+jobs:
+  cross-compile:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build PS-backed OpenSSL 3.5 static libraries
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-openssl-3ds.sh build 2>&1 | tee openssl-arm11.log
+      - name: Configure and compile FreeRDP against ARM11 OpenSSL
+        id: freerdp
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          FREERDP_CRYPTO_BACKEND=openssl bash scripts/build-freerdp-3ds.sh build 2>&1 | tee freerdp-openssl-arm11.log
+      - name: Report FreeRDP compile result
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## FreeRDP + OpenSSL cross-build'
+            echo 'FreeRDP compile step: **${{ steps.freerdp.outcome }}**.'
+            echo 'This is not a linked or hardware-validated RDP client.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload compiler diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freerdp-openssl-arm11-diagnostics
+          if-no-files-found: ignore
+          path: |
+            openssl-arm11.log
+            freerdp-openssl-arm11.log
+            build/freerdp-3ds/CMakeCache.txt
+            build/freerdp-3ds/CMakeFiles/CMakeConfigureLog.yaml
+      - name: Upload compiled FreeRDP libraries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freerdp-openssl-arm11-archives
+          if-no-files-found: ignore
+          path: |
+            build/freerdp-3ds/libfreerdp/**/*.a
+            build/freerdp-3ds/winpr/**/*.a
