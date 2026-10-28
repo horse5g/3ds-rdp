@@ -20,7 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install 3DS cryptography libraries
-        run: pacman -Syu --noconfirm --needed 3ds-mbedtls 3ds-zlib
+        run: |
+          # devkitpro/devkitarm is Debian-based and provides dkp-pacman,
+          # not the plain pacman command.
+          if test -r "$DEVKITPRO/portlibs/3ds/include/mbedtls/ssl.h"; then
+            echo "3DS Mbed TLS already installed"
+          else
+            dkp-pacman -Syu --noconfirm --needed 3ds-mbedtls 3ds-zlib
+          fi
       - name: Configure / compile FreeRDP (experimental)
         id: port
         continue-on-error: true
