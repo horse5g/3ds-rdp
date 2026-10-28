@@ -1,7 +1,7 @@
 diff --git a/libfreerdp/crypto/x509_utils.c b/libfreerdp/crypto/x509_utils.c
 --- a/libfreerdp/crypto/x509_utils.c
 +++ b/libfreerdp/crypto/x509_utils.c
-@@ -42,34 +42,35 @@
+@@ -42,34 +42,36 @@
  BYTE* x509_utils_get_hash(const X509* xcert, const char* hash, size_t* length)
  {
  	UINT32 fp_len = EVP_MAX_MD_SIZE;
