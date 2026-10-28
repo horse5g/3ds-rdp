@@ -69,6 +69,16 @@ The next substantive porting task is an honest 3DS-specific synchronization/pipe
 
 The compilation pipeline has reached WinPR's core pipe subsystem, but no end-to-end WinPR library link, remote session, or runtime synchronization behavior has been verified.
 
+## Native Horizon kernel-event backend (hardware smoke test)
+
+A new standalone library (`include/horizon_sync.h` and `source/horizon_sync.c`) uses 3DS `svcCreateEvent`, `svcSignalEvent`, `svcClearEvent`, `svcWaitSynchronization`, and `svcWaitSynchronizationN` directly. It implements sticky manual-reset and one-shot auto-reset kernel events, bounded/infinite waits, and a **wait-any** on up to 16 kernel events. These functions operate on true `Handle` objects, **not POSIX or SOC descriptors**. They can eventually be adapted into WinPR's event/multiple-wait code.
+
+The built O3DS homebrew application exposes a **B-button hardware self-test** which checks unsignaled timeouts, one-shot signal consumption, sticky persistence and reset, indexed wait-any, and a blocking cross-thread signal/wakeup using a libctru thread. The test reports a PASS/FAIL reason on the top screen. Compiling the test with devkitARM is **not** equivalent to running it: results must be verified on an original 3DS or 2DS.
+
+Next, implement WinPR handle bridging and mixed waits: native kernel events should use `svcWaitSynchronizationN`; SOC IPv4 sockets require network readiness through `select()`, which cannot be passed as kernel handles. A combined wait needs a bounded, measurable mechanism for cancellation and wakeups rather than treating handles as file descriptors or spinning without a timeout. Named-pipe, COM/serial, file timestamp and dynamic library features remain unavailable; none of these should silently report success.
+
+**Do not wire these kernel APIs into FreeRDP authentication until the hardware self-test and wait semantics have been validated.** WinPR's current `pipe.c` still requires an additional 3DS-specific implementation, so full WinPR/FreeRDP linking is outstanding.
+
 ## Domains and DNS names
 
 The homebrew configuration parser now accepts `host=rdp01.corp.example.com`, `domain=CORP`, and `username=alice` as future FreeRDP connection settings, along with `CORP\\alice` and `alice@corp.example.com` account formats. Hostname resolution for the **negotiation probe** uses the real libctru `getaddrinfo()` implementation (IPv4). The username/domain are not yet passed to FreeRDP or Windows; there is **no login**.
