@@ -42,6 +42,10 @@ Launch via Homebrew Launcher. Press **A** to probe, **X** to reload config, **ST
 
 The response is only an indication of supported **security negotiation**, not a successful login.
 
+## FreeRDP / WinPR port investigation
+
+A separate [ARM11 FreeRDP build investigation](docs/freerdp-port.md) now provides a pinned upstream release, devkitARM CMake toolchain, experimental cross-compilation command and diagnostic CI. **This does not yet mean FreeRDP can build or run on O3DS:** the normal app is still a standalone RDP security-negotiation probe. The separate O3DS CI workflow will publish a test `.3dsx` artifact if the devkitARM build succeeds.
+
 ## Planned work
 
 1. Validate device build, networking, and received X.224 responses on O3DS.
