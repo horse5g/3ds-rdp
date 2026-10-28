@@ -5,6 +5,7 @@
 #include "session_pad.h"
 #include "session_zoom.h"
 #include "rdp_pixels.h"
+#include "session_wait.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -22,6 +23,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
  * changed certificates are always rejected until manually removed. */
 #include <3ds.h>
 #include <freerdp/freerdp.h>
+#include <freerdp/error.h>
 #include <freerdp/settings.h>
 #include <freerdp/gdi/gdi.h>
 #include <freerdp/update.h>
@@ -44,6 +46,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #define RDP_W 400
 #define RDP_H 240
 #define RDP_MAX_EVENTS 64
+#define RDP_TCP_CONNECT_TIMEOUT_MS 12000
 
 #define PIN_FILE "sdmc:/3ds/3ds-rdp/cert-pin.txt"
 #define PIN_MAX_BYTES 1024
@@ -475,6 +478,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         /* Horizon SOC is IPv4-only and does not support SO_KEEPALIVE;
            FreeRDP otherwise defaults TCP keepalive to enabled. */
         !freerdp_settings_set_uint32(settings, FreeRDP_ForceIPvX, 4) ||
+        !freerdp_settings_set_uint32(settings, FreeRDP_TcpConnectTimeout,
+                                     RDP_TCP_CONNECT_TIMEOUT_MS) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_AutoReconnectionEnabled, FALSE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_TcpKeepAlive, FALSE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_ExternalCertificateManagement, TRUE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_IgnoreCertificate, FALSE) ||
@@ -510,7 +516,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     result = 0;
 
     while (aptMainLoop() && !freerdp_shall_disconnect_context(client->context)) {
-        HANDLE handles[RDP_MAX_EVENTS];
+        /* FreeRDP 3.32.2 may append two channel events after the initial
+           rdp_get_event_handles count; reserve that overrun margin. */
+        HANDLE handles[RDP_MAX_EVENTS + 2];
         DWORD count, wait_status;
         u32 down, held, up;
         PadActions action;
@@ -547,6 +555,19 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         /* Software keyboard is transient, not a permanent overlay. It never
          * stores entered text and the pad layout returns after dismissal. */
         if (down & KEY_X || action.keyboard) {
+            /* The software keyboard takes over HID until it closes. Release
+               held remote buttons first or a drag can remain stuck while
+               HID key-up events are consumed by the keyboard applet. */
+            if (input && left_down) {
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                left_down = false;
+            }
+            if (input && right_down) {
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON2,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                right_down = false;
+            }
             if (input) send_text(input);
             pad_redraw = true;
         }
@@ -610,13 +631,23 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 
         count = freerdp_get_event_handles(client->context, handles, RDP_MAX_EVENTS);
         if (!count || count > RDP_MAX_EVENTS) {
-            snprintf(reason, reason_size, "FreeRDP event handles unavailable");
+            snprintf(reason, reason_size, "FreeRDP event count invalid (%lu)",
+                     (unsigned long)count);
             result = -1;
             break;
         }
         wait_status = WaitForMultipleObjects(count, handles, FALSE, 20);
-        if (wait_status == WAIT_FAILED || !freerdp_check_event_handles(client->context)) {
-            snprintf(reason, reason_size, "FreeRDP event pump failed");
+        /* WAIT_TIMEOUT is normal with no server activity. Abandoned or
+           out-of-range waits indicate a damaged WinPR event lifecycle. */
+        if (!rdp_wait_result_valid((uint32_t)wait_status, (uint32_t)count)) {
+            snprintf(reason, reason_size, "WinPR wait failed (0x%08lx)",
+                     (unsigned long)wait_status);
+            result = -1;
+            break;
+        }
+        if (!freerdp_check_event_handles(client->context)) {
+            snprintf(reason, reason_size, "RDP event pump error (0x%08lx)",
+                     (unsigned long)freerdp_get_last_error(client->context));
             result = -1;
             break;
         }
@@ -636,6 +667,18 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
             pad_redraw = false;
         }
         gspWaitForVBlank();
+    }
+    /* Do not report an unrequested transport abort as a successful session.
+       The abort event is also used by FreeRDP for fatal connection errors. */
+    if (connected && freerdp_shall_disconnect_context(client->context)) {
+        const UINT err = freerdp_get_last_error(client->context);
+        if (err != FREERDP_ERROR_SUCCESS) {
+            snprintf(reason, reason_size, "RDP connection ended (0x%08lx)",
+                     (unsigned long)err);
+            result = -1;
+        } else {
+            snprintf(reason, reason_size, "Remote desktop disconnected");
+        }
     }
 done:
     if (connected && client && client->context && client->context->input) {
