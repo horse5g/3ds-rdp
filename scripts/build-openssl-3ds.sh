@@ -75,7 +75,7 @@ build="$(cd "$build" && pwd)"
     --prefix="$build/install" \
     --openssldir="$build/install/ssl" \
     no-asm no-shared no-dso no-module no-engine \
-    no-tests no-apps no-afalgeng no-ui-console
+    no-tests no-apps no-afalgeng no-ui-console no-quic
   if [[ "$mode" == build ]]; then
     PATH="$DEVKITARM/bin:$PATH" make -j"${JOBS:-2}" build_libs
     test -s libcrypto.a
