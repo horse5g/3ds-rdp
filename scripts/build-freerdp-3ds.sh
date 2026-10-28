@@ -10,14 +10,55 @@ freerdp_version=3.32.2
 src="${FREERDP_SOURCE:-$root/external/FreeRDP}"
 build="${FREERDP_BUILD_DIR:-$root/build/freerdp-3ds}"
 portlibs="${PORTLIBS_PREFIX:-$DEVKITPRO/portlibs/3ds}"
+backend="${FREERDP_CRYPTO_BACKEND:-mbedtls}"
+case "$backend" in
+  mbedtls|openssl) ;;
+  *) echo "FREERDP_CRYPTO_BACKEND must be mbedtls or openssl" >&2; exit 2 ;;
+esac
 case "${1:-configure}" in configure|build) ;; *) echo 'Usage: build-freerdp-3ds.sh [configure|build]' >&2; exit 2;; esac
 command -v cmake >/dev/null || { echo 'cmake required' >&2; exit 2; }
 command -v git >/dev/null || { echo 'git required' >&2; exit 2; }
 [[ -x "$DEVKITARM/bin/arm-none-eabi-gcc" ]] || { echo 'devkitARM gcc not found' >&2; exit 2; }
-[[ -r "$portlibs/include/mbedtls/ssl.h" ]] || { echo 'Install 3ds-mbedtls first' >&2; exit 2; }
-for lib in mbedtls mbedx509 mbedcrypto; do
-  [[ -f "$portlibs/lib/lib${lib}.a" ]] || { echo "Missing $portlibs/lib/lib${lib}.a" >&2; exit 2; }
-done
+crypto_cmake_args=()
+if [[ "$backend" == openssl ]]; then
+  openssl_src="${OPENSSL_SOURCE:-$root/external/openssl}"
+  openssl_build="${OPENSSL_BUILD_DIR:-$root/build/openssl-3ds}"
+  for lib in libssl.a libcrypto.a; do
+    [[ -s "$openssl_build/$lib" ]] || {
+      echo "Build OpenSSL first: missing $openssl_build/$lib" >&2
+      exit 2
+    }
+  done
+  [[ -r "$openssl_src/include/openssl/ssl.h" && -r "$openssl_build/include/openssl/configuration.h" ]] || {
+    echo "Missing source or generated ARM11 OpenSSL headers" >&2
+    exit 2
+  }
+  crypto_cmake_args=(
+    -DWITH_OPENSSL=ON
+    -DWITH_MBEDTLS=OFF
+    -DOPENSSL_USE_STATIC_LIBS=TRUE
+    -DOPENSSL_ROOT_DIR="$openssl_build"
+    -DOPENSSL_INCLUDE_DIR="$openssl_src/include"
+    -DOPENSSL_SSL_LIBRARY="$openssl_build/libssl.a"
+    -DOPENSSL_CRYPTO_LIBRARY="$openssl_build/libcrypto.a"
+    -DOPENSSL_3DS_GENERATED_INCLUDE="$openssl_build/include"
+  )
+else
+  [[ -r "$portlibs/include/mbedtls/ssl.h" ]] || { echo 'Install 3ds-mbedtls first' >&2; exit 2; }
+  for lib in mbedtls mbedx509 mbedcrypto; do
+    [[ -f "$portlibs/lib/lib${lib}.a" ]] || { echo "Missing $portlibs/lib/lib${lib}.a" >&2; exit 2; }
+  done
+  crypto_cmake_args=(
+    -DWITH_MBEDTLS=ON
+    -DWITH_OPENSSL=OFF
+    -DMBEDTLS_ROOT="$portlibs"
+    -DMBEDTLS_INCLUDE_DIR="$portlibs/include"
+    -DMBEDTLS_LIBRARY="$portlibs/lib/libmbedtls.a"
+    -DMBEDCRYPTO_LIBRARY="$portlibs/lib/libmbedcrypto.a"
+    -DMBEDX509_LIBRARY="$portlibs/lib/libmbedx509.a"
+  )
+fi
+echo "FreeRDP ARM11 crypto backend: $backend"
 if [[ ! -f "$src/CMakeLists.txt" ]]; then
   [[ ! -e "$src" ]] || { echo "Source dir exists but no CMakeLists.txt: $src" >&2; exit 2; }
   mkdir -p "$(dirname "$src")"
@@ -26,7 +67,7 @@ fi
 # Apply a narrow build-system-only patch to our ignored, tagged checkout.
 # Never silently alter a custom FREERDP_SOURCE checkout.
 if [[ "$src" == "$root/external/FreeRDP" ]]; then
-  if ! grep -q '3DS RDP port: allow a toolchain' "$src/CMakeLists.txt"; then
+  if [[ "$backend" == mbedtls ]] && ! grep -q '3DS RDP port: allow a toolchain' "$src/CMakeLists.txt"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-mbedtls-only.patch"
   fi
   if ! grep -q '3DS has no AF_UNIX' "$src/winpr/include/winpr/winsock.h"; then
@@ -81,7 +122,7 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-signals.patch"
   fi
 else
-  echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
+  echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
 fi
 mkdir -p "$build"
 cmake -S "$src" -B "$build" \
@@ -92,13 +133,7 @@ cmake -S "$src" -B "$build" \
   -DBUILD_SHARED_LIBS=OFF \
   -DBUILD_TESTING=OFF \
   -DBUILD_TESTING_INTERNAL=OFF \
-  -DWITH_MBEDTLS=ON \
-  -DWITH_OPENSSL=OFF \
-  -DMBEDTLS_ROOT="$portlibs" \
-  -DMBEDTLS_INCLUDE_DIR="$portlibs/include" \
-  -DMBEDTLS_LIBRARY="$portlibs/lib/libmbedtls.a" \
-  -DMBEDCRYPTO_LIBRARY="$portlibs/lib/libmbedcrypto.a" \
-  -DMBEDX509_LIBRARY="$portlibs/lib/libmbedx509.a" \
+  "${crypto_cmake_args[@]}" \
   -DWITH_UNICODE_BUILTIN=ON \
   -DWINPR_HAVE_PIPE2=OFF \
   -DWINPR_TARGET_3DS=ON \
