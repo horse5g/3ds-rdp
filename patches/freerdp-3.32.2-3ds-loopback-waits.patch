@@ -166,17 +166,17 @@ diff --git a/winpr/libwinpr/synch/event.c b/winpr/libwinpr/synch/event.c
 +#endif
  #endif
  		} while (ret < 0 && errno == EINTR);
-diff --git a/winpr/libwinpr/pipe/CMakeLists.txt b/winpr/libwinpr/pipe/CMakeLists.txt
---- a/winpr/libwinpr/pipe/CMakeLists.txt
-+++ b/winpr/libwinpr/pipe/CMakeLists.txt
-@@ -16,5 +16,9 @@
- # limitations under the License.
+diff --git a/winpr/libwinpr/CMakeLists.txt b/winpr/libwinpr/CMakeLists.txt
+--- a/winpr/libwinpr/CMakeLists.txt
++++ b/winpr/libwinpr/CMakeLists.txt
+@@ -217,6 +217,10 @@
+   add_subdirectory(${DIR})
+   source_group("${DIR}" REGULAR_EXPRESSION "${DIR}/.*\\.[ch]")
+ endforeach()
  
--winpr_module_add(pipe.c pipe.h)
 +if(WINPR_TARGET_3DS)
-+  winpr_module_add(pipe.c pipe.h "${WINPR_3DS_ROOT}/source/loopback_pair.c")
-+else()
-+  winpr_module_add(pipe.c pipe.h)
++  list(APPEND WINPR_SRCS "${WINPR_3DS_ROOT}/source/loopback_pair.c")
 +endif()
- 
- if(BUILD_TESTING_INTERNAL OR BUILD_TESTING)
++
+ set(MODULE_NAME winpr)
+ list(REMOVE_DUPLICATES WINPR_DEFINITIONS)
