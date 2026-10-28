@@ -87,6 +87,12 @@ The optional `freerdp-3.32.2-3ds-loopback-waits.patch` attempts a first WinPR in
 
 Limitations: socket creation needs SOC initialized **before** WinPR event initialization. Nintendo 3DS's socket service has a limited global descriptor budget (3dbrew documents up to 64 total sockets), and each emulated event consumes two sockets; this is likely unacceptable for unbounded event creation. `CreatePipe` currently uses nonblocking sockets, which are not fully equivalent to POSIX blocking pipes. Non-socket handles cannot be inserted into SOC `select`, and the existing native kernel-event backend still needs a separate mixed-wait strategy. Device sleep/WiFi transitions, WinPR auto-reset events, thread safety, cancellation, and resource exhaustion are not yet tested. This code is a **portability experiment**, not a production-ready implementation.
 
+### Cross-compilation results
+
+The `3ds-loopback-waits` patch now applies and FreeRDP's CMake generator recognizes the shared `source/loopback_pair.c` source in the top-level WinPR static library. A cross-build on October 28, 2026 progressed past `winpr/libwinpr/pipe/pipe.c` and `winpr/libwinpr/synch/event.c`; `freerdp-primitives` and `freerdp-codecs` targets compiled. The next blockers were an unused `sys/un.h` include in `winpr/libwinpr/io/io.c` (guarded for 3DS) and optional stack-unwinding's `dlfcn.h` (addressed by configuring `-DUSE_UNWIND=OFF`). Neither demonstrates a complete WinPR build.
+
+This is deliberately **not a complete native event implementation**. Future hardware tests must measure the socket budget and loopback behavior, particularly under Wi-Fi sleep, repeated wakeups, and many simultaneous events. The native `svc` event backend from the B-button tests remains available for an eventual low-socket-count alternative.
+
 ## Domains and DNS names
 
 The homebrew configuration parser now accepts `host=rdp01.corp.example.com`, `domain=CORP`, and `username=alice` as future FreeRDP connection settings, along with `CORP\\alice` and `alice@corp.example.com` account formats. Hostname resolution for the **negotiation probe** uses the real libctru `getaddrinfo()` implementation (IPv4). The username/domain are not yet passed to FreeRDP or Windows; there is **no login**.
