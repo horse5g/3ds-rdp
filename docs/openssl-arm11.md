@@ -48,6 +48,16 @@ CI output must be inspected for actual library build results; the existing
 FreeRDP feasibility workflow deliberately treats the FreeRDP build as
 non-blocking, and must not be used as a cryptography success signal.
 
+## Archive and link feasibility milestones
+
+In CI, the OpenSSL 3.5.9 `build_libs` step has completed and both `libcrypto.a` and `libssl.a` passed nonempty archive checks. An earlier job nevertheless failed with exit code 141 because `ar t | head` triggered `pipefail`; the command now uses `sed` to avoid that false failure.
+
+The build omits QUIC with OpenSSL's supported `no-quic` option (Microsoft RDP uses TLS over TCP, not QUIC in this client) and omits console-only password UI with `no-ui-console`. TLS and X.509 remain enabled, and threading is retained.
+
+After compiling both archives, CI also attempts a **separate, informational static link** of `tests/openssl-arm11-link.c`, pulling `SSL_CTX_new`, `TLS_client_method`, X.509 store symbols, and libctru into an ARM11 ELF. This test does not run on hardware. Any unresolved symbols or linker failures must be fixed before attempting a real secure TLS session.
+
+The native homebrew app now includes an independent **SELECT**-button check for `psInit` and `PS_GenerateRandomBytes`, without retaining or displaying any output bytes. A passing self-test will establish that the PS service is accessible but **not** that OpenSSL's DRBG is securely seeded or that a TLS session is safe. The OpenSSL entropy-provider integration is still required.
+
 ## Security and native integration requirements
 
 **Do not use the static libraries for authentication yet.** Before enabling
