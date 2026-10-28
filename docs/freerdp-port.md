@@ -1,3 +1,35 @@
+## FreeRDP with native ARM11 OpenSSL (experimental)
+
+The previous ARM11 FreeRDP job deliberately used experimental Mbed TLS only. It
+cross-compiled WinPR, primitives and codecs, but the main FreeRDP library
+stopped at an unconditional `#include <openssl/bio.h>` in
+`libfreerdp/utils/http.c`. Disabling that code or replacing it with fake
+OpenSSL declarations would obscure a required TLS dependency.
+
+An **independent** cross-build now pairs the pinned PS-backed OpenSSL 3.5.9
+archives with FreeRDP 3.32.2. See [FreeRDP ARM11 with OpenSSL
+CI](../.github/workflows/freerdp-openssl-arm11.yml). It builds the crypto
+archives first, then runs:
+
+```sh
+bash scripts/build-openssl-3ds.sh build
+FREERDP_CRYPTO_BACKEND=openssl bash scripts/build-freerdp-3ds.sh build
+```
+
+The OpenSSL backend supplies `WITH_OPENSSL=ON`, `WITH_MBEDTLS=OFF`, explicit
+ARM11 `libssl.a` and `libcrypto.a` paths and both upstream and generated
+OpenSSL include directories. The original Mbed TLS experiment remains
+available by omitting `FREERDP_CRYPTO_BACKEND`. Build directories should not
+be reused when switching between the crypto backends.
+
+The new CI workflow intentionally reports FreeRDP's *compiler step outcome*
+separately: it has `continue-on-error` while porting is incomplete. A green
+overall workflow does not mean the FreeRDP library compiled. Full compilation,
+static linking into the homebrew application, secure hostname/certificate
+validation, tested OpenSSL entropy on hardware, CredSSP/NLA, and graphics are
+separate milestones. This new build path does **not** disable NLA or weaken
+certificate verification.
+
 # FreeRDP / WinPR ARM11 port investigation
 
 **Status: build-system feasibility work, not a working port.** The existing RDP negotiation client does not link FreeRDP, perform TLS/NLA, or render a desktop.
