@@ -19,6 +19,8 @@ Horizon OS isn't POSIX-complete Linux. Native sockets, threads, time, certificat
 
 The first exploratory CI run reached FreeRDP 3.32.2 CMake configuration. It failed because upstream marks OpenSSL as `REQUIRED` even when `WITH_OPENSSL=OFF` and `WITH_MBEDTLS=ON` are requested. We therefore include a **minimal build-system patch**, [`freerdp-3.32.2-mbedtls-only.patch`](../patches/freerdp-3.32.2-mbedtls-only.patch), which changes only feature detection when Mbed TLS is selected. The script applies it idempotently to its ignored `external/FreeRDP` checkout and **does not patch a custom `FREERDP_SOURCE` checkout**. No cryptographic verification is bypassed.
 
+The next CI failure was `find_package(ICU REQUIRED)` in `winpr/libwinpr/crt/CMakeLists.txt`. Upstream provides `-DWITH_UNICODE_BUILTIN=ON`, so the configuration script now selects its built-in Unicode converter instead of pulling ICU into a resource-constrained target.
+
 This patch only removes an incorrect dependency requirement. It does not establish that Mbed TLS 2.28.8 is compatible, secure for deployment, or that WinPR compiles on Horizon OS. Later build logs determine the next adapter work.
 
 ## Reproduce
