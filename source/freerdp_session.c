@@ -17,6 +17,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #include <freerdp/freerdp.h>
 #include <freerdp/settings.h>
 #include <freerdp/gdi/gdi.h>
+#include <freerdp/update.h>
 #include <freerdp/input.h>
 #include <winpr/synch.h>
 #include <openssl/crypto.h>
