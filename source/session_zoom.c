@@ -86,9 +86,9 @@ void session_zoom_sample(const SessionZoomView *view, int x, int y,
     if (!sx || !sy) return;
     if (view && screen_w > 0 && screen_h > 0 && desktop_w > 0 && desktop_h > 0) {
         pixel_x=((int64_t)view->left_q16+
-                 (int64_t)x*view->width_q16/screen_w)>>16;
+                 (int64_t)x*view->width_q16/screen_w+32768)>>16;
         pixel_y=((int64_t)view->top_q16+
-                 (int64_t)y*view->height_q16/screen_h)>>16;
+                 (int64_t)y*view->height_q16/screen_h+32768)>>16;
     }
     *sx=clampi((int)pixel_x,0,desktop_w>0?desktop_w-1:0);
     *sy=clampi((int)pixel_y,0,desktop_h>0?desktop_h-1:0);
