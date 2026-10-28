@@ -43,6 +43,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 /* Single-session homebrew app: no concurrent RDP sessions. */
 static RdpCertPin active_pin;
 static char cert_failure[100];
+static bool desktop_dirty;
 
 static bool load_cert_pin(RdpCertPin *pin)
 {
@@ -143,22 +144,33 @@ static BOOL begin_paint(rdpContext *context)
 
 static BOOL end_paint(rdpContext *context)
 {
+    if (!context || !context->gdi)
+        return FALSE;
+    desktop_dirty = true;
+    return TRUE;
+}
+
+/* Full GDI surface copy only when a paint has occurred. The 3DS uses two
+ * framebuffers; swapping on idle iterations otherwise exposes stale frames. */
+static BOOL copy_desktop_frame(rdpContext *context)
+{
     rdpGdi *gdi;
     u16 fb_width = 0, fb_height = 0;
     u8 *frame;
     int x, y, width, height;
 
     if (!context || !(gdi = context->gdi) || !gdi->primary_buffer ||
-        gdi->stride < 4 || gdi->width <= 0 || gdi->height <= 0)
-        return TRUE;
-
-    frame = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, &fb_width, &fb_height);
-    if (!frame)
+        gdi->width <= 0 || gdi->height <= 0)
         return FALSE;
-    (void)fb_width; (void)fb_height;
-
     width = gdi->width < RDP_W ? gdi->width : RDP_W;
     height = gdi->height < RDP_H ? gdi->height : RDP_H;
+    if (gdi->stride < (size_t)width * 4 ||
+        gfxGetScreenFormat(GFX_TOP) != GSP_BGR8_OES)
+        return FALSE;
+
+    frame = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, &fb_width, &fb_height);
+    if (!frame || fb_width < RDP_H || fb_height < RDP_W)
+        return FALSE;
     for (x = 0; x < width; ++x) {
         for (y = 0; y < height; ++y) {
             const u8 *src = gdi->primary_buffer + (size_t)y * gdi->stride +
@@ -308,6 +320,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
+    desktop_dirty = false;
     if (!freerdp_connect(client)) {
         if (cert_failure[0])
             snprintf(reason, reason_size, "%.90s", cert_failure);
@@ -363,8 +376,16 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
             result = -1;
             break;
         }
-        gfxFlushBuffers();
-        gfxSwapBuffers();
+        if (desktop_dirty) {
+            if (!copy_desktop_frame(client->context)) {
+                snprintf(reason, reason_size, "Invalid GDI or top-screen framebuffer");
+                result = -1;
+                break;
+            }
+            gfxFlushBuffers();
+            gfxSwapBuffers();
+            desktop_dirty = false;
+        }
         gspWaitForVBlank();
     }
 done:
