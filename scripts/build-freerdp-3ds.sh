@@ -29,7 +29,7 @@ if [[ "$backend" == openssl ]]; then
       exit 2
     }
   done
-  [[ -r "$openssl_src/include/openssl/ssl.h" && -r "$openssl_build/include/openssl/configuration.h" ]] || {
+  [[ -r "$openssl_build/include/openssl/ssl.h" && -r "$openssl_build/include/openssl/configuration.h" && -d "$openssl_src/include/openssl" ]] || {
     echo "Missing source or generated ARM11 OpenSSL headers" >&2
     exit 2
   }
@@ -38,10 +38,11 @@ if [[ "$backend" == openssl ]]; then
     -DWITH_MBEDTLS=OFF
     -DOPENSSL_USE_STATIC_LIBS=TRUE
     -DOPENSSL_ROOT_DIR="$openssl_build"
-    -DOPENSSL_INCLUDE_DIR="$openssl_src/include"
+    -DOPENSSL_INCLUDE_DIR="$openssl_build/include"
     -DOPENSSL_SSL_LIBRARY="$openssl_build/libssl.a"
     -DOPENSSL_CRYPTO_LIBRARY="$openssl_build/libcrypto.a"
     -DOPENSSL_3DS_GENERATED_INCLUDE="$openssl_build/include"
+    -DOPENSSL_3DS_SOURCE_INCLUDE="$openssl_src/include"
   )
 else
   [[ -r "$portlibs/include/mbedtls/ssl.h" ]] || { echo 'Install 3ds-mbedtls first' >&2; exit 2; }
