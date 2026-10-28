@@ -102,8 +102,8 @@ bool loopback_pair_open(LoopbackPair *pair, char *error, size_t error_len) {
     listener = socket(AF_INET, SOCK_STREAM, 0);
     if (listener < 0) { diagnostic(error, error_len, "listen socket"); goto fail; }
     if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        const int loop_err = errno;
 #ifdef __3DS__
+        const int loop_err = errno;
         /* Some SOC implementations reject port zero. Try loopback ONLY
          * with short-lived fixed high ports; never expose the listener
          * by falling back to INADDR_ANY or the Wi-Fi interface. */
