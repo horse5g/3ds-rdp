@@ -149,6 +149,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'Horizon has no POSIX child processes or waitpid' "$src/winpr/libwinpr/synch/wait.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-process-wait.patch"
   fi
+  if ! grep -q 'Do not falsely claim Unix sharing/locking semantics on FAT' "$src/winpr/libwinpr/file/file.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-flock.patch"
+  fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
 fi
