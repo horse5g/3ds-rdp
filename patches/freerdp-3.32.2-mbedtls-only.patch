@@ -1,0 +1,16 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -302,7 +302,12 @@
+ set(OPENSSL_FEATURE_TYPE "REQUIRED")
+ set(OPENSSL_FEATURE_PURPOSE "cryptography")
+ set(OPENSSL_FEATURE_DESCRIPTION "encryption, certificate validation, hashing functions")
+ 
+ set(MBEDTLS_FEATURE_TYPE "OPTIONAL")
+ set(MBEDTLS_FEATURE_PURPOSE "cryptography")
+ set(MBEDTLS_FEATURE_DESCRIPTION "[experimental] encryption, certificate validation, hashing functions")
++
++# 3DS RDP port: allow a toolchain with Mbed TLS but without OpenSSL.
++if(WITH_MBEDTLS AND NOT WITH_OPENSSL)
++  set(OPENSSL_FEATURE_TYPE "DISABLED")
++endif()
