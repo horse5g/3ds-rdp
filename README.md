@@ -80,6 +80,12 @@ The experimental build now produces the complete `winpr` static-library target f
 
 An independent [OpenSSL ARM11 build experiment](docs/openssl-arm11.md) now targets pinned OpenSSL 3.5.9 with actual pthread support and libctru socket compatibility. Static compilation remains experimental; the full FreeRDP core is not linked. Neither approach has passed a native 3DS link or TLS handshake yet. See [port notes](docs/freerdp-port.md) for the exact compiler findings.
 
+An isolated [OpenSSL RNG smoke-test](docs/openssl-arm11.md) is now being
+built as a separate experimental `.3dsx`. Its `RAND_bytes()` source is
+wired to the 3DS PS cryptographic random service; it does not connect to a
+Windows server and still requires hardware validation. The normal RDP probe
+remains independent of these cryptographic experiments.
+
 ## Planned work
 
 1. Validate device build, networking, and received X.224 responses on O3DS.
