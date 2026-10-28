@@ -71,7 +71,7 @@ static void full_session(const ConnectionUI *state)
     char message[100] = {0};
     int result;
     snprintf(status,sizeof(status),"Experimental FreeRDP...");
-    snprintf(detail,sizeof(detail),"B cancels; X enters text");
+    snprintf(detail,sizeof(detail),"START disconnect; bottom touchpad + keyboard");
     draw_status(1);
     connection_ui_draw(state);
     gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
