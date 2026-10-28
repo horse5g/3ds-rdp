@@ -18,3 +18,11 @@ build-full/
 3ds-rdp-full.elf
 3ds-rdp-full.map
 3ds-rdp-full.smdh
+
+# Local host-test executables and trusted-certificate transaction fixtures
+tests/test_cert_pin
+tests/test_cert_pool
+tests/test_cert_store
+tests/test_config
+tests/test_loopback_pair
+tests/test-cert-store-fixture.txt*
