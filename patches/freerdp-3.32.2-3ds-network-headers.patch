@@ -1,0 +1,17 @@
+diff --git a/winpr/include/winpr/winsock.h b/winpr/include/winpr/winsock.h
+--- a/winpr/include/winpr/winsock.h
++++ b/winpr/include/winpr/winsock.h
+@@ -83,3 +83,7 @@
+ #include <netdb.h>
+ #include <unistd.h>
++#ifndef __3DS__
++/* 3DS has no AF_UNIX; do not include unavailable Unix-domain socket declarations. */
+ #include <sys/un.h>
++#endif
+@@ -89,3 +93,7 @@
+ #include <netinet/in.h>
+ #include <netinet/tcp.h>
++#ifndef __3DS__
++/* Device interface enumeration via net/if.h is not provided by libctru. */
+ #include <net/if.h>
++#endif
