@@ -1,3 +1,43 @@
+## Opt-in combined application (integration milestone, not hardware validated)
+
+The normal `make` target still builds `3ds-rdp.3dsx`, with the proven
+A negotiation probe and B/Y/SELECT diagnostics. A **separate experimental**
+full-client path now attempts to assemble OpenSSL, WinPR, the FreeRDP core,
+libctru, runtime password entry, a basic GDI framebuffer and touch controls:
+
+```sh
+bash scripts/build-openssl-3ds.sh build
+FREERDP_CRYPTO_BACKEND=openssl bash scripts/build-freerdp-3ds.sh build
+bash scripts/link-freerdp-3ds.sh
+bash scripts/build-combined-3dsx.sh
+```
+
+The third command makes a standalone combined ARM11 ELF/3DSX from the real
+`freerdp_new`, `freerdp_connect`, settings and OpenSSL symbols. The fourth
+tries to create `3ds-rdp-full.3dsx` with `RDP_FULL_CLIENT=1` in a separate
+`build-full/` intermediate directory. GitHub Actions runs these steps **only
+after** a successful upstream FreeRDP compile; the experimental steps currently
+use `continue-on-error`. Inspect their exact step outcomes rather than the
+overall workflow status.
+
+In the opt-in application, press **R** to attempt a FreeRDP session. The
+password comes from the on-screen keyboard and is **never read from** or
+written to `host.txt`; FreeRDP owns a temporary copy while the session is
+alive. The 3DS GDI path currently targets 400x240, maps touch motion onto the
+remote desktop, sends A as a left-click and X as an ASCII-only text keyboard.
+B or START exits the session. No graphical controls or certificate management
+UI is implemented yet.
+
+**Fail-closed security:** the certificate callback explicitly declines
+unknown certificates; the project does not enable `/cert:ignore`, bypass
+TLS verification, or disable NLA to make test hosts connect. There is not
+yet a user-trustworthy CA/pin installation flow, so common self-signed Windows
+RDP endpoints are expected to be rejected. A successful ELF/3DSX build only
+proves the binary can be produced. It does not establish safe TLS/NLA login,
+Windows domain sign-in, framebuffer correctness, thread/event behavior or
+acceptable original-3DS memory/CPU performance. These require subsequent
+software tests and, later, hardware validation.
+
 ## FreeRDP with native ARM11 OpenSSL (experimental)
 
 The previous ARM11 FreeRDP job deliberately used experimental Mbed TLS only. It
