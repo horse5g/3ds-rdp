@@ -53,6 +53,9 @@ if [[ "$src" == "$root/external/openssl" ]]; then
   if ! grep -q '#ifndef __3DS__' "$src/crypto/bio/bio_addr.c"; then
     patch -d "$src" -p1 < "$root/patches/openssl-3.5.9-3ds-numeric-services.patch"
   fi
+  if ! grep -q 'Not a supported Horizon SOC socket option' "$src/crypto/bio/bio_sock2.c"; then
+    patch -d "$src" -p1 < "$root/patches/openssl-3.5.9-3ds-keepalive.patch"
+  fi
 elif [[ ! -f "$src/Configurations/15-3ds.conf" ]]; then
   echo "Custom OPENSSL_SOURCE requires its own 3ds-armv6k target config" >&2
   exit 2
