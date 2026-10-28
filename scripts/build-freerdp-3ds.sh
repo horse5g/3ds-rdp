@@ -53,6 +53,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'The O3DS client does not support serial/COM-port redirection' "$src/winpr/libwinpr/CMakeLists.txt"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-serial.patch"
   fi
+  if ! grep -q 'loopback_pair_open' "$src/winpr/libwinpr/synch/event.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-loopback-waits.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
@@ -75,6 +78,7 @@ cmake -S "$src" -B "$build" \
   -DWITH_UNICODE_BUILTIN=ON \
   -DWINPR_HAVE_PIPE2=OFF \
   -DWINPR_TARGET_3DS=ON \
+  -DWINPR_3DS_ROOT="$root" \
   -DWINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK=OFF \
   -DWINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK_SYMBOL=OFF \
   -DWINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK_LIB=OFF \
