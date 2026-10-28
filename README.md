@@ -48,7 +48,11 @@ username=alice
 
 Legacy files containing only `192.168.1.100:3389` or `rdp01.corp.example.com` still work. Lines beginning with `#` or `;` are comments. Unknown settings, including `password=`, are rejected intentionally; **do not save passwords on the SD card**.
 
-Press **A** to send an RDP negotiation probe, **B** to run native Horizon kernel event tests, **Y** to test the SOC loopback/select wakeup transport, **X** to reload `host.txt`, or **START** to exit. The bottom screen displays the parsed username and domain. Those fields are **not transmitted to Windows** in this milestone. Domain sign-in requires future FreeRDP + CredSSP/NLA integration (and Kerberos if domain policy requires it).
+Press **A** to send an RDP negotiation probe, **B** to run native Horizon kernel event tests, **Y** to test the SOC loopback/select wakeup transport, **SELECT** to check the PS hardware entropy service, **X** to reload `host.txt`, or **START** to exit. The bottom screen displays the parsed username and domain. Those fields are **not transmitted to Windows** in this milestone. Domain sign-in requires future FreeRDP + CredSSP/NLA integration (and Kerberos if domain policy requires it).
+
+## Hardware entropy-service diagnostic
+
+Press **SELECT** to check `psInit()` and two 32-byte calls to the console's `PS_GenerateRandomBytes()` service. The test checks that neither output is all zero and that the buffers differ, then wipes the temporary buffers without printing or saving their contents. A PASS confirms service availability **only**; it does not prove unpredictability, seed OpenSSL's DRBG, enable TLS, or expose passwords. It still needs testing on physical original 3DS hardware.
 
 ## Horizon synchronization prototype
 
