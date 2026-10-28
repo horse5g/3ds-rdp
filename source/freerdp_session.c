@@ -1,5 +1,6 @@
 #include "freerdp_session.h"
 #include "cert_pin.h"
+#include "session_pad.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -30,6 +31,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #include <limits.h>
 #include <time.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -252,8 +254,10 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     char password[128] = {0};
     bool initialized = false;
     bool connected = false;
-    bool mouse_down = false;
-    u16 last_x = RDP_W / 2, last_y = RDP_H / 2;
+    bool left_down = false;
+    bool right_down = false;
+    bool pad_redraw = true;
+    SessionPad pad;
     int result = -1;
 
     if (!cfg || !cfg->host[0] || !reason || !reason_size)
@@ -330,6 +334,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         goto done;
     }
     connected = true;
+    session_pad_init(&pad);
     snprintf(reason, reason_size, "Session ended");
     result = 0;
 
@@ -337,33 +342,92 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         HANDLE handles[RDP_MAX_EVENTS];
         DWORD count, wait_status;
         u32 down, held, up;
+        PadActions action;
         touchPosition touch;
         rdpInput *input = client->context->input;
+        int tick;
+
         hidScanInput();
         down = hidKeysDown();
-        up = hidKeysUp();
         held = hidKeysHeld();
-        if (down & (KEY_B | KEY_START))
-            break;
-        if ((down & KEY_X) && input)
-            send_text(input);
-        if ((held & KEY_TOUCH) && input) {
+        up = hidKeysUp();
+
+        if (held & KEY_TOUCH) {
             hidTouchRead(&touch);
-            last_x = (u16)((unsigned)touch.px * RDP_W / 320);
-            last_y = (u16)touch.py;
-            if (last_x >= RDP_W) last_x = RDP_W - 1;
-            if (last_y >= RDP_H) last_y = RDP_H - 1;
-            (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_MOVE, last_x, last_y);
+            session_pad_update(&pad, true, (int)touch.px, (int)touch.py, &action);
+        } else {
+            session_pad_update(&pad, false, -1, -1, &action);
         }
-        if ((down & KEY_A) && input) {
-            (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1 | PTR_FLAGS_DOWN,
-                                                 last_x, last_y);
-            mouse_down = true;
+        if (action.redraw) pad_redraw = true;
+        if (action.disconnect || (down & KEY_START)) {
+            snprintf(reason, reason_size, "Disconnected by user");
+            break;
         }
-        if ((up & KEY_A) && mouse_down && input) {
-            (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1, last_x, last_y);
-            mouse_down = false;
+
+        /* Software keyboard is transient, not a permanent overlay. It never
+         * stores entered text and the pad layout returns after dismissal. */
+        if (down & KEY_X || action.keyboard) {
+            if (input) send_text(input);
+            pad_redraw = true;
         }
+
+        if (input) {
+            if (action.pointer_moved) {
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_MOVE,
+                         (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+            }
+
+            /* Physical A can be held for dragging over the touchpad.
+             * Physical B is right-click (START or toolbar disconnects). */
+            if (down & KEY_A) {
+                (void)freerdp_input_send_mouse_event(input,
+                        PTR_FLAGS_BUTTON1 | PTR_FLAGS_DOWN,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                left_down = true;
+            }
+            if ((up & KEY_A) && left_down) {
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                left_down = false;
+            }
+            if (down & KEY_B) {
+                (void)freerdp_input_send_mouse_event(input,
+                        PTR_FLAGS_BUTTON2 | PTR_FLAGS_DOWN,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                right_down = true;
+            }
+            if ((up & KEY_B) && right_down) {
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON2,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                right_down = false;
+            }
+
+            if (action.left_click && !left_down) {
+                (void)freerdp_input_send_mouse_event(input,
+                        PTR_FLAGS_BUTTON1 | PTR_FLAGS_DOWN,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+            }
+            if (action.right_click && !right_down) {
+                (void)freerdp_input_send_mouse_event(input,
+                        PTR_FLAGS_BUTTON2 | PTR_FLAGS_DOWN,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+                (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON2,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+            }
+
+            /* RDP wheel rotation uses 9-bit signed notation: 120 up,
+             * 0x100 | (0x100-120) down. Never combine MOVE with WHEEL. */
+            for (tick = 0; tick < abs(action.wheel_notches); ++tick) {
+                const UINT16 flags = (UINT16)(PTR_FLAGS_WHEEL |
+                    (action.wheel_notches > 0 ? 120 :
+                     (PTR_FLAGS_WHEEL_NEGATIVE | (0x100 - 120))));
+                (void)freerdp_input_send_mouse_event(input, flags,
+                        (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+            }
+        }
+
         count = freerdp_get_event_handles(client->context, handles, RDP_MAX_EVENTS);
         if (!count || count > RDP_MAX_EVENTS) {
             snprintf(reason, reason_size, "FreeRDP event handles unavailable");
@@ -376,19 +440,33 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
             result = -1;
             break;
         }
-        if (desktop_dirty) {
+        if (desktop_dirty || pad_redraw) {
+            /* gfxSwapBuffers swaps BOTH screens. Always redraw the current
+             * GDI desktop into the new top backbuffer when the bottom pad
+             * changes, otherwise the previous top console can reappear. */
             if (!copy_desktop_frame(client->context)) {
                 snprintf(reason, reason_size, "Invalid GDI or top-screen framebuffer");
                 result = -1;
                 break;
             }
+            session_pad_draw(&pad);
             gfxFlushBuffers();
             gfxSwapBuffers();
             desktop_dirty = false;
+            pad_redraw = false;
         }
         gspWaitForVBlank();
     }
 done:
+    if (connected && client && client->context && client->context->input) {
+        rdpInput *input = client->context->input;
+        if (left_down)
+            (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON1,
+                      (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+        if (right_down)
+            (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_BUTTON2,
+                      (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
+    }
     OPENSSL_cleanse(password, sizeof(password));
     OPENSSL_cleanse(&active_pin, sizeof(active_pin));
     OPENSSL_cleanse(cert_failure, sizeof(cert_failure));
