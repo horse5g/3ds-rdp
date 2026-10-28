@@ -93,6 +93,10 @@ The `3ds-loopback-waits` patch now applies and FreeRDP's CMake generator recogni
 
 This is deliberately **not a complete native event implementation**. Future hardware tests must measure the socket budget and loopback behavior, particularly under Wi-Fi sleep, repeated wakeups, and many simultaneous events. The native `svc` event backend from the B-button tests remains available for an eventual low-socket-count alternative.
 
+### Timezone portability
+
+Newlib's `struct tm` on devkitARM lacks the nonstandard `tm_gmtoff` and `tm_zone` fields that FreeRDP 3.32.2 normally uses. The `freerdp-3.32.2-3ds-portable-timezone.patch` computes the current UTC offset from standard `mktime` / `gmtime_r` / `difftime` and uses `strftime("%Z")` for the timezone abbreviation, instead of pretending the device is always UTC. This remains dependent on correct device time and timezone configuration, and daylight-saving edge cases need hardware verification. The patch does not affect TLS validation or CredSSP.
+
 ## Domains and DNS names
 
 The homebrew configuration parser now accepts `host=rdp01.corp.example.com`, `domain=CORP`, and `username=alice` as future FreeRDP connection settings, along with `CORP\\alice` and `alice@corp.example.com` account formats. Hostname resolution for the **negotiation probe** uses the real libctru `getaddrinfo()` implementation (IPv4). The username/domain are not yet passed to FreeRDP or Windows; there is **no login**.
