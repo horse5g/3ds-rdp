@@ -1,7 +1,7 @@
 diff --git a/winpr/libwinpr/synch/timer.c b/winpr/libwinpr/synch/timer.c
 --- a/winpr/libwinpr/synch/timer.c
 +++ b/winpr/libwinpr/synch/timer.c
-@@ -895,9 +895,11 @@
+@@ -895,9 +895,12 @@
  	pthread_cond_init(&(timerQueue->cond), nullptr);
  	pthread_mutex_init(&(timerQueue->cond_mutex), nullptr);
  	pthread_mutex_init(&(timerQueue->mutex), nullptr);
