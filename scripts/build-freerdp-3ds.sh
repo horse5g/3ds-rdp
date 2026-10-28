@@ -56,6 +56,66 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'loopback_pair_open' "$src/winpr/libwinpr/synch/event.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-loopback-waits.patch"
   fi
+  if grep -q '^#include <sys/un.h>
+else
+  echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
+fi
+mkdir -p "$build"
+cmake -S "$src" -B "$build" \
+  -DCMAKE_TOOLCHAIN_FILE="$root/cmake/3ds-armv6k.cmake" \
+  -DCMAKE_BUILD_TYPE=MinSizeRel \
+  -DCMAKE_INSTALL_PREFIX="$build/install" \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DBUILD_TESTING=OFF \
+  -DBUILD_TESTING_INTERNAL=OFF \
+  -DWITH_MBEDTLS=ON \
+  -DWITH_OPENSSL=OFF \
+  -DMBEDTLS_ROOT="$portlibs" \
+  -DMBEDTLS_INCLUDE_DIR="$portlibs/include" \
+  -DMBEDTLS_LIBRARY="$portlibs/lib/libmbedtls.a" \
+  -DMBEDCRYPTO_LIBRARY="$portlibs/lib/libmbedcrypto.a" \
+  -DMBEDX509_LIBRARY="$portlibs/lib/libmbedx509.a" \
+  -DWITH_UNICODE_BUILTIN=ON \
+  -DWINPR_HAVE_PIPE2=OFF \
+  -DWINPR_TARGET_3DS=ON \
+  -DWINPR_3DS_ROOT="$root" \
+  -DWINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK=OFF \
+  -DWINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK_SYMBOL=OFF \
+  -DWINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK_LIB=OFF \
+  -DWINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK_LIBS=OFF \
+  -DTIMER_CREATE=OFF \
+  -DTIMER_DELETE=OFF \
+  -DTIMER_SETTIME=OFF \
+  -DTIMER_GETTIME=OFF \
+  -DWITH_WINPR_TOOLS=OFF \
+  -DWITH_CLIENT=OFF \
+  -DWITH_CLIENT_COMMON=OFF \
+  -DWITH_SERVER=OFF \
+  -DWITH_CHANNELS=OFF \
+  -DWITH_SAMPLE=OFF \
+  -DWITH_MANPAGES=OFF \
+  -DWITH_PKCS11=OFF \
+  -DWITH_KRB5=OFF \
+  -DWITH_GSSAPI=OFF \
+  -DWITH_X11=OFF \
+  -DWITH_WAYLAND=OFF \
+  -DWITH_JPEG=OFF \
+  -DWITH_CUPS=OFF \
+  -DWITH_FFMPEG=OFF \
+  -DWITH_SWSCALE=OFF \
+  -DWITH_CAIRO=OFF \
+  -DWITH_ALSA=OFF \
+  -DWITH_PULSE=OFF \
+  -DWITH_GSTREAMER_1_0=OFF \
+  -DWITH_OPENH264=OFF \
+  -DWITH_JSON_DISABLED=ON
+if [[ "${1:-configure}" == build ]]; then
+  cmake --build "$build" --parallel "${JOBS:-2}"
+fi
+ "$src/winpr/libwinpr/io/io.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-unix-io-header.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
