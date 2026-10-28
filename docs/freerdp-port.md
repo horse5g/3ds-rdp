@@ -77,7 +77,15 @@ The built O3DS homebrew application exposes a **B-button hardware self-test** wh
 
 Next, implement WinPR handle bridging and mixed waits: native kernel events should use `svcWaitSynchronizationN`; SOC IPv4 sockets require network readiness through `select()`, which cannot be passed as kernel handles. A combined wait needs a bounded, measurable mechanism for cancellation and wakeups rather than treating handles as file descriptors or spinning without a timeout. Named-pipe, COM/serial, file timestamp and dynamic library features remain unavailable; none of these should silently report success.
 
-**Do not wire these kernel APIs into FreeRDP authentication until the hardware self-test and wait semantics have been validated.** WinPR's current `pipe.c` still requires an additional 3DS-specific implementation, so full WinPR/FreeRDP linking is outstanding.
+**Do not wire these kernel APIs into FreeRDP authentication until the hardware self-test and wait semantics have been validated.** An experimental SOC loopback event and anonymous-pipe patch is now available, but the completed WinPR/FreeRDP build, static link, and runtime behavior are not verified.
+
+## Experimental loopback notification bridge
+
+The native `source/loopback_pair.c` establishes a TCP connection entirely over `127.0.0.1` using `socInit`/SOC socket calls and produces a read and write socket. It is testable on Linux using `make -C tests test` and on actual O3DS using the **Y-button** self-test in the homebrew app. The hardware test verifies initial unreadable state, notification delivery, `select()` readability, `recv()` and cleanup. The B-button kernel-event tests remain separate.
+
+The optional `freerdp-3.32.2-3ds-loopback-waits.patch` attempts a first WinPR integration: anonymous pipe reads/writes use `recv/send`, event notification writes/reads use `send/recv`, and WinPR's fd-based `select()` pollset can see the same socket descriptor type as its RDP transport. The patch keeps named pipes unsupported and compiles `source/loopback_pair.c` into experimental WinPR via `WINPR_3DS_ROOT`. It does not bypass TLS or authentication. **The result must be checked in the experimental build logs and on physical hardware before it can be considered working.**
+
+Limitations: socket creation needs SOC initialized **before** WinPR event initialization. Nintendo 3DS's socket service has a limited global descriptor budget (3dbrew documents up to 64 total sockets), and each emulated event consumes two sockets; this is likely unacceptable for unbounded event creation. `CreatePipe` currently uses nonblocking sockets, which are not fully equivalent to POSIX blocking pipes. Non-socket handles cannot be inserted into SOC `select`, and the existing native kernel-event backend still needs a separate mixed-wait strategy. Device sleep/WiFi transitions, WinPR auto-reset events, thread safety, cancellation, and resource exhaustion are not yet tested. This code is a **portability experiment**, not a production-ready implementation.
 
 ## Domains and DNS names
 
