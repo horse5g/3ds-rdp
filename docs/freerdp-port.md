@@ -125,6 +125,15 @@ First hardware run of the two new diagnostics exposed actual portability problem
 
 Do not silently fall back to a LAN-facing listener for WinPR event notifications: a socket listener exposed on Wi-Fi would be accessible to other devices and could interfere with the application's event mechanism. If localhost sockets cannot work on Horizon SOC, retire the socket-pair WinPR bridge and use native kernel events plus an explicit mixed kernel-event/SOC-readiness wait strategy instead.
 
+## Confirmed original 3DS hardware results (October 28, 2026)
+
+Following the corrected timeout classification and loopback bind diagnostics, the user tested the updated native application on an original 3DS and reported that **both B and Y pass**:
+
+- **B / Horizon kernel events:** the self-test checks initial timeouts, one-shot event consumption, sticky/manual reset, indexed wait-any, and a cross-thread signal/wakeup. This verifies the independent native 3DS kernel-event backend on hardware.
+- **Y / SOC loopback:** the self-test checks socket-pair creation, initial `select` unreadability, a one-byte notification over the loopback transport, subsequent `select` readability, reception and drain. The socket-based wakeup mechanism operates on physical hardware after the port-zero/fixed-port fallback change.
+
+The user has not provided the detail line identifying whether the socket test used ephemeral port zero or the fixed-loopback-port fallback. Do not assume which succeeded. This does **not** establish WinPR event correctness under resource pressure, numerous simultaneous events, concurrent resets, or suspend/resume. No actual RDP session, TLS/CredSSP login, or desktop has been validated.
+
 ## Domains and DNS names
 
 The homebrew configuration parser now accepts `host=rdp01.corp.example.com`, `domain=CORP`, and `username=alice` as future FreeRDP connection settings, along with `CORP\\alice` and `alice@corp.example.com` account formats. Hostname resolution for the **negotiation probe** uses the real libctru `getaddrinfo()` implementation (IPv4). The username/domain are not yet passed to FreeRDP or Windows; there is **no login**.
