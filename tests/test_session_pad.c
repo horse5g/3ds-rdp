@@ -105,7 +105,7 @@ int main(void)
     pad.pointer_x=399; pad.pointer_y=0;
     touch(&pad,10,40);
     a=touch(&pad,200,40);
-    assert(a.pointer_moved && pad.pointer_x==399); /* Y unchanged; X clamped */
+    assert(!a.pointer_moved && pad.pointer_x==399); /* Cursor remains clamped */
     lift(&pad);
     touch(&pad,200,100);
     a=touch(&pad,10,40);
