@@ -88,8 +88,9 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
         dy = y - pad->touch_y;
         pad->touch_x = x;
         pad->touch_y = y;
-        if (abs(x - pad->start_x) > TAP_MOVEMENT ||
-            abs(y - pad->start_y) > TAP_MOVEMENT)
+        if ((x - pad->start_x) * (x - pad->start_x) +
+            (y - pad->start_y) * (y - pad->start_y) >=
+            TAP_MOVEMENT * TAP_MOVEMENT)
             pad->moved = true;
         if (pad->captured == PAD_AREA &&
             session_pad_hit(pad, x, y) == PAD_AREA &&
