@@ -1,0 +1,29 @@
+diff --git a/winpr/libwinpr/file/file.c b/winpr/libwinpr/file/file.c
+--- a/winpr/libwinpr/file/file.c
++++ b/winpr/libwinpr/file/file.c
+@@ -601,5 +601,5 @@
+ }
+ 
+-#if defined(_POSIX_C_SOURCE) && (_POSIX_C_SOURCE >= 200809L)
++#if !defined(__3DS__) && defined(_POSIX_C_SOURCE) && (_POSIX_C_SOURCE >= 200809L)
+ static struct timespec filetimeToTimespec(const FILETIME* ftime)
+ {
+@@ -721,8 +721,14 @@
+ 		return FALSE;
+ 
+-	WLog_WARN(TAG, "TODO: Creation, Access and Write time can not be handled!");
+-	WLog_WARN(TAG,
+-	          "TODO: Define _POSIX_C_SOURCE >= 200809L or implement a platform specific handler!");
+-	return TRUE;
++#ifdef __3DS__
++	/* FAT/SD file timestamps do not have a verified SetFileTime equivalent yet. */
++	SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
++	return FALSE;
++#else
++	WLog_WARN(TAG, "TODO: Creation, Access and Write time can not be handled!");
++	WLog_WARN(TAG,
++	          "TODO: Define _POSIX_C_SOURCE >= 200809L or implement a platform specific handler!");
++	return TRUE;
++#endif
+ }
+ #endif
