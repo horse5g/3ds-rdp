@@ -2,6 +2,7 @@
 #include "cert_pin.h"
 #include "cert_pool.h"
 #include "session_pad.h"
+#include "session_zoom.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -35,7 +36,6 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #include <stdlib.h>
 #include <time.h>
 #include <stdbool.h>
-#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -318,34 +318,43 @@ static BOOL end_paint(rdpContext *context)
 
 /* Full GDI surface copy only when a paint has occurred. The 3DS uses two
  * framebuffers; swapping on idle iterations otherwise exposes stale frames. */
-static BOOL copy_desktop_frame(rdpContext *context)
+static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
+                               int pointer_x, int pointer_y)
 {
     rdpGdi *gdi;
-    u16 fb_width = 0, fb_height = 0;
+    u16 fb_width=0, fb_height=0;
     u8 *frame;
-    int x, y, width, height;
+    SessionZoomView view;
+    int x,y;
+    int32_t step_x,step_y;
 
-    if (!context || !(gdi = context->gdi) || !gdi->primary_buffer ||
-        gdi->width <= 0 || gdi->height <= 0)
-        return FALSE;
-    width = gdi->width < RDP_W ? gdi->width : RDP_W;
-    height = gdi->height < RDP_H ? gdi->height : RDP_H;
-    if (gdi->stride < (size_t)width * 4 ||
+    if (!context || !(gdi=context->gdi) || !gdi->primary_buffer ||
+        gdi->width < RDP_W || gdi->height < RDP_H ||
+        gdi->stride < (size_t)gdi->width * 4 ||
         gfxGetScreenFormat(GFX_TOP) != GSP_BGR8_OES)
         return FALSE;
 
-    frame = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, &fb_width, &fb_height);
-    if (!frame || fb_width < RDP_H || fb_height < RDP_W)
-        return FALSE;
-    for (x = 0; x < width; ++x) {
-        for (y = 0; y < height; ++y) {
-            const u8 *src = gdi->primary_buffer + (size_t)y * gdi->stride +
-                            (size_t)x * 4;
-            u8 *dst = frame + ((size_t)x * RDP_H + (RDP_H - 1 - y)) * 3;
-            /* XRGB32 is stored as B,G,R,X; GSP_BGR8 uses B,G,R bytes. */
-            dst[0] = src[0];
-            dst[1] = src[1];
-            dst[2] = src[2];
+    frame=gfxGetFramebuffer(GFX_TOP,GFX_LEFT,&fb_width,&fb_height);
+    if (!frame || fb_width < RDP_H || fb_height < RDP_W) return FALSE;
+
+    view=session_zoom_view(zoom,pointer_x,pointer_y,RDP_W,RDP_H);
+    step_x=view.width_q16/RDP_W;
+    step_y=view.height_q16/RDP_H;
+    /* 16.16 nearest-neighbor crop avoids floating point or divide in the
+       96,000-pixel inner loops. Zoom never changes remote pointer coords. */
+    for (x=0;x<RDP_W;++x) {
+        int sx=(int)((view.left_q16+(int64_t)x*step_x)>>16);
+        if (sx < 0) sx=0;
+        if (sx >= gdi->width) sx=gdi->width-1;
+        for (y=0;y<RDP_H;++y) {
+            int sy=(int)((view.top_q16+(int64_t)y*step_y)>>16);
+            const u8 *src;
+            u8 *dst;
+            if (sy < 0) sy=0;
+            if (sy >= gdi->height) sy=gdi->height-1;
+            src=gdi->primary_buffer+(size_t)sy*gdi->stride+(size_t)sx*4;
+            dst=frame+((size_t)x*RDP_H+(RDP_H-1-y))*3;
+            dst[0]=src[0]; dst[1]=src[1]; dst[2]=src[2];
         }
     }
     return TRUE;
@@ -422,6 +431,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     bool right_down = false;
     bool pad_redraw = true;
     SessionPad pad;
+    SessionZoom zoom;
     int result = -1;
 
     if (!cfg || !cfg->host[0] || !reason || !reason_size)
@@ -504,6 +514,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     }
     connected = true;
     session_pad_init(&pad);
+    session_zoom_init(&zoom);
     snprintf(reason, reason_size, "Session ended");
     result = 0;
 
@@ -513,6 +524,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         u32 down, held, up;
         PadActions action;
         touchPosition touch;
+        circlePosition circle;
         rdpInput *input = client->context->input;
         int tick;
 
@@ -520,6 +532,12 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         down = hidKeysDown();
         held = hidKeysHeld();
         up = hidKeysUp();
+        hidCircleRead(&circle);
+        /* Hold L and rotate the Circle Pad. Clockwise increases magnification,
+           counterclockwise reduces it. No mouse wheel or RDP size changes. */
+        if (session_zoom_update(&zoom,(held & KEY_L)!=0,
+                                circle.dx,circle.dy))
+            pad_redraw=true;
 
         if (held & KEY_TOUCH) {
             hidTouchRead(&touch);
@@ -528,6 +546,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
             session_pad_update(&pad, false, -1, -1, &action);
         }
         if (action.redraw) pad_redraw = true;
+        if (action.pointer_moved && zoom.visible > 1.001f)
+            pad_redraw=true; /* keep viewport tracking the remote cursor */
         if (action.disconnect || (down & KEY_START)) {
             snprintf(reason, reason_size, "Disconnected by user");
             break;
@@ -613,12 +633,12 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
             /* gfxSwapBuffers swaps BOTH screens. Always redraw the current
              * GDI desktop into the new top backbuffer when the bottom pad
              * changes, otherwise the previous top console can reappear. */
-            if (!copy_desktop_frame(client->context)) {
+            if (!copy_desktop_frame(client->context,&zoom,pad.pointer_x,pad.pointer_y)) {
                 snprintf(reason, reason_size, "Invalid GDI or top-screen framebuffer");
                 result = -1;
                 break;
             }
-            session_pad_draw(&pad);
+            session_pad_draw(&pad,session_zoom_percent(&zoom));
             gfxFlushBuffers();
             gfxSwapBuffers();
             desktop_dirty = false;
