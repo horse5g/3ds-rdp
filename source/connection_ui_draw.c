@@ -1,5 +1,5 @@
 /* Native, allocation-free O3DS software UI. No Citro2D dependency.
- * Framebuffer: GSP_BGR8, 240-pixel tall column-major, vertically inverted. */
+ * Framebuffer: GSP_RGB565_OES, 240-pixel tall column-major, flipped. */
 #include "connection_ui.h"
 #include <3ds.h>
 #include <ctype.h>
@@ -20,7 +20,12 @@
 #define HIGHLIGHT C(217,235,252)
 #define PALE C(250,251,253)
 
-static uint8_t *fb;
+static uint16_t *fb;
+
+static uint16_t rgb565(uint32_t rgb)
+{
+    return (uint16_t)((((rgb>>19)&31)<<11) | (((rgb>>10)&63)<<5) | ((rgb>>3)&31));
+}
 
 /* A small embedded uppercase 5x7 font: five vertical columns, bit 0 top.
  * Passwords are never displayed in this UI. Non-ASCII characters show '?'. */
@@ -65,28 +70,21 @@ static const uint8_t *glyph(char c)
 }
 static void pixel(int x, int y, uint32_t rgb)
 {
-    uint8_t *p;
     if (!fb || x < 0 || x >= UI_W || y < 0 || y >= UI_H) return;
-    p = fb + (((size_t)x * UI_H) + (UI_H - 1 - y)) * 3;
-    p[0] = (uint8_t)(rgb & 255);
-    p[1] = (uint8_t)((rgb >> 8) & 255);
-    p[2] = (uint8_t)((rgb >> 16) & 255);
+    fb[(size_t)x * UI_H + (UI_H - 1 - y)] = rgb565(rgb);
 }
 static void fill(int x, int y, int w, int h, uint32_t color)
 {
     int i, j;
+    uint16_t c = rgb565(color);
     if (x < 0) {w += x; x = 0;}
     if (y < 0) {h += y; y = 0;}
     if (x + w > UI_W) w = UI_W - x;
     if (y + h > UI_H) h = UI_H - y;
     if (w <= 0 || h <= 0 || !fb) return;
-    for (i = x; i < x+w; ++i) {
-        uint8_t *p = fb + (((size_t)i * UI_H)+(UI_H-1-y))*3;
-        for (j = 0; j < h; ++j, p -= 3) {
-            p[0] = (uint8_t)(color & 255);
-            p[1] = (uint8_t)((color >> 8) & 255);
-            p[2] = (uint8_t)((color >> 16) & 255);
-        }
+    for (i=x; i<x+w; ++i) {
+        uint16_t *p = fb + (size_t)i*UI_H + (UI_H-1-y);
+        for (j=0; j<h; ++j) *p-- = c;
     }
 }
 static void outline(int x, int y, int w, int h, uint32_t color)
@@ -213,7 +211,7 @@ void connection_ui_draw(const ConnectionUI *ui)
 {
     u16 width = 0, height = 0;
     if (!ui) return;
-    fb = gfxGetFramebuffer(GFX_BOTTOM,GFX_LEFT,&width,&height);
+    fb = (uint16_t*)gfxGetFramebuffer(GFX_BOTTOM,GFX_LEFT,&width,&height);
     (void)width; (void)height;
     if (!fb) return;
     fill(0,0,UI_W,UI_H,BG);
