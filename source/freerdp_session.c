@@ -326,6 +326,7 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
     u8 *frame;
     SessionZoomView view;
     int x,y;
+    int sample_y[RDP_H];
     int32_t step_x,step_y;
 
     if (!context || !(gdi=context->gdi) || !gdi->primary_buffer ||
@@ -340,20 +341,22 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
     view=session_zoom_view(zoom,pointer_x,pointer_y,RDP_W,RDP_H);
     step_x=view.width_q16/RDP_W;
     step_y=view.height_q16/RDP_H;
-    /* 16.16 nearest-neighbor crop avoids floating point or divide in the
-       96,000-pixel inner loops. Zoom never changes remote pointer coords. */
+    /* Cache vertical source row lookup once per frame; on an O3DS this
+       avoids 400x repeating the expensive crop and bound arithmetic. */
+    for (y=0;y<RDP_H;++y) {
+        int sy=(int)((view.top_q16+(int64_t)y*step_y+32768)>>16);
+        if (sy < 0) sy=0;
+        if (sy >= gdi->height) sy=gdi->height-1;
+        sample_y[y]=sy;
+    }
     for (x=0;x<RDP_W;++x) {
         int sx=(int)((view.left_q16+(int64_t)x*step_x+32768)>>16);
         if (sx < 0) sx=0;
         if (sx >= gdi->width) sx=gdi->width-1;
         for (y=0;y<RDP_H;++y) {
-            int sy=(int)((view.top_q16+(int64_t)y*step_y+32768)>>16);
-            const u8 *src;
-            u8 *dst;
-            if (sy < 0) sy=0;
-            if (sy >= gdi->height) sy=gdi->height-1;
-            src=gdi->primary_buffer+(size_t)sy*gdi->stride+(size_t)sx*4;
-            dst=frame+((size_t)x*RDP_H+(RDP_H-1-y))*3;
+            const u8 *src=gdi->primary_buffer+
+                     (size_t)sample_y[y]*gdi->stride+(size_t)sx*4;
+            u8 *dst=frame+((size_t)x*RDP_H+(RDP_H-1-y))*3;
             dst[0]=src[0]; dst[1]=src[1]; dst[2]=src[2];
         }
     }
