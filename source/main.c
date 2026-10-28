@@ -56,7 +56,7 @@ static void draw(void) {
     printf("Status: %.38s\nDetail: %.38s\n\n",status,detail);
     printf("Negotiation probe only.\nNo login or desktop yet.\n");
     consoleSelect(&bottom);
-    printf("\x1b[2J\x1b[H A: Connect/probe\n X: Reload host.txt\n START: Exit\n\n");
+    printf("\x1b[2J\x1b[H A: Connect/probe\n B: Kernel event test\n X: Reload host.txt\n START: Exit\n\n");
     printf("User: %.30s\n",config.username[0]?config.username:"(not set)");
     printf("AD domain: %.27s\n",config.domain[0]?config.domain:"(not set)");
     printf("\nAuthentication not enabled.\n");
@@ -87,7 +87,7 @@ int main(int argc,char **argv) {
         if(keys&KEY_B) {
             char result[96];
             bool passed = horizon_sync_selftest(result, sizeof(result));
-            snprintf(status, sizeof(status), passed ? "Kernel events PASS" : "Kernel events FAIL");
+            snprintf(status, sizeof(status), "%s", passed ? "Kernel events PASS" : "Kernel events FAIL");
             snprintf(detail, sizeof(detail), "%s", result);
             draw();
         }
