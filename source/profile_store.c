@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #define PROFILE_LINE_CAP 1024
 #define PROFILE_SIGNATURE "3DSRDP1"
@@ -193,67 +194,147 @@ int rdp_profiles_load(const char *path, RdpProfileStore *out, char *error, size_
     return rc;
 }
 
+
+/* 1=present, 0=absent, -1=I/O or permission failure. Never confuse
+ * inaccessible storage with an empty profile file. */
+static int profile_file_exists(const char *path)
+{
+    struct stat st;
+    if (stat(path, &st) == 0) return 1;
+    return errno == ENOENT ? 0 : -1;
+}
+
+static int profiles_equal(const RdpProfileStore *left, const RdpProfileStore *right)
+{
+    if (left->count != right->count) return 0;
+    for (size_t i = 0; i < left->count; ++i) {
+        const RdpProfile *a = &left->items[i];
+        const RdpProfile *b = &right->items[i];
+        if (strcmp(a->name, b->name) ||
+            strcmp(a->config.host, b->config.host) ||
+            strcmp(a->config.username, b->config.username) ||
+            strcmp(a->config.domain, b->config.domain) ||
+            a->config.port != b->config.port)
+            return 0;
+    }
+    return 1;
+}
+
 int rdp_profiles_save(const char *path, const RdpProfileStore *store, char *error, size_t cap)
 {
     char temp[512], backup[512];
-    FILE *file;
+    RdpProfileStore *verify = NULL;
+    FILE *file = NULL;
     size_t i;
-    int had_original;
+    int had_original, backup_moved = 0, promoted = 0, result = -1;
+
     if (!path || !store || store->count > RDP_PROFILE_LIMIT ||
         strlen(path) + 5 >= sizeof(temp))
         return problem(error, cap, "Invalid profile store");
+
     for (i = 0; i < store->count; ++i) {
-        size_t j;
         if (!safe_name(store->items[i].name) ||
-            rdp_profile_validate(&store->items[i].config, error, cap)) return -1;
-        for (j = 0; j < i; ++j)
+            rdp_profile_validate(&store->items[i].config, error, cap))
+            return -1;
+        for (size_t j = 0; j < i; ++j)
             if (same_name(store->items[i].name, store->items[j].name))
                 return problem(error, cap, "Duplicate saved connection");
     }
+
     snprintf(temp, sizeof(temp), "%s.tmp", path);
     snprintf(backup, sizeof(backup), "%s.bak", path);
+
+    /* An interrupted prior transaction must be investigated, not destroyed.
+     * In particular, NEVER delete a pre-existing valid .bak as part of save. */
+    if (profile_file_exists(temp) != 0 || profile_file_exists(backup) != 0)
+        return problem(error, cap, "Recover stale .tmp/.bak before saving");
+
+    had_original = profile_file_exists(path);
+    if (had_original < 0)
+        return problem(error, cap, "Cannot access saved profiles");
+
+    verify = (RdpProfileStore *)malloc(sizeof(*verify));
+    if (!verify)
+        return problem(error, cap, "Out of memory verifying profiles");
+
+    /* Refuse to overwrite a corrupt primary, even if a caller displays a
+     * recovered backup. The original data must be repaired first. */
+    if (had_original && read_file(path, verify, error, cap) != 0) {
+        problem(error, cap, "Repair damaged profiles before saving");
+        goto finish;
+    }
+
     file = fopen(temp, "wb");
-    if (!file) return problem(error, cap, "Cannot write SD profile file");
-    if (fprintf(file, PROFILE_SIGNATURE "\n") < 0) goto write_error;
+    if (!file) {
+        problem(error, cap, "Cannot write SD profile file");
+        goto finish;
+    }
+    if (fprintf(file, PROFILE_SIGNATURE "\n") < 0)
+        goto write_error;
     for (i = 0; i < store->count; ++i) {
         const RdpProfile *p = &store->items[i];
         if (fprintf(file, "%s|%s|%u|%s|%s\n",
                     p->name, p->config.host, (unsigned)p->config.port,
-                    p->config.username, p->config.domain) < 0) goto write_error;
+                    p->config.username, p->config.domain) < 0)
+            goto write_error;
     }
-    {
-        int flushed = fflush(file);
-        int closed = fclose(file);
-        if (flushed || closed) {
-            remove(temp);
-            return problem(error, cap, "SD write failed");
-        }
+    if (fflush(file) != 0)
+        goto write_error;
+    if (fclose(file) != 0) {
+        file = NULL;
+        problem(error, cap, "SD write failed");
+        goto finish;
     }
-    had_original = 0;
-    {
-        FILE *existing = fopen(path, "rb");
-        if (existing) {
-            had_original = 1;
-            fclose(existing);
-        }
+    file = NULL;
+    if (read_file(temp, verify, error, cap) != 0 || !profiles_equal(verify, store)) {
+        problem(error, cap, "Profile write verification failed");
+        goto finish;
     }
+
     if (had_original) {
-        remove(backup);
-        if (rename(path, backup)) {
-            remove(temp);
-            return problem(error, cap, "Could not back up saved profiles");
+        if (rename(path, backup) != 0) {
+            problem(error, cap, "Could not back up saved profiles");
+            goto finish;
+        }
+        backup_moved = 1;
+    }
+    if (rename(temp, path) != 0) {
+        problem(error, cap, "Could not replace saved profiles");
+        goto finish;
+    }
+    promoted = 1;
+    if (read_file(path, verify, error, cap) != 0 || !profiles_equal(verify, store)) {
+        problem(error, cap, "Profile readback verification failed");
+        goto finish;
+    }
+    if (backup_moved) {
+        if (remove(backup) != 0) {
+            problem(error, cap, "New profiles saved; backup cleanup failed");
+            /* Leave both copies, never delete data just to report success. */
+            backup_moved = 0;
+            goto finish;
+        }
+        backup_moved = 0;
+    }
+    if (error && cap) error[0] = 0;
+    result = 0;
+    goto finish;
+
+write_error:
+    problem(error, cap, "SD write failed");
+finish:
+    if (file && fclose(file) != 0)
+        problem(error, cap, "SD write close failed");
+    if (result != 0 && backup_moved) {
+        /* Best-effort rollback. Keep .bak if rollback cannot complete. */
+        if (!promoted || remove(path) == 0) {
+            if (rename(backup, path) == 0)
+                backup_moved = 0;
         }
     }
-    if (rename(temp, path)) {
-        if (had_original) rename(backup, path);
+    /* Never remove the pre-existing backup when rollback is uncertain. */
+    if (result != 0 && profile_file_exists(temp) == 1)
         remove(temp);
-        return problem(error, cap, "Could not replace saved profiles");
-    }
-    if (had_original) remove(backup);
-    if (error && cap) error[0] = 0;
-    return 0;
-write_error:
-    fclose(file);
-    remove(temp);
-    return problem(error, cap, "SD write failed");
+    free(verify);
+    return result;
 }
