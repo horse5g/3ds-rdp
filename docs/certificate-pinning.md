@@ -43,12 +43,51 @@ key or Windows SHA-1 thumbprint.
 If a saved server later sends a different certificate, the client **blocks**
 the connection with a certificate-changed error. It will not replace that
 entry on a single button press. To rotate trust, inspect and verify the
-replacement certificate on the Windows host, then manually delete that
-server's record from `trusted-certs.txt`. The next connection will show the
+replacement certificate on the Windows host, then remove that server's
+record in the on-device Trusted Certificates manager (or edit the file
+carefully on a trusted PC). The next connection will show the
 new fingerprint for your approval. If the file becomes malformed (including
 a partially written record after power loss), the entire pool is rejected:
 back up and repair the file on a trusted workstation. SD/FAT appends are not
 guaranteed power-fail atomic.
+
+## Manage trusted certificates on the 3DS
+
+In the **experimental full client** (`3ds-rdp-full.3dsx`), hold **L** and press **X**
+on the graphical connection launcher to open **Trusted Certificates**. No network connection or
+RDP password is needed to inspect the pool.
+
+- **D-pad Up / Down:** highlight a saved host and port; list scrolls in pages.
+- **A:** inspect the complete leaf SHA-256 fingerprint.
+- **X** on the details screen: request removal. The next screen requires
+  **A again** to confirm; **B** cancels without changing any trust.
+- **Y** on the list: reload the SD file. **B/START:** return to the main menu.
+
+Removing a certificate does **not** accept a new one. Reconnect to the
+host only after independently confirming that its replacement certificate is
+legitimate; the normal unknown-certificate prompt then offers session-only
+or persistent trust. You cannot edit or override a saved fingerprint on the
+certificate-changed error screen. The on-device manager affects the pool
+only—not `cert-pin.txt`; an explicit manual pin still takes precedence.
+
+### Storage transaction and recovery
+
+Removing an entry rewrites a verified new pool to a
+`trusted-certs.txt.tmp` file, validates it, renames the previous pool to
+`trusted-certs.txt.bak`, promotes the new file and verifies it, then
+cleans up the backup. The application refuses to trust **any** entries if
+a stale `.tmp` or `.bak` remains, including when the main store is missing.
+This avoids turning interrupted pool updates into silent first-use trust.
+SD/FAT still cannot promise power-fail-atomic renames or storage durability.
+
+To recover, power off the console and copy `trusted-certs.txt`, `.tmp`
+and `.bak` to a trusted computer before making changes. Verify the hosts,
+ports and hashes in both the current store and backup. If a valid older
+`.bak` is the intended safe trust set, restore it to
+`trusted-certs.txt`; otherwise reconstruct a trusted file from verified
+records. Remove the sidecars **only after** verifying the final file.
+Never blindly delete `.bak` and reconnect without checking its contents.
+The on-device manager deliberately does not automate this recovery.
 
 ## Optional manual pin (highest priority for matching endpoint)
 
