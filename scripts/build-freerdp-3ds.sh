@@ -44,6 +44,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q '#ifndef __3DS__' "$src/winpr/libwinpr/file/generic.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-unix-file-sockets.patch"
   fi
+  if ! grep -q 'Named-pipe client requires Unix-domain sockets' "$src/winpr/libwinpr/file/namedPipeClient.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-named-pipe-client.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
