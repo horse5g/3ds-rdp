@@ -134,6 +134,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'Horizon SOC does not implement Unix-domain sockets' "$src/libfreerdp/core/tcp.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-tcp-ipv4-soc.patch"
   fi
+  if ! grep -q 'IPv6 subnet matching is unavailable on Horizon' "$src/libfreerdp/core/proxy.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-proxy-ipv4.patch"
+  fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
 fi
