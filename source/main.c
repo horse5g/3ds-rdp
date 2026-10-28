@@ -10,6 +10,9 @@
 #include "loopback_pair.h"
 #include "horizon_rng.h"
 #include "freerdp_session.h"
+#ifdef RDP_FULL_CLIENT
+#include "cert_manager.h"
+#endif
 
 #define HOST_FILE "sdmc:/3ds/3ds-rdp/host.txt"
 #define SOC_SIZE (1024*1024)
@@ -66,6 +69,7 @@ static void draw(void) {
     printf("\x1b[2J\x1b[H A: Connect/probe\n B: Kernel event test\n Y: SOC loopback test\n SELECT: PS entropy test\n X: Reload host.txt\n START: Exit\n\n");
 #ifdef RDP_FULL_CLIENT
     printf(" R: FreeRDP session (unverified)\n");
+    printf(" L: Trusted certificates manager\n");
 #endif
     printf("User: %.30s\n",config.username[0]?config.username:"(not set)");
     printf("AD domain: %.27s\n",config.domain[0]?config.domain:"(not set)");
@@ -121,6 +125,15 @@ int main(int argc,char **argv) {
             draw();
         }
 #ifdef RDP_FULL_CLIENT
+        if ((keys & KEY_L) && !(keys & KEY_R)) {
+            char manager_result[100] = {0};
+            const int rc = rdp_cert_manager_run(&top, &bottom,
+                                                manager_result, sizeof(manager_result));
+            snprintf(status, sizeof(status), "%s", rc == 0 ?
+                     "Trusted certificates" : "Certificate manager error");
+            snprintf(detail, sizeof(detail), "%s", manager_result);
+            draw();
+        }
         if(keys&KEY_R) {
             char session_result[100] = {0};
             if (!netok || !configured) {
