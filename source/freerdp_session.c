@@ -457,7 +457,11 @@ static void send_text(rdpInput *input)
 static void rdp_connect_worker(void *arg)
 {
     RdpConnectGate *gate = (RdpConnectGate *)arg;
-    const bool ok = freerdp_connect(gate->client) == TRUE;
+    LightLock_Lock(&gate->lock);
+    const bool cancelled_before_start = gate->cancel_requested;
+    LightLock_Unlock(&gate->lock);
+    const bool ok = !cancelled_before_start &&
+                    freerdp_connect(gate->client) == TRUE;
     LightLock_Lock(&gate->lock);
     gate->succeeded = ok;
     gate->finished = true;
@@ -569,9 +573,15 @@ static bool connect_with_ui(freerdp *client, const char *host,
     (void)threadJoin(worker, U64_MAX);
     threadFree(worker);
     LightLock_Lock(&gate.lock);
-    connected = gate.succeeded && !gate.cancel_requested;
+    const bool established = gate.succeeded;
+    connected = established && !gate.cancel_requested;
     LightLock_Unlock(&gate.lock);
     connect_gate = NULL;
+    /* Cancellation can race with the final NLA response. If the worker
+     * connected just as B was pressed, explicitly close that live session:
+     * the caller's unsuccessful-connect cleanup won't disconnect it. */
+    if (established && !connected)
+        (void)freerdp_disconnect(client);
     if (!connected && cancelling)
         snprintf(reason, reason_size, "RDP connection cancelled");
     return connected;
