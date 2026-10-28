@@ -68,8 +68,12 @@ bash scripts/build-combined-3dsx.sh
 `3ds-rdp-full.3dsx` all passed the final CI gate. Retrieve the
 [full application and static archives](https://github.com/horse5g/3ds-rdp/actions/runs/40672154636/artifacts/12808337729)
 from the successful workflow. **This is a build-only milestone:** the full app
-has not run on O3DS; certificate-trust provisioning and hardware runtime
-validation are still incomplete. In the opt-in app,
+has not run on O3DS; certificate verification and hardware runtime
+validation are still incomplete. **New experimental TLS trust gate:** put a
+manually verified, host-and-port-specific SHA-256 pin in
+`sdmc:/3ds/3ds-rdp/cert-pin.txt` before pressing R. The client rejects
+unconfigured, changed or mismatched server certificates without asking to
+accept them. See [certificate pin provisioning](docs/certificate-pinning.md). In the opt-in app,
 R attempts a session, B/START exits, A clicks, touch moves the pointer, and
 X opens a limited text keyboard. This code has **not been hardware tested**.
 Unknown or changed RDP certificates must not be accepted automatically, and
