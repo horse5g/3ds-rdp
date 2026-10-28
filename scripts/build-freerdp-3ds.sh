@@ -77,6 +77,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q '!defined(ANDROID) && !defined(__3DS__)' "$src/libfreerdp/utils/passphrase.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-tty-passphrase.patch"
   fi
+  if ! grep -q 'signal_3ds.c' "$src/libfreerdp/utils/CMakeLists.txt"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-signals.patch"
+  fi
 else
   echo "Custom FreeRDP source: upstream CMake Mbed TLS-only patch was not applied."
 fi
