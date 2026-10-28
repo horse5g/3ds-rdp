@@ -8,6 +8,7 @@
 #include "network.h"
 #include "horizon_sync.h"
 #include "loopback_pair.h"
+#include "horizon_rng.h"
 
 #define HOST_FILE "sdmc:/3ds/3ds-rdp/host.txt"
 #define SOC_SIZE (1024*1024)
@@ -57,7 +58,7 @@ static void draw(void) {
     printf("Status: %.38s\nDetail: %.38s\n\n",status,detail);
     printf("Negotiation probe only.\nNo login or desktop yet.\n");
     consoleSelect(&bottom);
-    printf("\x1b[2J\x1b[H A: Connect/probe\n B: Kernel event test\n Y: SOC loopback test\n X: Reload host.txt\n START: Exit\n\n");
+    printf("\x1b[2J\x1b[H A: Connect/probe\n B: Kernel event test\n Y: SOC loopback test\n SELECT: PS entropy test\n X: Reload host.txt\n START: Exit\n\n");
     printf("User: %.30s\n",config.username[0]?config.username:"(not set)");
     printf("AD domain: %.27s\n",config.domain[0]?config.domain:"(not set)");
     printf("\nAuthentication not enabled.\n");
@@ -97,6 +98,13 @@ int main(int argc,char **argv) {
             bool passed = netok && loopback_pair_selftest(result, sizeof(result));
             snprintf(status, sizeof(status), "%s", passed ? "SOC wakeup PASS" : "SOC wakeup FAIL");
             snprintf(detail, sizeof(detail), "%s", netok ? result : "SOC initialization failed");
+            draw();
+        }
+        if(keys&KEY_SELECT) {
+            char result[96];
+            bool passed = horizon_rng_selftest(result, sizeof(result));
+            snprintf(status, sizeof(status), "%s", passed ? "PS service PASS" : "PS service FAIL");
+            snprintf(detail, sizeof(detail), "%s", result);
             draw();
         }
         if(keys&KEY_A) {
