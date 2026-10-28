@@ -1,7 +1,7 @@
 diff --git a/libfreerdp/core/tcp.c b/libfreerdp/core/tcp.c
 --- a/libfreerdp/core/tcp.c
 +++ b/libfreerdp/core/tcp.c
-@@ -41,7 +41,9 @@
+@@ -41,6 +41,8 @@
  #include <sys/socket.h>
  #include <netinet/in.h>
  #include <netinet/tcp.h>
