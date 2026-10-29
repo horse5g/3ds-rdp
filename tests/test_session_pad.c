@@ -131,7 +131,7 @@ int main(void)
     a=tap(&pad, 150, 15); /* Settings should replace keyboard overlay */
     assert(a.redraw && !pad.keyboard_open && pad.settings_open);
     assert(!pad.fn_page && pad.key_mods==0);
-    a=tap(&pad, 240, 15); /* Keyboard should replace settings */
+    a=tap(&pad, 200, 15); /* Keyboard should replace settings */
     assert(a.redraw && pad.keyboard_open && !pad.settings_open);
     pad.keyboard_open=false; /* return to touchpad after keyboard test */
     /* x clamping and negative speed deltas */
