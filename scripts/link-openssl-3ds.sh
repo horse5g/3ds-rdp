@@ -35,7 +35,7 @@ mkdir -p "$build"
   -I"$DEVKITPRO/libctru/include" \
   -I"$root/include" \
   -I"$build/include" -I"$root/external/openssl/include" \
-  -specs=3dsx.specs -Wl,--gc-sections \
+  -specs=3dsx.specs -Wl,--gc-sections -Wl,--wrap=pthread_key_create -Wl,--wrap=pthread_key_delete -Wl,--wrap=pthread_getspecific -Wl,--wrap=pthread_setspecific \
   -Wl,-Map,"$output.map" \
   "$source_file" "$root/source/rdp_pthread_tsd.c" \
   -L"$build" -L"$DEVKITPRO/libctru/lib" \
