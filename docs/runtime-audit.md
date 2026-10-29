@@ -58,6 +58,45 @@ Shift/Win on close and when switching to the Settings overlay; opening
 Keyboard replaces Settings instead of allowing the two overlays to conflict.
 Tests exercise both toolbar and on-screen transitions.
 
+### Full RDP session startup / NLA audit
+
+Traced connection startup all the way through WinPR known paths, password
+entry, `freerdp_new`, `freerdp_context_new`, validated FreeRDP settings,
+threaded TLS/NLA connect, certificate callback, `PostConnect` graphics
+allocation, and first desktop paint.
+
+- **Missing NLA username:** The network probe intentionally accepts just a
+  hostname; the full FreeRDP client did the same, creating an unusable blank
+  user CredSSP identity. A separate portable preflight now validates the
+  selected profile and options and requires a username *before* allocating
+  WinPR client settings. It preserves passwordless profile storage.
+- **OpenSSL PS entropy failure:** TLS/NLA previously began without a specific
+  entropy diagnostic. A 32-byte `RAND_bytes()` preflight runs after WinPR
+  HOME/XDG initialization and before the password prompt. The bytes are
+  immediately cleansed, never logged/stored, and failure is explicitly
+  identified as the 3DS PS/OpenSSL backend. The patched OpenSSL entropy
+  provider already calls `psInit`/`PS_GenerateRandomBytes` and fails
+  closed if PS does not work.
+- **Unsafe initial desktop allocation:** The resize callback added in the
+  previous audit protected later `gdi_resize`, but the **initial**
+  `PostConnect` call made `gdi_init` *before* validating negotiated
+  dimensions. Now reject unsupported or changed desktop sizes prior to
+  any initial GDI framebuffer allocation; report a specific graphics/O3DS
+  memory error if `gdi_init` fails.
+- **Opaque failures:** Map known FreeRDP error codes to useful DNS, TCP,
+  NLA security, TLS, credential, account permission, and desktop-activation
+  error messages while retaining the hexadecimal code. Certificate pin
+  changes and unknown certificate refusals still take precedence.
+- **Null context settings:** Check client settings after context allocation
+  before using them, rather than unconditionally dereferencing the pointer.
+
+The check for a nonempty username applies **only to the full NLA session**;
+the probe-only TCP/negotiation client still permits host-only profiles.
+Also note that the ARM11 FreeRDP build intentionally disables Kerberos/GSSAPI
+and only supports NTLM-compatible authentication. A server requiring
+Kerberos-only domain sign-on will not work without additional porting.
+Neither NLA nor hostname/certificate verification is disabled.
+
 ## Validation and constraints
 
 - Portable tests: desktop resize limit and duplicate profile rejection.
