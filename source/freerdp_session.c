@@ -16,6 +16,7 @@
 #include "horizon_rng.h"
 #include "rdp_ps_rng_diag.h"
 #include "rdp_openssl_init_diag.h"
+#include "rdp_freerdp_diag.h"
 #include "rdp_pthread_tsd.h"
 #include <stdio.h>
 
@@ -1077,8 +1078,12 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     client->PostConnect = post_connect;
     client->PostDisconnect = post_disconnect;
     if (!freerdp_context_new(client)) {
-        snprintf(reason, reason_size,
-                 "FreeRDP context init failed (WinPR/heap)");
+        /* freerdp_context_new_ex() destroys its partial context on
+         * failure. Internal O3DS stage markers survive that cleanup. */
+        const unsigned int cstage = freerdp_3ds_context_init_stage();
+        const unsigned int rstage =
+            cstage == 4 ? freerdp_3ds_rdp_init_stage() : 0u;
+        snprintf(reason, reason_size, "FreeRDP ctx C%u R%u", cstage, rstage);
         goto done;
     }
     initialized = true;
