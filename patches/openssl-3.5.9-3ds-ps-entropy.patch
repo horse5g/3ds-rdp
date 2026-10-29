@@ -143,7 +143,7 @@ diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/imp
 +#else /* !__3DS__ */
  #ifndef _GNU_SOURCE
  #define _GNU_SOURCE
-@@ -799,5 +885,6 @@
+@@ -799,5 +936,6 @@
      return time(NULL);
  }
  
