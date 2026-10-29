@@ -916,6 +916,21 @@ static BOOL post_connect(freerdp *instance)
     }
     rdp_diag_log_event("gdi-init-ok",gdi_format,ctx->gdi->stride,
                        (unsigned long)ctx->gdi->height);
+    /* Independent known-color canary through FreeRDP's OWN color packing
+     * routines, not our 3DS blitter or a remotely provided pixel. On
+     * little-endian ARM11 XRGB32 should pack as 20 50 D0 00 and BGRX32
+     * as D0 50 20 00 for R=D0,G=50,B=20. Log no remote content. */
+    {
+        BYTE canary[4]={0,0,0,0};
+        const UINT32 color=FreeRDPGetColor(gdi_format,0xD0,0x50,0x20,0xFF);
+        if(FreeRDPWriteColor(canary,gdi_format,color)) {
+            const unsigned long packed=((unsigned long)canary[0]<<16) |
+                                        ((unsigned long)canary[1]<<8) |
+                                        (unsigned long)canary[2];
+            rdp_diag_log_event("gdi-color-canary",gdi_format,packed,0);
+        } else
+            rdp_diag_log_event("gdi-color-canary-fail",gdi_format,0,0);
+    }
     post_connect_failure[0]=0;
     ctx->update->BeginPaint = begin_paint;
     ctx->update->EndPaint = end_paint;
