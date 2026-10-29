@@ -148,6 +148,11 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'Horizon SOC may reject the 32-KiB receive-buffer request' "$src/libfreerdp/core/tcp.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-soc-rcvbuf.patch"
   fi
+  # Prevent desktop-sized planar temp allocation (18 bytes/pixel) on O3DS
+  # before TCP connect. Preserve codec stage breadcrumbs when it still fails.
+  if ! grep -q 'O3DS resource policy' "$src/libfreerdp/common/settings.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-highres-codecs.patch"
+  fi
   if ! grep -q 'IPv6 subnet matching is unavailable on Horizon' "$src/libfreerdp/core/proxy.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-proxy-ipv4.patch"
   fi
