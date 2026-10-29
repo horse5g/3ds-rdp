@@ -21,7 +21,9 @@ typedef struct {
     char name[RDP_PROFILE_NAME_CAP];
     char message[80];
     int selected;       /* -1 = unsaved connection */
-    int focus;          /* General tab field 0..4 */
+    int focus;          /* General field 0..4, settings row 0..2 */
+    int panel_scroll;   /* General editor page: 0 logon, 1 connection */
+    int choice_menu;    /* 0=closed; other IDs are active option dropdowns */
     int tab;
     int scroll;         /* saved-connections list first visible item */
     int highlight;      /* selected row in saved connections view */
