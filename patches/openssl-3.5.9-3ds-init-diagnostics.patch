@@ -1,0 +1,144 @@
+diff --git a/crypto/init.c b/crypto/init.c
+--- a/crypto/init.c
++++ b/crypto/init.c
+@@ -52,7 +52,23 @@
+ static CRYPTO_RWLOCK *init_lock = NULL;
+ static CRYPTO_THREAD_LOCAL in_init_config_local;
+ 
+-static CRYPTO_ONCE base = CRYPTO_ONCE_STATIC_INIT;
++#ifdef __3DS__
++/* Non-sensitive first failing OpenSSL core initialization stage. */
++static unsigned int horizon_crypto_init_stage;
++unsigned int ossl_3ds_crypto_init_stage(void)
++{
++    return horizon_crypto_init_stage;
++}
++#define HORIZON_INIT_STAGE(n) (horizon_crypto_init_stage = (n))
++#define HORIZON_INIT_STAGE_IF_NONE(n) do { \
++    if (horizon_crypto_init_stage == 0) horizon_crypto_init_stage = (n); \
++} while (0)
++#else
++#define HORIZON_INIT_STAGE(n) ((void)0)
++#define HORIZON_INIT_STAGE_IF_NONE(n) ((void)0)
++#endif
++
++static CRYPTO_ONCE base = CRYPTO_ONCE_STATIC_INIT;
+ static int base_inited = 0;
+ DEFINE_RUN_ONCE_STATIC(ossl_init_base)
+ {
+@@ -63,17 +79,23 @@
+     ossl_malloc_setup_failures();
+ #endif
+ 
+-    if ((optsdone_lock = CRYPTO_THREAD_lock_new()) == NULL
+-        || (init_lock = CRYPTO_THREAD_lock_new()) == NULL)
+-        goto err;
++    if ((optsdone_lock = CRYPTO_THREAD_lock_new()) == NULL
++        || (init_lock = CRYPTO_THREAD_lock_new()) == NULL) {
++        HORIZON_INIT_STAGE(1); /* crypto startup mutex allocation/init */
++        goto err;
++    }
+ 
+     OPENSSL_cpuid_setup();
+ 
+-    if (!ossl_init_thread())
+-        goto err;
+-
+-    if (!CRYPTO_THREAD_init_local(&in_init_config_local, NULL))
+-        goto err;
++    if (!ossl_init_thread()) {
++        HORIZON_INIT_STAGE(2); /* thread destructor TLS key */
++        goto err;
++    }
++
++    if (!CRYPTO_THREAD_init_local(&in_init_config_local, NULL)) {
++        HORIZON_INIT_STAGE(3); /* configuration TLS key */
++        goto err;
++    }
+ 
+     base_inited = 1;
+     return 1;
+@@ -539,8 +561,10 @@
+      * If we remain the only caller of err_shelve_state() the recursion should
+      * perhaps be removed, but if in doubt, it can be left in place.
+      */
+-    if (!RUN_ONCE(&base, ossl_init_base))
+-        return 0;
++    if (!RUN_ONCE(&base, ossl_init_base)) {
++        HORIZON_INIT_STAGE_IF_NONE(4); /* pthread_once / base init */
++        return 0;
++    }
+ 
+     if (opts & OPENSSL_INIT_BASE_ONLY)
+         return 1;
+@@ -551,8 +575,10 @@
+      * without lockless CRYPTO_atomic_load
+      */
+     if (!aloaddone) {
+-        if (!CRYPTO_atomic_load(&optsdone, &tmp, optsdone_lock))
+-            return 0;
++        if (!CRYPTO_atomic_load(&optsdone, &tmp, optsdone_lock)) {
++            HORIZON_INIT_STAGE(5); /* 64-bit atomics / mutex fallback */
++            return 0;
++        }
+         if ((tmp & opts) == opts)
+             return 1;
+     }
+@@ -564,15 +590,20 @@
+      * return above.
+      */
+     if ((opts & OPENSSL_INIT_NO_ATEXIT) != 0) {
+-        if (!RUN_ONCE_ALT(&register_atexit, ossl_init_no_register_atexit,
+-                ossl_init_register_atexit))
+-            return 0;
+-    } else if (!RUN_ONCE(&register_atexit, ossl_init_register_atexit)) {
+-        return 0;
+-    }
+-
+-    if (!RUN_ONCE(&load_crypto_nodelete, ossl_init_load_crypto_nodelete))
+-        return 0;
++        if (!RUN_ONCE_ALT(&register_atexit, ossl_init_no_register_atexit,
++                ossl_init_register_atexit)) {
++            HORIZON_INIT_STAGE(6); /* atexit callback registration */
++            return 0;
++        }
++    } else if (!RUN_ONCE(&register_atexit, ossl_init_register_atexit)) {
++        HORIZON_INIT_STAGE(6);
++        return 0;
++    }
++
++    if (!RUN_ONCE(&load_crypto_nodelete, ossl_init_load_crypto_nodelete)) {
++        HORIZON_INIT_STAGE(7); /* DSO / no-delete init */
++        return 0;
++    }
+ 
+     if ((opts & OPENSSL_INIT_NO_LOAD_CRYPTO_STRINGS)
+         && !RUN_ONCE_ALT(&load_crypto_strings,
+@@ -615,9 +646,11 @@
+         && !openssl_init_fork_handlers())
+         return 0;
+ 
+-    if ((opts & OPENSSL_INIT_NO_LOAD_CONFIG)
+-        && !RUN_ONCE_ALT(&config, ossl_init_no_config, ossl_init_config))
+-        return 0;
++    if ((opts & OPENSSL_INIT_NO_LOAD_CONFIG)
++        && !RUN_ONCE_ALT(&config, ossl_init_no_config, ossl_init_config)) {
++        HORIZON_INIT_STAGE(8); /* config suppression */
++        return 0;
++    }
+ 
+     if (opts & OPENSSL_INIT_LOAD_CONFIG) {
+         int loading = CRYPTO_THREAD_get_local(&in_init_config_local) != NULL;
+@@ -695,8 +728,10 @@
+     }
+ #endif
+ 
+-    if (!CRYPTO_atomic_or(&optsdone, optsdone_bits, &tmp, optsdone_lock))
+-        return 0;
++    if (!CRYPTO_atomic_or(&optsdone, optsdone_bits, &tmp, optsdone_lock)) {
++        HORIZON_INIT_STAGE(9); /* initialization option state */
++        return 0;
++    }
+ 
+     return 1;
+ }
