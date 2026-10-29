@@ -14,6 +14,7 @@
 #include "rdp_desktop_limits.h"
 #include "rdp_startup.h"
 #include "horizon_rng.h"
+#include "rdp_ps_rng_diag.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -172,12 +173,24 @@ static bool openssl_rng_preflight(OSSL_PROVIDER **provider_ref,
 fail:
     code = ERR_peek_last_error();
     description = code ? ERR_reason_error_string(code) : NULL;
-    if (description && *description)
-        snprintf(error, cap, "OpenSSL %.22s: %.28s (0x%08lX)",
+    /* Provider/DRBG failures sometimes pop OpenSSL's error queue. Snapshot
+     * the actual Horizon backend without reading RNG seed bytes. */
+    RdpPsRngDiag psdiag = {0};
+    ossl_3ds_ps_rng_snapshot(&psdiag);
+    if (psdiag.entropy_calls || psdiag.nonce_calls) {
+        snprintf(error, cap,
+                 "SSL %.18s %08lX PS E%u/%u N%u/%u F%u R%08X",
+                 stage, code,
+                 psdiag.entropy_successes, psdiag.entropy_calls,
+                 psdiag.nonce_successes, psdiag.nonce_calls,
+                 psdiag.last_failure_stage, psdiag.last_ps_result);
+    } else if (description && *description) {
+        snprintf(error, cap, "SSL %.22s %.27s (0x%08lX)",
                  stage, description, code);
-    else
-        snprintf(error, cap, "OpenSSL %.36s unavailable (0x%08lX)",
+    } else {
+        snprintf(error, cap, "SSL %.22s no PS seed calls (0x%08lX)",
                  stage, code);
+    }
     ERR_clear_error();
 done:
     EVP_RAND_free(algorithm);
