@@ -16,6 +16,7 @@
 #include "horizon_rng.h"
 #include "rdp_ps_rng_diag.h"
 #include "rdp_openssl_init_diag.h"
+#include "rdp_pthread_tsd.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -759,6 +760,14 @@ static void rdp_keyboard_pump_worker(void *arg)
     LightLock_Unlock(&pump->lock);
 }
 
+/* libctru threadCreate does not invoke POSIX pthread TSD destructors. */
+static void rdp_keyboard_pump_worker_with_cleanup(void *arg)
+{
+    rdp_keyboard_pump_worker(arg);
+    OPENSSL_thread_stop();
+    rdp_3ds_tsd_cleanup_current_thread();
+}
+
 /* The software keyboard still owns main-thread HID/GFX; a network-only
  * worker can process RDP updates without concurrent input. This is best
  * effort if the 3DS OS suspends all user threads during an applet. */
@@ -777,7 +786,7 @@ static bool send_text(freerdp *client, char *reason, size_t reason_size)
     swkbdSetHintText(&keyboard, "Remote text (ASCII only)");
     pump.context = client->context;
     LightLock_Init(&pump.lock);
-    worker = threadCreate(rdp_keyboard_pump_worker, &pump,
+    worker = threadCreate(rdp_keyboard_pump_worker_with_cleanup, &pump,
                           64 * 1024, 0x30, -2, false);
     if (!worker) {
         snprintf(reason, reason_size, "Cannot start keyboard network worker");
@@ -827,6 +836,9 @@ static void rdp_connect_worker(void *arg)
     LightLock_Unlock(&gate->lock);
     const bool ok = !cancelled_before_start &&
                     freerdp_connect(gate->client) == TRUE;
+    /* Destroy worker-local OpenSSL and pthread TSD before publishing done. */
+    OPENSSL_thread_stop();
+    rdp_3ds_tsd_cleanup_current_thread();
     LightLock_Lock(&gate->lock);
     gate->succeeded = ok;
     gate->finished = true;
