@@ -160,10 +160,19 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'O3DS diagnostic: preserve the last context construction stage' "$src/libfreerdp/core/freerdp.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-context-stages.patch"
   fi
-  # Use a native libctru worker for the FreeRDP timer; unlike WinPR's
-  # CreateThread -> pthread_create path, libctru threadCreate works on O3DS.
-  if ! grep -q "O3DS: keep native timer diagnostic state" "$src/libfreerdp/core/timer.c"; then
+  # Native timer worker: omit the extra WinPR thread-event handshake
+  # and expose resource diagnostics. This managed tagged checkout can contain
+  # a previous experimental timer patch from an earlier build.
+  if grep -q "O3DS: keep native timer diagnostic state" "$src/libfreerdp/core/timer.c" &&
+     ! grep -q "freerdp_3ds_timer_thread_diag" "$src/libfreerdp/core/timer.c"; then
+    git -C "$src" checkout -- libfreerdp/core/timer.c
+  fi
+  if ! grep -q "freerdp_3ds_timer_thread_diag" "$src/libfreerdp/core/timer.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-native-core-timer.patch"
+  fi
+  # WinPR events on the 3DS use nonblocking SOC loopback sockets.
+  if ! grep -q 'SOC loopback buffer full means' "$src/winpr/libwinpr/synch/event.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-event-hardening.patch"
   fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
