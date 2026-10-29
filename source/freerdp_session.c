@@ -837,7 +837,7 @@ static BOOL post_connect(freerdp *instance)
      * already 565, so 720p saves ~1.8 MiB, 1080p saves ~4.1 MiB.
      * Keep the established XRGB32 renderer for working small desktops.
      * This is independent of the wire's negotiated 16/32-bit color depth. */
-    const bool compact=(width>=1024 || height>=600);
+    const bool compact=(width>=800 || height>=480);
     const UINT32 gdi_format=compact?PIXEL_FORMAT_RGB16:PIXEL_FORMAT_XRGB32;
     rdp_diag_log_event("gdi-init-format",gdi_format,width,height);
     if (!gdi_init(instance,gdi_format)) {
