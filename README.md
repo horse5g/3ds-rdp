@@ -2,7 +2,7 @@
 
 A standalone **Microsoft Remote Desktop Protocol (RDP) client** for the original Nintendo 3DS/2DS, using **FreeRDP 3.32.2**, **OpenSSL 3.5.9**, devkitARM and libctru. It connects directly to a Windows RDP server over Wi-Fi; no intermediary PC or remote-desktop gateway is required.
 
-> **Status — experimental but working on physical O3DS.** An actual Windows RDP session has connected successfully, including TLS, NLA/CredSSP and the interactive desktop. Certificate approval and returning to the Homebrew Launcher have also been tested. A hardware-observed **red/blue channel reversal** has a new test fix, but the updated colors have not yet been verified on O3DS. Higher-resolution desktop modes compile, but have not yet been verified for O3DS performance or available memory. This is not a polished, stable release.
+> **Status — experimental but working on physical O3DS.** An actual Windows RDP session has connected successfully, including TLS, NLA/CredSSP and the interactive desktop. Certificate approval and returning to the Homebrew Launcher have also been tested. Recent physical tests show incorrect colors at 640×360 and single-color desktops at 720p/1080p using the experimental local RGB565 GDI surface. The current build tests 32-bit GDI at every resolution and includes a native-LCD color-strip diagnostic; both need physical verification. Higher-resolution desktop modes compile, but have not yet been verified for O3DS performance or available memory. This is not a polished, stable release.
 
 ## What it can do
 
@@ -44,6 +44,7 @@ The native UI borrows the **layout and interaction conventions** of Windows Remo
 | Smooth zoom in/out | Hold **L** and rotate the Circle Pad clockwise/counterclockwise |
 | Compare source color-channel mapping | **L + X** toggles corrected/old red-blue output for diagnosis |
 | Compare high-resolution downscaling | **L + Y** toggles four-tap smoothing when heavily zoomed out |
+| Show independently generated LCD RGB test colors | **L + SELECT** during a session; swatches in red, green, blue, white, yellow, cyan, magenta order |
 | Fit entire desktop | Physical **Y** |
 | Toggle fit / close-up | Physical **R** |
 | Disconnect | **START** or two taps on **Disconnect** |
@@ -56,7 +57,7 @@ The touchscreen and on-screen keyboard are experimental. Relative pointer moveme
 
 ### Reconnect and performance panel
 
-After a session disconnects, the client now offers **A: Reconnect** or **B: Back**. A reconnect creates an entirely new FreeRDP context and again asks for the password; certificates are verified on every attempt. No automatic reconnect occurs after authentication or certificate failures. The existing O3DS SOC shutdown workaround remains in place at app exit. Because previous hardware tests focused on a single connection, repeating sessions is **experimental** until confirmed on the console.
+After a session disconnects, the client now offers **A: Reconnect** or **B: Back**. A reconnect creates an entirely new FreeRDP context and certificate verification runs on every attempt. Normally it asks for the password again, but you may enable the explicitly opt-in, memory-only cache in **Advanced → Cache Password → This Run: On**; that reuses the password for the same host, port, username and domain after successful authentication, solely until you return to the launcher or exit. No automatic reconnect occurs after authentication or certificate failures. The existing O3DS SOC shutdown workaround remains in place at app exit. Because previous hardware tests focused on a single connection, repeating sessions is **experimental** until confirmed on the console.
 
 During a session, press **SELECT** to toggle an optional read-only performance panel on the bottom screen. It reports measured **paints/second** (actual frame submissions, not guaranteed server FPS), the latest full-desktop blit time in milliseconds, time spent in the WinPR network-event wait, remote dimensions, and **primary GDI framebuffer memory** in KiB. The latter is not total RAM or VRAM usage. To minimize extra work, the panel refreshes at most once per second on a quiet desktop. It does not log hostnames, session pixels, or credentials.
 
@@ -67,7 +68,7 @@ During a session, press **SELECT** to toggle an optional read-only performance p
 3. Set the **correct date and time on the 3DS**. An incorrect clock causes legitimate TLS certificates to fail their validity checks.
 4. In **General**, enter the target computer's IPv4 address or hostname, username and optional domain. The default RDP port is **3389**. Set resolution/depth in **Display**. Save the connection if desired and tap **Connect**.
 5. When an unknown certificate or **IP/DNS name mismatch** appears, verify its **full SHA-256 leaf certificate fingerprint independently on the Windows host** before accepting. Press **A** to trust for this session or **X** to save the exact fingerprint for this host and port. **B/START** rejects it. A previously saved certificate changing unexpectedly remains blocked.
-6. Enter your password at connection time; it is never stored in a profile. After authentication, the top display shows Windows; the bottom touchscreen controls the mouse.
+6. Enter your password at connection time; it is never stored in a profile or on SD. To skip re-entry during explicit reconnects only, enable **Advanced → Cache Password → This Run: On** before connecting (OFF by default). After authentication, the top display shows Windows; the bottom touchscreen controls the mouse.
 
 A Windows RDP certificate is often issued for a hostname rather than a numeric IP. **Connecting using a hostname on that certificate, or issuing a certificate with the correct IP Subject Alternative Name, is preferred** to approving a mismatch. Never approve a fingerprint you have not verified.
 
@@ -137,8 +138,8 @@ CI results and the full executable artifact appear under [GitHub Actions](https:
 
 ## Known issues and current roadmap
 
-- **Color rendering:** a physical O3DS test found red and blue reversed (yellow becomes cyan). A targeted, runtime-toggleable desktop conversion correction has been added; confirm colors with L+X on hardware. The local cursor is unchanged.
-- **O3DS performance:** intermediate 800×480 (2× the top screen in both dimensions) and 960×540 are now available without changing existing profile IDs. A hardware log showed 720p/1080p connections failing before TCP with no error code, consistent with large planar codec buffers. The O3DS build skips those optional buffers at higher resolutions and now uses **FreeRDP's native RGB565 GDI primary surface** for 720p/1080p, halving that surface's memory use versus 32-bit output (about 1.84 MB at 720p, 4.15 MB at 1080p). This 16-bit local surface is separate from the negotiated 16-/32-bit network setting and still requires physical testing. An optional four-tap downscaler trades additional pixel reads for less aliasing; 1080p may remain impractical.
+- **Color rendering:** O3DS hardware reports substantially incorrect 32-bit GDI colors and a solid-colored desktop from the 16-bit GDI path at 720p/1080p. This experimental build uses XRGB32 GDI at every resolution while retaining the large-codec allocation fix, adds L+SELECT native LCD swatches to distinguish display conversion from decoded GDI, and retains L+X channel comparison. **Not yet hardware verified.** The native cursor is not modified.
+- **O3DS performance:** 800×480 and 960×540 remain options alongside 720p and 1080p. Latest physical evidence confirms the 720p/1080p networking/NLA connection succeeds but the compact RGB565 GDI mode shows a uniform-colored desktop; as a diagnostic compatibility change, all resolutions now request XRGB32 GDI locally, which may increase O3DS memory pressure (about 8.3 MB for a 1080p primary buffer) even though the 18-byte-per-pixel planar codec allocation is still avoided. Use L+Y to compare 4-tap smoothing; hardware validation required.
 - **Network transport:** direct IPv4 TCP only; no RDP gateway, UDP multitransport or clipboard redirection in the current O3DS build.
 - **Input:** software keyboard text previously failed; new US-layout ASCII scan-code injection uses the same input path as the built-in virtual keys. Unicode/IME and other keyboard layouts are not supported. The fix and additional keyboard diagnostic counts need on-device testing.
 - **Shutdown:** after full FreeRDP use, an O3DS-specific workaround defers a blocking SOC shutdown to process teardown. It has restored normal exit in physical testing but needs broader verification.

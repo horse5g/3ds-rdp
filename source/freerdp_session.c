@@ -24,14 +24,17 @@
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
-int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *reason, size_t reason_size)
+int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
+                   bool cache_password, char *reason, size_t reason_size)
 {
     (void)cfg;
     (void)options;
+    (void)cache_password;
     if (reason && reason_size)
         snprintf(reason, reason_size, "FreeRDP not linked in this build");
     return -1;
 }
+void freerdp_3ds_clear_password_cache(void) {}
 #else
 
 /* Experimental full client. Build/link first; no runtime behavior has been
@@ -75,6 +78,43 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
 #define PIN_MAX_BYTES 1024
 #define POOL_FILE "sdmc:/3ds/3ds-rdp/trusted-certs.txt"
 #define POOL_MAX_BYTES (RDP_CERT_POOL_MAX * RDP_CERT_POOL_LINE_MAX + 1024)
+
+/* One-launch-only credential cache, OFF unless explicitly enabled in
+ * Advanced. Never written to SD, profiles, logs or crash diagnostics.
+ * Cache is tied to the full host:port/username/domain tuple and only
+ * committed after successful FreeRDP/NLA connection. */
+static struct {
+    RdpConfig profile;
+    char password[128];
+    bool valid;
+} ram_password_cache;
+
+void freerdp_3ds_clear_password_cache(void)
+{
+    OPENSSL_cleanse(&ram_password_cache,sizeof(ram_password_cache));
+}
+
+static bool cached_password_for(const RdpConfig *cfg, char *out, size_t cap)
+{
+    if (!cfg || !out || cap < sizeof(ram_password_cache.password) ||
+        !ram_password_cache.valid) return false;
+    if (ram_password_cache.profile.port != cfg->port ||
+        strcmp(ram_password_cache.profile.host,cfg->host) ||
+        strcmp(ram_password_cache.profile.username,cfg->username) ||
+        strcmp(ram_password_cache.profile.domain,cfg->domain))
+        return false;
+    memcpy(out,ram_password_cache.password,sizeof(ram_password_cache.password));
+    return true;
+}
+
+static void remember_password_in_ram(const RdpConfig *cfg,const char *password)
+{
+    if (!cfg || !password || !password[0])return;
+    freerdp_3ds_clear_password_cache();
+    ram_password_cache.profile=*cfg;
+    memcpy(ram_password_cache.password,password,sizeof(ram_password_cache.password));
+    ram_password_cache.valid=true;
+}
 
 /* Single-session homebrew app: no concurrent RDP sessions. */
 static RdpCertPin active_pin;
@@ -708,9 +748,23 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
     rdp_diag_log_event("gdi-white-count", whites, samples, probes);
 }
 
+/* Native LCD self-test: known RGB565 swatches are drawn AFTER GDI
+ * conversion, so the strip reveals physical framebuffer channel order
+ * independently of the RDP decoder. Left to right: red, green, blue,
+ * white, yellow, cyan, magenta. No host data is captured or written. */
+static void draw_lcd_color_strip(uint16_t *frame)
+{
+    static const uint16_t colors[7]={
+        0xF800u,0x07E0u,0x001Fu,0xFFFFu,0xFFE0u,0x07FFu,0xF81Fu
+    };
+    for(int x=0;x<RDP_W;++x)
+        for(int y=0;y<24;++y)
+            frame[(size_t)x*RDP_H+(RDP_H-1-y)]=colors[x*7/RDP_W];
+}
+
 static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
                                int pointer_x, int pointer_y,
-                               bool swap_rb, bool smoothing_enabled)
+                               bool swap_rb, bool smoothing_enabled, bool test_pattern)
 {
     rdpGdi *gdi;
     u16 fb_width=0, fb_height=0;
@@ -791,6 +845,7 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
         }
     }
     log_desktop_color_probe(gdi);
+    if(test_pattern)draw_lcd_color_strip(frame);
     session_cursor_overlay(frame,RDP_W,RDP_H,&system_cursor,
                            cursor_remote_x,cursor_remote_y,
                            view.left_q16,view.top_q16,
@@ -832,13 +887,15 @@ static BOOL post_connect(freerdp *instance)
                  "Server requested unsupported desktop size");
         return FALSE;
     }
-    /* Avoid a full 32-bit primary framebuffer at high resolutions.
-     * FreeRDP natively supports RGB565 GDI; the physical O3DS display is
-     * already 565, so 720p saves ~1.8 MiB, 1080p saves ~4.1 MiB.
-     * Keep the established XRGB32 renderer for working small desktops.
-     * This is independent of the wire's negotiated 16/32-bit color depth. */
-    const bool compact=(width>=800 || height>=480);
-    const UINT32 gdi_format=compact?PIXEL_FORMAT_RGB16:PIXEL_FORMAT_XRGB32;
+    /* Physical O3DS testing isolated a single-color desktop to the
+     * compact RGB16 GDI output path at 720p/1080p. Codec setup and the
+     * Windows/NLA handshake both succeed. Use the more thoroughly tested
+     * XRGB32 GDI primary for all desktop sizes while diagnosing the actual
+     * 16-bit decoder path. This costs ~1.8 MiB more at 720p and ~4.1 MiB
+     * more at 1080p than RGB16, but the O3DS codec allocation guard still
+     * prevents the much larger pre-TCP planar buffers. If 32-bit GDI
+     * cannot fit, fail with a clear OOM message; never show stale colors. */
+    const UINT32 gdi_format=PIXEL_FORMAT_XRGB32;
     rdp_diag_log_event("gdi-init-format",gdi_format,width,height);
     if (!gdi_init(instance,gdi_format)) {
         rdp_diag_log_event("gdi-init-fail",gdi_format,
@@ -1234,12 +1291,15 @@ static void log_loopback_budget(bool probe_capacity)
     }
 }
 
-int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *reason, size_t reason_size)
+int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
+                   bool cache_password, char *reason, size_t reason_size)
 {
     freerdp *client = NULL;
     rdpSettings *settings;
     OSSL_PROVIDER *rng_provider = NULL;
     char password[128] = {0};
+    char password_candidate[128] = {0};
+    bool used_cached_password = false;
     bool initialized = false;
     bool connected = false;
     bool left_down = false;
@@ -1390,12 +1450,27 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     /* Do WinPR/client-context allocation before opening the modal password
        keyboard. On an O3DS allocation failure, users can diagnose the
        failure immediately instead of repeatedly entering a secret. */
-    rdp_diag_log_event("password-dialog-start", 0, 0, 0);
-    if (!prompt_password(password, sizeof(password))) {
-        rdp_diag_log_event("password-dialog-cancel", 0, 0, 0);
-        snprintf(reason, reason_size, "Password input cancelled");
-        goto done;
+    if (!cache_password)
+        freerdp_3ds_clear_password_cache();
+    if (cache_password)
+        used_cached_password=cached_password_for(cfg,password,sizeof(password));
+    if (used_cached_password) {
+        rdp_diag_log_event("password-ram-cache-hit",1,0,0);
+    } else {
+        /* Do not allow a cached password belonging to another identity
+         * to remain in RAM after switching connections. */
+        freerdp_3ds_clear_password_cache();
+        rdp_diag_log_event("password-dialog-start", 0, 0, 0);
+        if (!prompt_password(password, sizeof(password))) {
+            rdp_diag_log_event("password-dialog-cancel", 0, 0, 0);
+            snprintf(reason, reason_size, "Password input cancelled");
+            goto done;
+        }
     }
+    /* Candidate is transient until NLA has actually succeeded.
+     * A failed login must never be remembered for a retry. */
+    if (cache_password && !used_cached_password)
+        memcpy(password_candidate,password,sizeof(password_candidate));
     if (!freerdp_settings_set_string(settings, FreeRDP_ServerHostname, cfg->host) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, cfg->port) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, (UINT32)remote_w) ||
@@ -1442,8 +1517,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
     desktop_dirty = false;
-    bool swap_rb = true; /* Fix actual O3DS red/blue reversal. */
+    bool swap_rb = false; /* Start with FreeRDP's declared XRGB32 B,G,R byte order; L+X toggles. */
     bool smoothing_enabled = true;
+    bool test_pattern = false;
     unsigned blit_samples_remaining=3;
     u64 perf_start_ms=0,perf_last_update=0;
     unsigned perf_paints=0;
@@ -1480,6 +1556,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         goto done;
     }
     connected = true;
+    if (cache_password && !used_cached_password)
+        remember_password_in_ram(cfg,password_candidate);
+    OPENSSL_cleanse(password_candidate,sizeof(password_candidate));
     rdp_diag_log_event("rdp-connected", 1, 0, 0);
     session_pad_init(&pad);
     pad.remote_w=remote_w;pad.remote_h=remote_h;
@@ -1527,7 +1606,12 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             session_pad_update(&pad, false, -1, -1, &action);
         }
         if (action.redraw) pad_redraw = true;
-        if(down & KEY_SELECT) {
+        if((down & KEY_SELECT) && (held & KEY_L)) {
+            test_pattern=!test_pattern;
+            rdp_diag_log_event("lcd-test-strip",test_pattern,0,0);
+            desktop_dirty=true;
+            pad_redraw=true;
+        } else if(down & KEY_SELECT) {
             pad.perf_open=!pad.perf_open;
             rdp_diag_log_event("session-perf-toggle",pad.perf_open,0,0);
             pad_redraw=true;
@@ -1718,7 +1802,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             const bool measure=blit_samples_remaining && rdp_diag_log_enabled();
             const u64 start_ms=osGetTime();
             if (!copy_desktop_frame(client->context,&zoom,pad.pointer_x,pad.pointer_y,
-                                    swap_rb,smoothing_enabled)) {
+                                    swap_rb,smoothing_enabled,test_pattern)) {
                 snprintf(reason, reason_size, "Invalid GDI or top-screen framebuffer");
                 result = -1;
                 break;
@@ -1753,6 +1837,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         }
     }
 done:
+    if (!connected)
+        freerdp_3ds_clear_password_cache();
+    OPENSSL_cleanse(password_candidate,sizeof(password_candidate));
     rdp_diag_log_event("rdp-cleanup", (unsigned long)(result == 0), (unsigned long)connected, (unsigned long)initialized);
     if (connected && client && client->context && client->context->input) {
         rdpInput *input = client->context->input;
