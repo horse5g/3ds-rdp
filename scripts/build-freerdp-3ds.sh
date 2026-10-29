@@ -179,6 +179,11 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'SOC loopback buffer full means' "$src/winpr/libwinpr/synch/event.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-event-hardening.patch"
   fi
+  # Ordinary events should not consume SOC sockets until a wait requests
+  # an event FD. Without this, C9 exhausts socket/FD resources on O3DS.
+  if ! grep -q 'Prevent idle events from consuming two SOC sockets each' "$src/winpr/libwinpr/synch/event.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-lazy-events.patch"
+  fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
 fi
