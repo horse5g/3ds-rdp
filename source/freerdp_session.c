@@ -663,7 +663,9 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
     unsigned sums[3] = {0,0,0}, peaks[3] = {0,0,0};
     unsigned above[3] = {0,0,0}, whites = 0;
     const unsigned samples = 16u * 12u;
-    if (!gdi || probes >= 4u)
+    /* The 16-bit surface has packed RGB565, not B/G/R byte channels.
+     * Avoid mislabeling its samples as 32-bit GDI channel statistics. */
+    if (!gdi || gdi->dstFormat != PIXEL_FORMAT_XRGB32 || probes >= 4u)
         return;
     /* Sample after the desktop has had time to paint. A few initial frames
      * may still show a blank login-to-desktop transition. */
@@ -710,13 +712,17 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
     uint16_t *frame;
     SessionZoomView view;
     int x,y;
-    int sample_y[RDP_H];
+    int sample_y[RDP_H],sample_ylo[RDP_H],sample_yhi[RDP_H];
     int32_t step_x,step_y;
     const bool valid_zoom=(zoom!=NULL);
+    const bool native565=context && context->gdi &&
+                         context->gdi->dstFormat==PIXEL_FORMAT_RGB16;
+    const int bytes_per_pixel=native565?2:4;
 
     if (!context || !(gdi=context->gdi) || !gdi->primary_buffer ||
         gdi->width < RDP_W || gdi->height < RDP_H ||
-        gdi->stride < (size_t)gdi->width * 4 ||
+        (gdi->dstFormat != PIXEL_FORMAT_XRGB32 && !native565) ||
+        gdi->stride < (size_t)gdi->width * (size_t)bytes_per_pixel ||
         gfxGetScreenFormat(GFX_TOP) != GSP_RGB565_OES)
         return FALSE;
 
@@ -742,30 +748,41 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
         if (sy < 0) sy=0;
         if (sy >= gdi->height) sy=gdi->height-1;
         sample_y[y]=sy;
+        int lo=sy-off_y,hi=sy+off_y;
+        if(lo<0)lo=0;
+        if(hi>=gdi->height)hi=gdi->height-1;
+        sample_ylo[y]=lo;
+        sample_yhi[y]=hi;
     }
     for (x=0;x<RDP_W;++x) {
         int sx=(int)((view.left_q16+(int64_t)x*step_x+32768)>>16);
         if (sx < 0) sx=0;
         if (sx >= gdi->width) sx=gdi->width-1;
+        int xlo=sx-off_x,xhi=sx+off_x;
+        if(xlo<0)xlo=0;
+        if(xhi>=gdi->width)xhi=gdi->width-1;
+        const size_t xmid=(size_t)sx*(size_t)bytes_per_pixel;
+        const size_t xleft=(size_t)xlo*(size_t)bytes_per_pixel;
+        const size_t xright=(size_t)xhi*(size_t)bytes_per_pixel;
         for (y=0;y<RDP_H;++y) {
             const u8 *src=gdi->primary_buffer+
-                     (size_t)sample_y[y]*gdi->stride+(size_t)sx*4;
+                     (size_t)sample_y[y]*gdi->stride+xmid;
+            const size_t out=(size_t)x*RDP_H+(RDP_H-1-y);
             if (box4) {
-                int xlo=sx-off_x, xhi=sx+off_x;
-                int ylo=sample_y[y]-off_y, yhi=sample_y[y]+off_y;
-                if (xlo<0)xlo=0;
-                if (xhi>=gdi->width)xhi=gdi->width-1;
-                if (ylo<0)ylo=0;
-                if (yhi>=gdi->height)yhi=gdi->height-1;
-                const u8 *a=gdi->primary_buffer+(size_t)ylo*gdi->stride+(size_t)xlo*4;
-                const u8 *b=gdi->primary_buffer+(size_t)ylo*gdi->stride+(size_t)xhi*4;
-                const u8 *c=gdi->primary_buffer+(size_t)yhi*gdi->stride+(size_t)xlo*4;
-                const u8 *d=gdi->primary_buffer+(size_t)yhi*gdi->stride+(size_t)xhi*4;
-                frame[(size_t)x*RDP_H+(RDP_H-1-y)] =
+                const u8 *rowlo=gdi->primary_buffer+
+                                     (size_t)sample_ylo[y]*gdi->stride;
+                const u8 *rowhi=gdi->primary_buffer+
+                                     (size_t)sample_yhi[y]*gdi->stride;
+                const u8 *a=rowlo+xleft,*b=rowlo+xright;
+                const u8 *c=rowhi+xleft,*d=rowhi+xright;
+                frame[out]=native565 ?
+                    rdp_desktop_native565_box4(a,b,c,d,swap_rb) :
                     rdp_desktop_box4_to_rgb565(a,b,c,d,swap_rb);
-            } else
-                frame[(size_t)x*RDP_H+(RDP_H-1-y)] =
+            } else {
+                frame[out]=native565 ?
+                    rdp_desktop_native565(src,swap_rb) :
                     rdp_desktop_to_rgb565(src,swap_rb);
+            }
         }
     }
     log_desktop_color_probe(gdi);
@@ -810,13 +827,21 @@ static BOOL post_connect(freerdp *instance)
                  "Server requested unsupported desktop size");
         return FALSE;
     }
-    /* Consistently decode into little-endian B,G,R,X; the 3DS blitter
-     * converts those channels into the top screen's native RGB565. */
-    if (!gdi_init(instance, PIXEL_FORMAT_XRGB32)) {
+    /* Avoid a full 32-bit primary framebuffer at high resolutions.
+     * FreeRDP natively supports RGB565 GDI; the physical O3DS display is
+     * already 565, so 720p saves ~1.8 MiB, 1080p saves ~4.1 MiB.
+     * Keep the established XRGB32 renderer for working small desktops.
+     * This is independent of the wire's negotiated 16/32-bit color depth. */
+    const bool compact=(width>=1024 || height>=600);
+    const UINT32 gdi_format=compact?PIXEL_FORMAT_RGB16:PIXEL_FORMAT_XRGB32;
+    rdp_diag_log_event("gdi-init-format",gdi_format,width,height);
+    if (!gdi_init(instance,gdi_format)) {
         snprintf(post_connect_failure,sizeof(post_connect_failure),
                  "RDP graphics allocation failed (O3DS memory)");
         return FALSE;
     }
+    rdp_diag_log_event("gdi-init-ok",gdi_format,ctx->gdi->stride,
+                       (unsigned long)ctx->gdi->height);
     post_connect_failure[0]=0;
     ctx->update->BeginPaint = begin_paint;
     ctx->update->EndPaint = end_paint;
