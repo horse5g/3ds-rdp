@@ -35,6 +35,15 @@ two differently cased names from one file previously used the same upsert
 and silently replaced one saved computer. Reject duplicate names as
 corruption; continue to use the existing strict recovery/backup flow.
 
+### Interrupted SOC select() retry
+The native RDP probe's `waitfd()` previously initialized `fd_set` and the
+three-second timeout **once**, then retried `select()` on `EINTR` without
+resetting either argument. POSIX allows `select()` to mutate both objects;
+Horizon/SOC signals could therefore trigger a spurious failed or instantly
+timed-out socket operation. Reinitialize the descriptor set and timeout on
+every retry. A portable injected-`select` test explicitly clobbers both
+on its first interrupted call and asserts they are restored on retry.
+
 ## Validation and constraints
 
 - Portable tests: desktop resize limit and duplicate profile rejection.
