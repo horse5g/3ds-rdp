@@ -33,6 +33,7 @@ mkdir -p "$build"
   -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
   -Os -ffunction-sections -fdata-sections -D__3DS__ \
   -I"$DEVKITPRO/libctru/include" \
+  -I"$root/include" \
   -I"$build/include" -I"$root/external/openssl/include" \
   -specs=3dsx.specs -Wl,--gc-sections \
   -Wl,-Map,"$output.map" \
