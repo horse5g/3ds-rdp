@@ -10,6 +10,7 @@
 #include "rdp_pixels.h"
 #include "session_wait.h"
 #include "display_buffers.h"
+#include "connection_ui.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -229,6 +230,10 @@ static void draw_cert_challenge(const char *host, uint16_t port,
     printf("B/START: Reject\n");
     printf("A: Accept for this session\n");
     printf("X: Accept and save on SD\n");
+    /* gfxSwapBuffers presents BOTH LCDs. Draw the lower buffer too, so it
+       cannot alternate between a current and an old/uninitialized image. */
+    connection_ui_draw_status("UNKNOWN RDP CERTIFICATE",
+                              "VERIFY FINGERPRINT ON TOP",false);
     gfxFlushBuffers();
     gfxSwapBuffers();
 }
@@ -667,6 +672,10 @@ static void connect_screen(const char *host, bool cancelling)
         printf("Cancelling RDP connection...\n");
     else
         printf("Connecting (TLS/NLA)...\n\nB/START: Cancel\n");
+    connection_ui_draw_status(cancelling?"CANCELLING CONNECTION":
+                               "CONNECTING (TLS/NLA)",
+                              cancelling?"STOPPING SESSION":
+                                         "B / START TO CANCEL",false);
     gfxFlushBuffers();
     gfxSwapBuffers();
 }
