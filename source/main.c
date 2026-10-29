@@ -233,9 +233,18 @@ int main(int argc, char **argv)
         connection_ui_draw(&ui);
         gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
     }
+    /* HOME/START can reach this code while remaining SOC sockets still
+     * exist. Distinguish the final app frame from SOC/GFX shutdown hangs. */
     rdp_diag_log_event("app-exit", 0, 0, 0);
-    if (netok) socExit();
+    rdp_diag_log_event("app-soc-exit-enter", (unsigned long)netok, 0, 0);
+    if (netok) {
+        const Result soc_result = socExit();
+        rdp_diag_log_event("app-soc-exit-done", (unsigned long)soc_result, 0, 0);
+    }
+    rdp_diag_log_event("app-soc-buffer-free", 0, 0, 0);
     free(buffer);
+    rdp_diag_log_event("app-gfx-exit-enter", 0, 0, 0);
     gfxExit();
+    rdp_diag_log_event("app-gfx-exit-done", 0, 0, 0);
     return 0;
 }
