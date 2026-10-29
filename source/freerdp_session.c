@@ -748,9 +748,23 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
     rdp_diag_log_event("gdi-white-count", whites, samples, probes);
 }
 
+/* Native LCD self-test: known RGB565 swatches are drawn AFTER GDI
+ * conversion, so the strip reveals physical framebuffer channel order
+ * independently of the RDP decoder. Left to right: red, green, blue,
+ * white, yellow, cyan, magenta. No host data is captured or written. */
+static void draw_lcd_color_strip(uint16_t *frame)
+{
+    static const uint16_t colors[7]={
+        0xF800u,0x07E0u,0x001Fu,0xFFFFu,0xFFE0u,0x07FFu,0xF81Fu
+    };
+    for(int x=0;x<RDP_W;++x)
+        for(int y=0;y<24;++y)
+            frame[(size_t)x*RDP_H+(RDP_H-1-y)]=colors[x*7/RDP_W];
+}
+
 static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
                                int pointer_x, int pointer_y,
-                               bool swap_rb, bool smoothing_enabled)
+                               bool swap_rb, bool smoothing_enabled, bool test_pattern)
 {
     rdpGdi *gdi;
     u16 fb_width=0, fb_height=0;
@@ -831,6 +845,7 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
         }
     }
     log_desktop_color_probe(gdi);
+    if(test_pattern)draw_lcd_color_strip(frame);
     session_cursor_overlay(frame,RDP_W,RDP_H,&system_cursor,
                            cursor_remote_x,cursor_remote_y,
                            view.left_q16,view.top_q16,
@@ -1504,6 +1519,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
     desktop_dirty = false;
     bool swap_rb = false; /* Start with FreeRDP's declared XRGB32 B,G,R byte order; L+X toggles. */
     bool smoothing_enabled = true;
+    bool test_pattern = false;
     unsigned blit_samples_remaining=3;
     u64 perf_start_ms=0,perf_last_update=0;
     unsigned perf_paints=0;
@@ -1590,7 +1606,12 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
             session_pad_update(&pad, false, -1, -1, &action);
         }
         if (action.redraw) pad_redraw = true;
-        if(down & KEY_SELECT) {
+        if((down & KEY_SELECT) && (held & KEY_L)) {
+            test_pattern=!test_pattern;
+            rdp_diag_log_event("lcd-test-strip",test_pattern,0,0);
+            desktop_dirty=true;
+            pad_redraw=true;
+        } else if(down & KEY_SELECT) {
             pad.perf_open=!pad.perf_open;
             rdp_diag_log_event("session-perf-toggle",pad.perf_open,0,0);
             pad_redraw=true;
@@ -1781,7 +1802,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
             const bool measure=blit_samples_remaining && rdp_diag_log_enabled();
             const u64 start_ms=osGetTime();
             if (!copy_desktop_frame(client->context,&zoom,pad.pointer_x,pad.pointer_y,
-                                    swap_rb,smoothing_enabled)) {
+                                    swap_rb,smoothing_enabled,test_pattern)) {
                 snprintf(reason, reason_size, "Invalid GDI or top-screen framebuffer");
                 result = -1;
                 break;
