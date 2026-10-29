@@ -78,6 +78,21 @@ int main(void)
     assert(loaded.count == 1); /* corrupt primary recovered from backup */
     assert(remove(file) == 0);
     assert(rename("test-profiles.tmp.bak", file) == 0);
+    /* A corrupt file with two records of the same name must not silently
+       replace the first record with the second (case insensitive). */
+    {
+        const char *duplicate = "test-profiles-duplicates.tmp";
+        FILE *bad = fopen(duplicate, "wb");
+        assert(bad);
+        assert(fputs("3DSRDP2\n", bad) >= 0);
+        assert(fputs("Office|first.example.com|3389|alice|CORP|0|32|2|1|0|0|12\n", bad) >= 0);
+        assert(fputs("office|second.example.com|3389|alice|CORP|0|32|2|1|0|0|12\n", bad) >= 0);
+        assert(fclose(bad) == 0);
+        assert(rdp_profiles_load(duplicate, &loaded, error, sizeof(error)) != 0);
+        assert(strstr(error, "Corrupt") || strstr(error, "Duplicate"));
+        assert(loaded.count == 0);
+        assert(remove(duplicate) == 0);
+    }
     strcpy(cfg.username, "alice@corp.example.com");
     assert(rdp_profile_validate(&cfg, error, sizeof(error)) < 0);
     cfg.domain[0] = 0;
