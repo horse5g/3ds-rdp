@@ -8,7 +8,7 @@
 #define RDP_PROFILE_NAME_CAP 41
 
 typedef struct {
-    uint8_t display_mode;     /* 0=400x240, 1=640x360 */
+    uint8_t display_mode;     /* 0=400x240, 1=640x360, 2=1280x720, 3=1920x1080 */
     uint8_t color_depth;      /* 16 or 32 */
     uint8_t touch_speed;      /* 1..3 */
     uint8_t scroll_step;      /* 1..3 */
