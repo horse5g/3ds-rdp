@@ -12,6 +12,7 @@
 #include <openssl/crypto.h>
 #include "rdp_ps_rng_diag.h"
 #include "rdp_openssl_init_diag.h"
+#include "rdp_pthread_tsd.h"
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
@@ -50,6 +51,58 @@ static void check_pthreads(void)
     printf("TLS key/create/set/get %d/%d/%d\n", rc_key, rc_set, rc_get);
 }
 
+/* Test actual libctru multi-thread isolation and deterministic cleanup.
+ * The main and worker values must differ, and each destructor must run once. */
+static volatile unsigned int tsd_destructors;
+static void tsd_probe_destructor(void *value)
+{
+    if (value == (void *)0x11 || value == (void *)0x22)
+        tsd_destructors++;
+}
+
+typedef struct {
+    pthread_key_t key;
+    int initial_was_empty;
+    int worker_set_ok;
+    int worker_get_ok;
+} TsdProbe;
+
+static void tsd_probe_worker(void *userdata)
+{
+    TsdProbe *probe = (TsdProbe *)userdata;
+    probe->initial_was_empty = pthread_getspecific(probe->key) == NULL;
+    probe->worker_set_ok = pthread_setspecific(probe->key, (void *)0x22) == 0;
+    probe->worker_get_ok = pthread_getspecific(probe->key) == (void *)0x22;
+    rdp_3ds_tsd_cleanup_current_thread();
+}
+
+static void check_tsd_threads(void)
+{
+    pthread_key_t key;
+    TsdProbe probe = {0};
+    int created = pthread_key_create(&key, tsd_probe_destructor);
+    int main_set = 0, main_intact = 0, worker_ok = 0;
+    if (created == 0) {
+        Thread worker;
+        probe.key = key;
+        main_set = pthread_setspecific(key, (void *)0x11) == 0;
+        worker = threadCreate(tsd_probe_worker, &probe, 32 * 1024, 0x30, -2, false);
+        if (worker) {
+            const Result joined = threadJoin(worker, U64_MAX);
+            if (R_SUCCEEDED(joined))
+                worker_ok = probe.initial_was_empty && probe.worker_set_ok &&
+                            probe.worker_get_ok;
+            threadFree(worker);
+        }
+        main_intact = pthread_getspecific(key) == (void *)0x11;
+        rdp_3ds_tsd_cleanup_current_thread();
+        pthread_key_delete(key);
+    }
+    printf("TSD threads key/set/worker/main %d/%d/%d/%d\\n",
+           created, main_set, worker_ok, main_intact);
+    printf("TSD destructor calls %u (expected 2)\\n", tsd_destructors);
+}
+
 static void show_error(const char *what)
 {
     unsigned long error = ERR_get_error();
@@ -74,6 +127,7 @@ int main(void)
     printf("===============================\n\n");
 
     check_pthreads();
+    check_tsd_threads();
     /* Separate OpenSSL's base once-only initialization from later steps.
        A failure of base init often has no usable ERR queue. */
     /* OpenSSL 3.5.9 reserves 0x00040000 for BASE_ONLY internally, but
