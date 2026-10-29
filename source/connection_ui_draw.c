@@ -288,7 +288,8 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
         for(row=0;row<4;++row) for(col=0;col<4;++col) {
             int x=4+col*78,y=40+row*48;
             int key=session_pad_keyboard_key(pad,x+20,y+20);
-            const char *name=session_key_label(key);
+            const char *name=(key==SK_FN && pad->fn_page) ?
+                             "BASIC" : session_key_label(key);
             bool selected = (key==SK_CTRL && (pad->key_mods&SK_MOD_CTRL)) ||
                 (key==SK_ALT && (pad->key_mods&SK_MOD_ALT)) ||
                 (key==SK_SHIFT && (pad->key_mods&SK_MOD_SHIFT)) ||
