@@ -276,7 +276,18 @@ static void open_option(ConnectionUI *ui, int row)
     if (menu) {
         ui->choice_menu=menu;
         ui->focus=row;
-        tell(ui,"Select a value or tap outside to cancel");
+        switch(menu){
+            case 1: ui->choice_highlight=ui->options.display_mode; break;
+            case 2: ui->choice_highlight=ui->options.color_depth==32?1:0; break;
+            case 3: ui->choice_highlight=ui->options.touch_speed-1; break;
+            case 4: ui->choice_highlight=ui->options.scroll_step-1; break;
+            case 5: ui->choice_highlight=ui->options.reverse_scroll; break;
+            case 6: ui->choice_highlight=ui->options.low_bandwidth; break;
+            case 7: ui->choice_highlight=ui->options.timeout_seconds==8?0:
+                                         ui->options.timeout_seconds==12?1:2; break;
+            default: ui->choice_highlight=0;
+        }
+        tell(ui,"Use D-pad or tap to choose a value");
     }
 }
 static void change_tab(ConnectionUI *ui, int tab)
@@ -346,7 +357,12 @@ void connection_ui_key(ConnectionUI *ui, uint32_t keys, const char *path)
     }
     if (ui->choice_menu) {
         if(keys & (KEY_B | KEY_X)){ui->choice_menu=0;return;}
-        if(keys & KEY_A){choose_option(ui,0);return;}
+        if((keys & KEY_DUP) && ui->choice_highlight>0)
+            --ui->choice_highlight;
+        if((keys & KEY_DDOWN) &&
+           ui->choice_highlight+1<choice_count(ui->choice_menu))
+            ++ui->choice_highlight;
+        if(keys & KEY_A){choose_option(ui,ui->choice_highlight);return;}
         return;
     }
     if (keys & KEY_DLEFT) change_tab(ui,(ui->tab+RDP_UI_TAB_COUNT-1)%RDP_UI_TAB_COUNT);
