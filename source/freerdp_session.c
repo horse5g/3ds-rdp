@@ -20,6 +20,7 @@
 #include "rdp_diag_log.h"
 #include "rdp_pthread_tsd.h"
 #include "loopback_pair.h"
+#include <sys/iosupport.h>
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -848,6 +849,10 @@ static void rdp_connect_worker(void *arg)
     const bool cancelled_before_start = gate->cancel_requested;
     LightLock_Unlock(&gate->lock);
     rdp_diag_log_event("connect-worker-start", (unsigned long)cancelled_before_start, 0, 0);
+    /* libctru socket() returns ENODEV if FindDevice("soc:") fails.
+     * This is a registration check, not a probe socket or network access. */
+    rdp_diag_log_event("connect-worker-soc",
+                       (unsigned long)(int)FindDevice("soc:"), 0, 0);
     const bool ok = !cancelled_before_start &&
                     freerdp_connect(gate->client) == TRUE;
     rdp_diag_log_event("connect-worker-end", (unsigned long)ok,
@@ -909,6 +914,8 @@ static bool connect_with_ui(freerdp *client, const char *host,
     }
     connect_screen(host, false);
 
+    rdp_diag_log_event("connect-main-soc",
+                       (unsigned long)(int)FindDevice("soc:"), 0, 0);
     worker = threadCreate(rdp_connect_worker, &gate, 96 * 1024, 0x30, -2, false);
     if (!worker) {
         snprintf(reason, reason_size, "Could not start ARM11 RDP connection worker");
