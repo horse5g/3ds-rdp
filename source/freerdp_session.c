@@ -129,17 +129,22 @@ static bool openssl_rng_preflight(OSSL_PROVIDER **provider_ref,
     EVP_RAND *algorithm = NULL;
     EVP_RAND_CTX *primary = NULL, *public_rng = NULL;
     unsigned char check[32] = {0};
-    const char *stage = "provider";
+    const char *stage = "crypto init";
     unsigned long code;
     const char *description;
+    RdpPsRngDiag baseline = {0};
     bool ok = false;
 
     if (!provider_ref || !error || !cap)
         return false;
     *provider_ref = NULL;
+    /* Counts are process-wide and may include previous connection attempts.
+       Compare a fresh preflight with its own baseline, not the boot totals. */
+    ossl_3ds_ps_rng_snapshot(&baseline);
     ERR_clear_error();
     if (!OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL))
         goto fail;
+    stage = "default provider";
     /* Retain the embedded default provider through the entire session. */
     *provider_ref = OSSL_PROVIDER_load(NULL, "default");
     if (!*provider_ref)
@@ -177,12 +182,14 @@ fail:
      * the actual Horizon backend without reading RNG seed bytes. */
     RdpPsRngDiag psdiag = {0};
     ossl_3ds_ps_rng_snapshot(&psdiag);
-    if (psdiag.entropy_calls || psdiag.nonce_calls) {
+    const unsigned e_calls = psdiag.entropy_calls - baseline.entropy_calls;
+    const unsigned e_ok = psdiag.entropy_successes - baseline.entropy_successes;
+    const unsigned n_calls = psdiag.nonce_calls - baseline.nonce_calls;
+    const unsigned n_ok = psdiag.nonce_successes - baseline.nonce_successes;
+    if (e_calls || n_calls) {
         snprintf(error, cap,
                  "SSL %.18s %08lX PS E%u/%u N%u/%u F%u R%08X",
-                 stage, code,
-                 psdiag.entropy_successes, psdiag.entropy_calls,
-                 psdiag.nonce_successes, psdiag.nonce_calls,
+                 stage, code, e_ok, e_calls, n_ok, n_calls,
                  psdiag.last_failure_stage, psdiag.last_ps_result);
     } else if (description && *description) {
         snprintf(error, cap, "SSL %.22s %.27s (0x%08lX)",
