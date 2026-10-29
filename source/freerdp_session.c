@@ -996,6 +996,16 @@ static bool connect_with_ui(freerdp *client, const char *host,
     return connected;
 }
 
+/* Pinned FreeRDP TCP trace hook. Stage numbers and numeric local
+ * errors only: no credentials, IP addresses, hostnames, or TLS material.
+ * Upstream's generic 0x00020006 cannot identify which socket step failed. */
+void freerdp_3ds_tcp_checkpoint(unsigned int stage, int system_errno,
+                               unsigned int winpr_error)
+{
+    rdp_diag_log_event("tcp-stage", stage, (unsigned long)system_errno,
+                       (unsigned long)winpr_error);
+}
+
 /* Called from FreeRDP construction/cleanup through a weak, O3DS-only
  * hook. Log just stage, numeric errno, and socket event counters; do not
  * inspect remote hosts, credentials, certificate or other sensitive data. */
