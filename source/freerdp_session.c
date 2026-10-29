@@ -912,7 +912,9 @@ static void rdp_keyboard_pump_worker(void *arg)
             pump->failure_code = count;
             break;
         }
+        const u64 wait_start_ms=osGetTime();
         wait_status = WaitForMultipleObjects(count, handles, FALSE, 20);
+        pad.perf_wait_ms=(unsigned)(osGetTime()-wait_start_ms);
         if (!rdp_wait_result_valid((uint32_t)wait_status, (uint32_t)count)) {
             pump->failure_code = wait_status;
             break;
@@ -1443,6 +1445,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     bool swap_rb = true; /* Fix actual O3DS red/blue reversal. */
     bool smoothing_enabled = true;
     unsigned blit_samples_remaining=3;
+    u64 perf_start_ms=0,perf_last_update=0;
+    unsigned perf_paints=0;
     rdp_diag_log_event("display-colors", (unsigned long)swap_rb,
                        (unsigned long)smoothing_enabled, 0);
     session_cursor_reset(&system_cursor);
@@ -1484,6 +1488,11 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     pad.reverse_scroll=opts.reverse_scroll!=0;
     cursor_remote_x=pad.pointer_x;cursor_remote_y=pad.pointer_y;
     session_zoom_init(&zoom);
+    perf_start_ms=perf_last_update=osGetTime();
+    pad.perf_gdi_bpp=client->context->gdi->dstFormat==PIXEL_FORMAT_RGB16?16u:32u;
+    pad.perf_gdi_kib=(unsigned)(((uint64_t)client->context->gdi->stride *
+                                 (uint64_t)client->context->gdi->height+1023)/1024);
+    rdp_diag_log_event("session-perf-gdi",pad.perf_gdi_kib,pad.perf_gdi_bpp,0);
     snprintf(reason, reason_size, "Session ended");
     result = 0;
 
@@ -1518,6 +1527,11 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             session_pad_update(&pad, false, -1, -1, &action);
         }
         if (action.redraw) pad_redraw = true;
+        if(down & KEY_SELECT) {
+            pad.perf_open=!pad.perf_open;
+            rdp_diag_log_event("session-perf-toggle",pad.perf_open,0,0);
+            pad_redraw=true;
+        }
         /* A is reserved for drag. D-pad nudges the remote pointer and thus
            pans the magnified viewport. Y always returns to fit view. */
         if ((down & KEY_Y) && (held & KEY_L)) {
@@ -1680,6 +1694,19 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             result = -1;
             break;
         }
+        const u64 perf_now=osGetTime();
+        if (perf_now-perf_start_ms>=1000) {
+            const u64 elapsed=perf_now-perf_start_ms;
+            pad.perf_fps=(unsigned)((1000u*(uint64_t)perf_paints)/elapsed);
+            perf_paints=0;
+            perf_start_ms=perf_now;
+        }
+        /* Refresh the opt-in metrics at most once per second on a quiet
+         * desktop. Leave the normal event-driven renderer untouched. */
+        if(pad.perf_open && perf_now-perf_last_update>=1000) {
+            pad_redraw=true;
+            perf_last_update=perf_now;
+        }
         if (desktop_dirty || pad_redraw) {
             /* gfxSwapBuffers swaps BOTH screens. Always redraw the current
              * GDI desktop into the new top backbuffer when the bottom pad
@@ -1687,18 +1714,16 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
              * Sample the first 3 blits and 3 after filter/color toggle:
              * a hardware timing comparison without continuous SD writes. */
             const bool measure=blit_samples_remaining && rdp_diag_log_enabled();
-            const u64 start_ms=measure?osGetTime():0;
+            const u64 start_ms=osGetTime();
             if (!copy_desktop_frame(client->context,&zoom,pad.pointer_x,pad.pointer_y,
                                     swap_rb,smoothing_enabled)) {
                 snprintf(reason, reason_size, "Invalid GDI or top-screen framebuffer");
                 result = -1;
                 break;
             }
+            pad.perf_blit_ms=(unsigned)(osGetTime()-start_ms);
             if(measure) {
-                const u64 elapsed=osGetTime()-start_ms;
-                const unsigned depth=client->context->gdi->dstFormat==
-                                      PIXEL_FORMAT_RGB16?16u:32u;
-                rdp_diag_log_event("blit-ms",(unsigned long)elapsed,depth,
+                rdp_diag_log_event("blit-ms",pad.perf_blit_ms,pad.perf_gdi_bpp,
                                    ((unsigned long)(smoothing_enabled?1u:0u)) |
                                    ((unsigned long)(swap_rb?2u:0u)));
                 --blit_samples_remaining;
@@ -1706,6 +1731,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             session_pad_draw(&pad,session_zoom_percent(&zoom));
             gfxFlushBuffers();
             gfxSwapBuffers();
+            ++perf_paints;
             desktop_dirty = false;
             pad_redraw = false;
         }
