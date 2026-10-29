@@ -194,6 +194,10 @@ static void delete_profile(ConnectionUI *ui, const char *path)
 static void cycle_option(ConnectionUI *ui,int row)
 {
     RdpUiOptions *o=&ui->options;
+    if(row<0 || row>2)return;
+    if((ui->tab==RDP_UI_DISPLAY && row==2) ||
+       ((ui->tab==RDP_UI_EXPERIENCE || ui->tab==RDP_UI_ADVANCED) && row!=0))
+        return;
     switch(ui->tab){
       case RDP_UI_DISPLAY:
         if(row==0)o->display_mode^=1u;
