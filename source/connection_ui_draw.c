@@ -175,12 +175,17 @@ static void main_panel(const ConnectionUI *ui)
         const RdpUiOptions *o=&ui->options;
         switch(ui->tab) {
         case RDP_UI_DISPLAY:
-            snprintf(line,sizeof(line),"DESKTOP SIZE: %s",
-                     o->display_mode?"640 X 360":"400 X 240");
-            panel_text(63,line,"TAP TO SWITCH REMOTE SIZE");
+            {
+                static const char *sizes[] = {
+                    "400 X 240", "640 X 360", "1280 X 720", "1920 X 1080"
+                };
+                const unsigned mode = o->display_mode < 4 ? o->display_mode : 0;
+                snprintf(line,sizeof(line),"DESKTOP SIZE: %s",sizes[mode]);
+            }
+            panel_text(63,line,"TAP: CYCLE REMOTE SIZE");
             snprintf(line,sizeof(line),"COLOR DEPTH: %u BIT",o->color_depth);
             panel_text(103,line,"TAP TO SWITCH 16 / 32 BIT");
-            panel_text(143,"ZOOM: L + CIRCLE ROTATE","100% TO 300%  LOCAL VIEW");
+            panel_text(143,"ZOOM: L + CIRCLE ROTATE","100% TO 500%  LOCAL VIEW");
             break;
         case RDP_UI_LOCAL:
             snprintf(line,sizeof(line),"TOUCH SPEED: %uX",o->touch_speed);
