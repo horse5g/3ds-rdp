@@ -10,6 +10,7 @@
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/crypto.h>
+#include "rdp_ps_rng_diag.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -25,6 +26,9 @@ int main(void)
     SSL_CTX *ctx = NULL;
     OSSL_PROVIDER *default_provider = NULL;
     EVP_RAND_CTX *primary = NULL, *public_rng = NULL;
+    EVP_RAND *seed_source = NULL;
+    EVP_RAND_CTX *seed_test = NULL;
+    bool seed_ok = false;
     bool random_ok = false;
     bool ssl_ok = false;
 
@@ -33,9 +37,34 @@ int main(void)
     printf("OpenSSL ARM11 hardware smoke test\n");
     printf("===============================\n\n");
 
+    /* Isolate PS-backed SEED-SRC from CTR-DRBG and its thread-local RNGs.
+       This is a diagnostic, not a substitute for the standard RAND_bytes. */
+    (void)OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL);
+    default_provider = OSSL_PROVIDER_load(NULL, "default");
+    if (default_provider) {
+        ERR_clear_error();
+        seed_source = EVP_RAND_fetch(NULL, "SEED-SRC", NULL);
+        if (!seed_source)
+            show_error("SEED-SRC fetch");
+        else if ((seed_test = EVP_RAND_CTX_new(seed_source, NULL)) == NULL)
+            show_error("SEED-SRC context");
+        else if (!EVP_RAND_instantiate(seed_test, 0, 0, NULL, 0, NULL))
+            show_error("SEED-SRC instantiate");
+        else if (!EVP_RAND_generate(seed_test, first, sizeof(first),
+                                    256, 0, NULL, 0))
+            show_error("SEED-SRC draw");
+        else {
+            seed_ok = true;
+            puts("PS-backed SEED-SRC draw PASS");
+        }
+        EVP_RAND_CTX_free(seed_test);
+        EVP_RAND_free(seed_source);
+        OPENSSL_cleanse(first, sizeof(first));
+        ERR_clear_error();
+    }
+
     /* Display which OpenSSL 3.5 provider/DRBG layer fails on O3DS,
        without printing or storing the generated random bytes. */
-    default_provider = OSSL_PROVIDER_load(NULL, "default");
     if (!default_provider) {
         show_error("default provider");
     } else if ((primary = RAND_get0_primary(NULL)) == NULL) {
@@ -70,6 +99,19 @@ int main(void)
         show_error("SSL_CTX_new");
     }
 
+    /* Independent instrumentation from our patched Horizon PS backend.
+       Counts/stage codes only: neither entropy nor any bytes are exposed. */
+    RdpPsRngDiag diag = {0};
+    ossl_3ds_ps_rng_snapshot(&diag);
+    printf("PS entropy OK/calls: %u/%u\n",
+           diag.entropy_successes, diag.entropy_calls);
+    printf("PS nonce OK/calls:   %u/%u\n",
+           diag.nonce_successes, diag.nonce_calls);
+    printf("PS last fail stage: %u\n", diag.last_failure_stage);
+    printf("PS last Result: %08X\n", diag.last_ps_result);
+    printf("PS entropy bytes: %u nonce cap: %u\n",
+           diag.last_entropy_request, diag.last_nonce_capacity);
+    printf("SEED-SRC: %s\n", seed_ok ? "PASS" : "FAIL / UNAVAILABLE");
     puts("");
     printf("Summary: %s\n", random_ok && ssl_ok ? "PASS" : "FAIL");
     puts("No network, trust-store, or NLA test.");
