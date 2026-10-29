@@ -137,6 +137,11 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'Horizon SOC does not implement Unix-domain sockets' "$src/libfreerdp/core/tcp.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-tcp-ipv4-soc.patch"
   fi
+  # Preserve numeric errno / WSA status at FreeRDP's true TCP failure
+  # stage (the public 0x00020006 code is too broad to diagnose alone).
+  if ! grep -q 'Optional O3DS TCP diagnostic hook' "$src/libfreerdp/core/tcp.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-tcp-stage-diag.patch"
+  fi
   if ! grep -q 'IPv6 subnet matching is unavailable on Horizon' "$src/libfreerdp/core/proxy.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-proxy-ipv4.patch"
   fi
