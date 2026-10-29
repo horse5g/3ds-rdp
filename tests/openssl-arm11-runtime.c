@@ -11,8 +11,35 @@
 #include <openssl/err.h>
 #include <openssl/crypto.h>
 #include "rdp_ps_rng_diag.h"
+#include "rdp_openssl_init_diag.h"
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
+
+static pthread_once_t once_control = PTHREAD_ONCE_INIT;
+static unsigned int once_count;
+static void once_probe(void) { once_count++; }
+
+/* The port uses pthreads. Test the primitives used by OpenSSL init before
+ * issuing any OpenSSL API call; print return codes, not sensitive data. */
+static void check_pthreads(void)
+{
+    pthread_mutex_t mutex;
+    pthread_key_t key;
+    int rc_once = pthread_once(&once_control, once_probe);
+    int rc_once_again = pthread_once(&once_control, once_probe);
+    int rc_mutex = pthread_mutex_init(&mutex, NULL);
+    int rc_lock = rc_mutex == 0 ? pthread_mutex_lock(&mutex) : -1;
+    int rc_unlock = rc_lock == 0 ? pthread_mutex_unlock(&mutex) : -1;
+    if (rc_mutex == 0) pthread_mutex_destroy(&mutex);
+    int rc_key = pthread_key_create(&key, NULL);
+    int rc_set = rc_key == 0 ? pthread_setspecific(key, (void *)0x1) : -1;
+    int rc_get = rc_set == 0 && pthread_getspecific(key) == (void *)0x1;
+    if (rc_key == 0) pthread_key_delete(key);
+    printf("pthread once %d,%d calls %u\\n", rc_once, rc_once_again, once_count);
+    printf("mutex init/lock/unlock %d/%d/%d\\n", rc_mutex, rc_lock, rc_unlock);
+    printf("TLS key/create/set/get %d/%d/%d\\n", rc_key, rc_set, rc_get);
+}
 
 static void show_error(const char *what)
 {
@@ -37,10 +64,19 @@ int main(void)
     printf("OpenSSL ARM11 hardware smoke test\n");
     printf("===============================\n\n");
 
+    check_pthreads();
+    /* Separate OpenSSL's base once-only initialization from later steps.
+       A failure of base init often has no usable ERR queue. */
+    const int base_ok = OPENSSL_init_crypto(OPENSSL_INIT_BASE_ONLY, NULL);
+    const unsigned int base_stage = ossl_3ds_crypto_init_stage();
+    const int crypto_ok = OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL);
+    printf("crypto BASE %d stage %u\\n", base_ok, base_stage);
+    printf("crypto FULL %d stage %u\\n",
+           crypto_ok, ossl_3ds_crypto_init_stage());
+
     /* Isolate PS-backed SEED-SRC from CTR-DRBG and its thread-local RNGs.
        This is a diagnostic, not a substitute for the standard RAND_bytes. */
-    (void)OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL);
-    default_provider = OSSL_PROVIDER_load(NULL, "default");
+    default_provider = crypto_ok ? OSSL_PROVIDER_load(NULL, "default") : NULL;
     if (default_provider) {
         ERR_clear_error();
         seed_source = EVP_RAND_fetch(NULL, "SEED-SRC", NULL);
