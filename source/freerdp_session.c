@@ -1006,6 +1006,11 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         !freerdp_settings_set_bool(settings, FreeRDP_DisableWallpaper,
                                    opts.low_bandwidth!=0) ||
         !freerdp_settings_set_bool(settings, FreeRDP_TcpKeepAlive, FALSE) ||
+        /* FreeRDP defaults multitransport/clipboard on, but our O3DS build
+           intentionally has no RDP virtual channels or UDP transport. Stay
+           on the tested IPv4 TCP path and do not advertise a dead channel. */
+        !freerdp_settings_set_bool(settings, FreeRDP_SupportMultitransport, FALSE) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_RedirectClipboard, FALSE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_ExternalCertificateManagement, TRUE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_IgnoreCertificate, FALSE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_AutoAcceptCertificate, FALSE) ||
