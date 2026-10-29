@@ -1509,6 +1509,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         if (session_zoom_update(&zoom,(held & KEY_L)!=0,
                                 circle.dx,circle.dy))
             pad_redraw=true;
+        session_pad_set_zoom(&pad,zoom.visible);
 
         if (held & KEY_TOUCH) {
             hidTouchRead(&touch);
@@ -1543,10 +1544,14 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             pad_redraw=true;
         }
         if(input && (held & (KEY_DUP|KEY_DDOWN|KEY_DLEFT|KEY_DRIGHT))){
-            int nx=pad.pointer_x+(((held & KEY_DRIGHT)!=0)?8:0)
-                                -(((held & KEY_DLEFT)!=0)?8:0);
-            int ny=pad.pointer_y+(((held & KEY_DDOWN)!=0)?8:0)
-                                -(((held & KEY_DUP)!=0)?8:0);
+            /* D-pad nudges in visible screen pixels, not a fixed eight
+             * remote pixels that becomes nearly invisible at 1080p fit. */
+            const int nudge_x=session_pad_nudge(&pad,true);
+            const int nudge_y=session_pad_nudge(&pad,false);
+            int nx=pad.pointer_x+(((held & KEY_DRIGHT)!=0)?nudge_x:0)
+                                -(((held & KEY_DLEFT)!=0)?nudge_x:0);
+            int ny=pad.pointer_y+(((held & KEY_DDOWN)!=0)?nudge_y:0)
+                                -(((held & KEY_DUP)!=0)?nudge_y:0);
             if(nx<0)nx=0;if(ny<0)ny=0;
             if(nx>=remote_w)nx=remote_w-1;
             if(ny>=remote_h)ny=remote_h-1;
