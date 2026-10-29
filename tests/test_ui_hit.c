@@ -10,11 +10,15 @@ int main(void)
     }
     assert(connection_ui_tab_at(0,20) == -1);
     assert(connection_ui_tab_at(320,40) == -1);
-    for (i=0; i<5; ++i) {
-        assert(connection_ui_field_at(110,57+i*25+10) == i);
-        assert(connection_ui_field_at(110,57+i*25+23) == -1);
+    for (i=0; i<3; ++i) {
+        assert(connection_ui_field_at(110,75+i*30+10) == i);
         assert(connection_ui_saved_at(100,58+i*25+10,5,12) == i+5);
     }
+    assert(connection_ui_field_at(110,74) == -1);
+    assert(connection_ui_field_at(110,165) == -1);
+    assert(connection_ui_field_at(300,110) == -1);
+    assert(connection_ui_tab_at(20,23)==0);
+    assert(connection_ui_tab_at(20,46)==-1);
     assert(connection_ui_field_at(110,185) == -1);
     assert(connection_ui_saved_at(100,58+2*25,10,12) == -1);
     assert(connection_ui_saved_at(100,58+1*25,10,12) == 11);

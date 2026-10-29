@@ -13,6 +13,14 @@
 #include "rdp_environment.h"
 #include "rdp_desktop_limits.h"
 #include "rdp_startup.h"
+#include "horizon_rng.h"
+#include "rdp_ps_rng_diag.h"
+#include "rdp_openssl_init_diag.h"
+#include "rdp_freerdp_diag.h"
+#include "rdp_diag_log.h"
+#include "rdp_pthread_tsd.h"
+#include "loopback_pair.h"
+#include <sys/iosupport.h>
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -47,6 +55,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
 #include <openssl/x509v3.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#include <openssl/err.h>
+#include <openssl/provider.h>
 #include <arpa/inet.h>
 #include <limits.h>
 #include <errno.h>
@@ -75,9 +85,26 @@ static uint16_t requested_port;
 static PrintConsole trust_console;
 static char cert_failure[100];
 static char post_connect_failure[100];
+/* Worker writes; main thread reads only after worker join.
+ * Reset before each attempt to avoid reporting prior successful codecs. */
+static volatile unsigned recent_codec_stage=0;
+static volatile unsigned recent_tcp_stage=0;
 /* Give hardware tests an actionable stage instead of reporting every
  * authentication, DNS, transport and activation error as "connect failed".
  * Never include the password or FreeRDP's credential buffers. */
+/* Callbacks from pinned FreeRDP's pre-TCP codec initialization. The
+ * packed dimensions are non-secret and identify resource failure stage.
+ * stage 1=enter reset, 2=codecs_new OOM, 3=prepare begins,
+ * 4=prepare failed, 5=prepare succeeded. */
+void freerdp_3ds_codec_checkpoint(unsigned int stage,unsigned int flags,
+                                 unsigned int width,unsigned int height)
+{
+    recent_codec_stage=stage;
+    rdp_diag_log_event("rdp-codec-stage",stage,flags,
+                       ((unsigned long)(width & 0xFFFFu) << 16) |
+                       (height & 0xFFFFu));
+}
+
 static const char *connection_failure_hint(UINT error)
 {
     switch (error) {
@@ -117,6 +144,108 @@ static const char *connection_failure_hint(UINT error)
     }
 }
 
+/* RAND_bytes can return 0 without queuing an OpenSSL error when
+ * global RNG state or a thread-local DRBG fails to initialize. */
+static bool openssl_rng_preflight(OSSL_PROVIDER **provider_ref,
+                                char *error, size_t cap)
+{
+    EVP_RAND *algorithm = NULL;
+    EVP_RAND_CTX *primary = NULL, *public_rng = NULL;
+    unsigned char check[32] = {0};
+    const char *stage = "crypto init";
+    unsigned long code;
+    const char *description;
+    RdpPsRngDiag baseline = {0};
+    bool ok = false;
+    unsigned int log_stage = 1u;
+
+    if (!provider_ref || !error || !cap)
+        return false;
+    *provider_ref = NULL;
+    /* Counts are process-wide and may include previous connection attempts.
+       Compare a fresh preflight with its own baseline, not the boot totals. */
+    ossl_3ds_ps_rng_snapshot(&baseline);
+    ERR_clear_error();
+    if (!OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL))
+        goto fail;
+    stage = "default provider";
+    log_stage = 2u;
+    /* Retain the embedded default provider through the entire session. */
+    *provider_ref = OSSL_PROVIDER_load(NULL, "default");
+    if (!*provider_ref)
+        goto fail;
+    stage = "CTR-DRBG";
+    log_stage = 3u;
+    algorithm = EVP_RAND_fetch(NULL, "CTR-DRBG", NULL);
+    if (!algorithm)
+        goto fail;
+    EVP_RAND_free(algorithm);
+    algorithm = NULL;
+    stage = "primary DRBG";
+    log_stage = 4u;
+    primary = RAND_get0_primary(NULL);
+    if (!primary)
+        goto fail;
+    stage = "primary state";
+    log_stage = 5u;
+    if (EVP_RAND_get_state(primary) != EVP_RAND_STATE_READY)
+        goto fail;
+    stage = "public DRBG";
+    log_stage = 6u;
+    public_rng = RAND_get0_public(NULL);
+    if (!public_rng)
+        goto fail;
+    stage = "public state";
+    log_stage = 7u;
+    if (EVP_RAND_get_state(public_rng) != EVP_RAND_STATE_READY)
+        goto fail;
+    stage = "RAND_bytes";
+    log_stage = 8u;
+    if (RAND_bytes(check, (int)sizeof(check)) != 1)
+        goto fail;
+    ok = true;
+    rdp_diag_log_event("openssl-ready", ossl_3ds_crypto_init_stage(), 0, 0);
+    error[0] = 0;
+    goto done;
+fail:
+    code = ERR_peek_last_error();
+    rdp_diag_log_event("openssl-failed", log_stage, code, ossl_3ds_crypto_init_stage());
+    description = code ? ERR_reason_error_string(code) : NULL;
+    /* Provider/DRBG failures sometimes pop OpenSSL's error queue. Snapshot
+     * the actual Horizon backend without reading RNG seed bytes. */
+    RdpPsRngDiag psdiag = {0};
+    ossl_3ds_ps_rng_snapshot(&psdiag);
+    const unsigned e_calls = psdiag.entropy_calls - baseline.entropy_calls;
+    const unsigned e_ok = psdiag.entropy_successes - baseline.entropy_successes;
+    const unsigned n_calls = psdiag.nonce_calls - baseline.nonce_calls;
+    const unsigned n_ok = psdiag.nonce_successes - baseline.nonce_successes;
+    if (e_calls || n_calls) {
+        snprintf(error, cap,
+                 "SSL %.18s %08lX PS E%u/%u N%u/%u F%u R%08X",
+                 stage, code, e_ok, e_calls, n_ok, n_calls,
+                 psdiag.last_failure_stage, psdiag.last_ps_result);
+    } else if (strcmp(stage, "crypto init") == 0) {
+        snprintf(error, cap, "OpenSSL core init S%u (0x%08lX)",
+                 ossl_3ds_crypto_init_stage(), code);
+    } else if (description && *description) {
+        snprintf(error, cap, "SSL %.22s %.27s (0x%08lX)",
+                 stage, description, code);
+    } else {
+        snprintf(error, cap, "SSL %.22s no PS seed calls (0x%08lX)",
+                 stage, code);
+    }
+    ERR_clear_error();
+done:
+    EVP_RAND_free(algorithm);
+    OPENSSL_cleanse(check, sizeof(check));
+    if (!ok) {
+        if (*provider_ref)
+            OSSL_PROVIDER_unload(*provider_ref);
+        *provider_ref = NULL;
+    }
+    return ok;
+}
+
 static bool desktop_dirty;
 static SessionCursor system_cursor;
 static int cursor_remote_x=RDP_W/2,cursor_remote_y=RDP_H/2;
@@ -134,6 +263,8 @@ typedef struct {
     bool cancel_requested;
     bool challenge_pending;
     bool challenge_answered;
+    bool challenge_name_mismatch;
+    bool challenge_name_is_ip;
     int decision;
     char challenge_host[RDP_HOST_CAP];
     uint16_t challenge_port;
@@ -216,7 +347,8 @@ finish:
 /* No automatic first-use trust: the user must see the complete SHA-256 and
  * expressly choose a single session or append to the trusted endpoint pool. */
 static int ask_unknown_certificate(const char *host, uint16_t port,
-                                   const unsigned char sha256[32])
+                                   const unsigned char sha256[32],
+                                   bool name_mismatch, bool name_is_ip)
 {
     RdpConnectGate *gate = connect_gate;
     int result;
@@ -230,6 +362,8 @@ static int ask_unknown_certificate(const char *host, uint16_t port,
     snprintf(gate->challenge_host, sizeof(gate->challenge_host), "%s", host);
     gate->challenge_port = port;
     memcpy(gate->challenge_sha256, sha256, 32);
+    gate->challenge_name_mismatch = name_mismatch;
+    gate->challenge_name_is_ip = name_is_ip;
     gate->challenge_pending = true;
     gate->challenge_answered = false;
     LightLock_Unlock(&gate->lock);
@@ -257,7 +391,8 @@ static int ask_unknown_certificate(const char *host, uint16_t port,
 
 /* Certificate UI is strictly a foreground-thread responsibility. */
 static void draw_cert_challenge(const char *host, uint16_t port,
-                                const unsigned char sha256[32])
+                                const unsigned char sha256[32],
+                                bool name_mismatch, bool name_is_ip)
 {
     static const char hex[] = "0123456789ABCDEF";
     char fingerprint[65];
@@ -268,27 +403,38 @@ static void draw_cert_challenge(const char *host, uint16_t port,
     fingerprint[64] = 0;
     rdp_display_bind_console(&trust_console, GFX_TOP);
     consoleSelect(&trust_console);
-    printf("\x1b[2J\x1b[HUNKNOWN RDP CERTIFICATE\n");
-    printf("This server is NOT yet trusted.\n\n");
+    if (name_mismatch) {
+        printf("\x1b[2J\x1b[HCERTIFICATE NAME MISMATCH!\n");
+        printf("Cert does NOT identify this %s.\n\n",
+               name_is_ip ? "IP address" : "DNS hostname");
+    } else {
+        printf("\x1b[2J\x1b[HUNKNOWN RDP CERTIFICATE\n");
+        printf("This server is NOT yet trusted.\n\n");
+    }
     printf("Host: %.40s\nPort: %u\n\n", host, (unsigned)port);
     printf("Leaf SHA-256 (verify independently):\n");
     printf("%.32s\n%s\n\n", fingerprint, fingerprint+32);
-    printf("First-use trust can allow MITM!\n");
-    printf("Verify this hash on the Windows host.\n\n");
+    if (name_mismatch)
+        printf("Accepting overrides the name check!\n");
+    printf("A false cert could enable MITM.\n");
+    printf("Verify the SHA-256 independently.\n\n");
     printf("B/START: Reject\n");
     printf("A: Accept for this session\n");
     printf("X: Accept and save on SD\n");
     /* gfxSwapBuffers presents BOTH LCDs. Draw the lower buffer too, so it
        cannot alternate between a current and an old/uninitialized image. */
-    connection_ui_draw_status("UNKNOWN RDP CERTIFICATE",
-                              "VERIFY FINGERPRINT ON TOP",false);
+    connection_ui_draw_status(name_mismatch ? "CERT NAME MISMATCH" : "UNKNOWN RDP CERTIFICATE",
+                              "VERIFY SHA256 ON TOP",false);
     gfxFlushBuffers();
     gfxSwapBuffers();
 }
 
-/* FreeRDP ExternalCertificateManagement callback. Requires a valid name and
- * date BEFORE any pool decision, then enforces a manual pin when configured.
- * For unknown endpoints only, permit an explicit, visible trust decision.
+/* FreeRDP ExternalCertificateManagement callback. Requires a valid date
+ * and certificate parse before any pool decision, and always enforces any
+ * existing leaf-certificate pin. A name mismatch is NEVER accepted merely
+ * because certificate management is enabled: it requires the user to
+ * explicitly verify the fingerprint and accept a visible warning (or
+ * a previously saved, unmodified, host:port-scoped certificate pin).
  * Returning 2 accepts just this session in FreeRDP's certificate code. */
 static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
                             const char *host, UINT16 port, DWORD flags)
@@ -299,6 +445,8 @@ static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
     unsigned int digest_length = 0;
     struct in_addr ipv4;
     time_t now;
+    int name_status;
+    bool is_ip, name_mismatch;
     int result = 0;
     (void)instance;
 
@@ -325,16 +473,21 @@ static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
         snprintf(cert_failure, sizeof(cert_failure), "RDP certificate expired/not yet valid");
         goto finish;
     }
-    if (inet_pton(AF_INET, host, &ipv4) == 1) {
-        if (X509_check_ip_asc(cert, host, 0) != 1) {
-            snprintf(cert_failure, sizeof(cert_failure), "RDP certificate IP name mismatch");
-            goto finish;
-        }
-    } else if (X509_check_host(cert, host, 0,
-                               X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS, NULL) != 1) {
-        snprintf(cert_failure, sizeof(cert_failure), "RDP certificate DNS name mismatch");
+    is_ip = inet_pton(AF_INET, host, &ipv4) == 1;
+    name_status = is_ip
+        ? X509_check_ip_asc(cert, host, 0)
+        : X509_check_host(cert, host, 0,
+                          X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS, NULL);
+    if (name_status < 0) {
+        snprintf(cert_failure, sizeof(cert_failure),
+                 "RDP certificate name check failed");
+        rdp_diag_log_event("cert-name-invalid", (unsigned long)is_ip, 0, 0);
         goto finish;
     }
+    name_mismatch = name_status != 1;
+    rdp_diag_log_event("cert-name-check",
+                       (unsigned long)(is_ip ? 1 : 2),
+                       (unsigned long)(!name_mismatch), 0);
 
     if (X509_digest(cert, EVP_sha256(), digest, &digest_length) != 1 ||
         digest_length != 32)
@@ -355,9 +508,19 @@ static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
         if (known > 0) {
             result = 2;
         } else {
-            const int approval = ask_unknown_certificate(host, port, digest);
+            /* Even a mismatched name can only be approved through the
+             * visible full-SHA256 challenge. No silent bypass or CA-only
+             * approval of mismatched identities is possible. */
+            const int approval = ask_unknown_certificate(host, port, digest,
+                                                          name_mismatch, is_ip);
+            rdp_diag_log_event("cert-approval", (unsigned long)approval,
+                               (unsigned long)name_mismatch, (unsigned long)is_ip);
             if (approval == 0) {
-                snprintf(cert_failure, sizeof(cert_failure), "Unknown RDP certificate rejected");
+                snprintf(cert_failure, sizeof(cert_failure),
+                         name_mismatch
+                            ? (is_ip ? "RDP cert IP mismatch; rejected"
+                                     : "RDP cert DNS mismatch; rejected")
+                            : "Unknown RDP certificate rejected");
                 goto finish;
             }
             if (approval == 2) {
@@ -495,20 +658,76 @@ static BOOL end_paint(rdpContext *context)
 
 /* Full GDI surface copy only when a paint has occurred. The 3DS uses two
  * framebuffers; swapping on idle iterations otherwise exposes stale frames. */
+/* Opt-in only. Aggregate a sparse 16x12 sample of decoded GDI pixels.
+ * No screenshots, hostnames, remote text, or individual pixels are logged.
+ * If desktop blues/whites disappear before RGB565 output, the source
+ * decoder is at fault, not the 3DS framebuffer write path. */
+static void log_desktop_color_probe(const rdpGdi *gdi)
+{
+    static unsigned frame_number, probes;
+    unsigned sums[3] = {0,0,0}, peaks[3] = {0,0,0};
+    unsigned above[3] = {0,0,0}, whites = 0;
+    const unsigned samples = 16u * 12u;
+    /* The 16-bit surface has packed RGB565, not B/G/R byte channels.
+     * Avoid mislabeling its samples as 32-bit GDI channel statistics. */
+    if (!gdi || gdi->dstFormat != PIXEL_FORMAT_XRGB32 || probes >= 4u)
+        return;
+    /* Sample after the desktop has had time to paint. A few initial frames
+     * may still show a blank login-to-desktop transition. */
+    ++frame_number;
+    if (frame_number != 1u && frame_number != 8u &&
+        frame_number != 32u && frame_number != 96u)
+        return;
+    if (!rdp_diag_log_enabled())
+        return;
+    ++probes;
+    for (unsigned row = 0; row < 12u; ++row) {
+        unsigned sy = ((row * 2u + 1u) * (unsigned)gdi->height) / 24u;
+        if (sy >= (unsigned)gdi->height) sy = (unsigned)gdi->height - 1u;
+        for (unsigned col = 0; col < 16u; ++col) {
+            unsigned sx = ((col * 2u + 1u) * (unsigned)gdi->width) / 32u;
+            if (sx >= (unsigned)gdi->width) sx = (unsigned)gdi->width - 1u;
+            const u8 *px = gdi->primary_buffer + (size_t)sy*gdi->stride + (size_t)sx*4;
+            for (unsigned k=0; k<3u; ++k) {
+                const unsigned value = px[k];
+                sums[k] += value;
+                if (value > peaks[k]) peaks[k] = value;
+                if (value >= 192u) ++above[k];
+            }
+            if (px[0]>=240u && px[1]>=240u && px[2]>=240u)
+                ++whites;
+        }
+    }
+    rdp_diag_log_event("gdi-format", (unsigned long)gdi->dstFormat,
+                       (unsigned long)gdi->width, (unsigned long)gdi->height);
+    /* Channel order is raw B,G,R for PIXEL_FORMAT_XRGB32, not LCD RGB. */
+    rdp_diag_log_event("gdi-avg-bgr", sums[0]/samples,
+                       sums[1]/samples, sums[2]/samples);
+    rdp_diag_log_event("gdi-max-bgr", peaks[0], peaks[1], peaks[2]);
+    rdp_diag_log_event("gdi-high-bgr", above[0], above[1], above[2]);
+    rdp_diag_log_event("gdi-white-count", whites, samples, probes);
+}
+
 static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
-                               int pointer_x, int pointer_y)
+                               int pointer_x, int pointer_y,
+                               bool swap_rb, bool smoothing_enabled)
 {
     rdpGdi *gdi;
     u16 fb_width=0, fb_height=0;
     uint16_t *frame;
     SessionZoomView view;
     int x,y;
-    int sample_y[RDP_H];
+    int sample_y[RDP_H],sample_ylo[RDP_H],sample_yhi[RDP_H];
     int32_t step_x,step_y;
+    const bool valid_zoom=(zoom!=NULL);
+    const bool native565=context && context->gdi &&
+                         context->gdi->dstFormat==PIXEL_FORMAT_RGB16;
+    const int bytes_per_pixel=native565?2:4;
 
     if (!context || !(gdi=context->gdi) || !gdi->primary_buffer ||
         gdi->width < RDP_W || gdi->height < RDP_H ||
-        gdi->stride < (size_t)gdi->width * 4 ||
+        (gdi->dstFormat != PIXEL_FORMAT_XRGB32 && !native565) ||
+        gdi->stride < (size_t)gdi->width * (size_t)bytes_per_pixel ||
         gfxGetScreenFormat(GFX_TOP) != GSP_RGB565_OES)
         return FALSE;
 
@@ -520,6 +739,13 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
     view=session_zoom_view(zoom,pointer_x,pointer_y,gdi->width,gdi->height);
     step_x=view.width_q16/RDP_W;
     step_y=view.height_q16/RDP_H;
+    /* Four-tap spatial averaging only when substantially reducing both
+     * dimensions. At 1:1/detail zoom we keep exact, sharp source pixels.
+     * Fixed-point offsets avoid float arithmetic in the 96k-pixel loop. */
+    const bool box4=valid_zoom && smoothing_enabled &&
+         step_x >= 2*65536 && step_y >= 2*65536;
+    const int off_x=box4 ? (step_x >> 2) : 0;
+    const int off_y=box4 ? (step_y >> 2) : 0;
     /* Cache vertical source row lookup once per frame; on an O3DS this
        avoids 400x repeating the expensive crop and bound arithmetic. */
     for (y=0;y<RDP_H;++y) {
@@ -527,17 +753,44 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
         if (sy < 0) sy=0;
         if (sy >= gdi->height) sy=gdi->height-1;
         sample_y[y]=sy;
+        int lo=sy-off_y,hi=sy+off_y;
+        if(lo<0)lo=0;
+        if(hi>=gdi->height)hi=gdi->height-1;
+        sample_ylo[y]=lo;
+        sample_yhi[y]=hi;
     }
     for (x=0;x<RDP_W;++x) {
         int sx=(int)((view.left_q16+(int64_t)x*step_x+32768)>>16);
         if (sx < 0) sx=0;
         if (sx >= gdi->width) sx=gdi->width-1;
+        int xlo=sx-off_x,xhi=sx+off_x;
+        if(xlo<0)xlo=0;
+        if(xhi>=gdi->width)xhi=gdi->width-1;
+        const size_t xmid=(size_t)sx*(size_t)bytes_per_pixel;
+        const size_t xleft=(size_t)xlo*(size_t)bytes_per_pixel;
+        const size_t xright=(size_t)xhi*(size_t)bytes_per_pixel;
         for (y=0;y<RDP_H;++y) {
             const u8 *src=gdi->primary_buffer+
-                     (size_t)sample_y[y]*gdi->stride+(size_t)sx*4;
-            frame[(size_t)x*RDP_H+(RDP_H-1-y)]=rdp_bgrx_to_rgb565(src);
+                     (size_t)sample_y[y]*gdi->stride+xmid;
+            const size_t out=(size_t)x*RDP_H+(RDP_H-1-y);
+            if (box4) {
+                const u8 *rowlo=gdi->primary_buffer+
+                                     (size_t)sample_ylo[y]*gdi->stride;
+                const u8 *rowhi=gdi->primary_buffer+
+                                     (size_t)sample_yhi[y]*gdi->stride;
+                const u8 *a=rowlo+xleft,*b=rowlo+xright;
+                const u8 *c=rowhi+xleft,*d=rowhi+xright;
+                frame[out]=native565 ?
+                    rdp_desktop_native565_box4(a,b,c,d,swap_rb) :
+                    rdp_desktop_box4_to_rgb565(a,b,c,d,swap_rb);
+            } else {
+                frame[out]=native565 ?
+                    rdp_desktop_native565(src,swap_rb) :
+                    rdp_desktop_to_rgb565(src,swap_rb);
+            }
         }
     }
+    log_desktop_color_probe(gdi);
     session_cursor_overlay(frame,RDP_W,RDP_H,&system_cursor,
                            cursor_remote_x,cursor_remote_y,
                            view.left_q16,view.top_q16,
@@ -579,11 +832,23 @@ static BOOL post_connect(freerdp *instance)
                  "Server requested unsupported desktop size");
         return FALSE;
     }
-    if (!gdi_init(instance, PIXEL_FORMAT_XRGB32)) {
+    /* Avoid a full 32-bit primary framebuffer at high resolutions.
+     * FreeRDP natively supports RGB565 GDI; the physical O3DS display is
+     * already 565, so 720p saves ~1.8 MiB, 1080p saves ~4.1 MiB.
+     * Keep the established XRGB32 renderer for working small desktops.
+     * This is independent of the wire's negotiated 16/32-bit color depth. */
+    const bool compact=(width>=1024 || height>=600);
+    const UINT32 gdi_format=compact?PIXEL_FORMAT_RGB16:PIXEL_FORMAT_XRGB32;
+    rdp_diag_log_event("gdi-init-format",gdi_format,width,height);
+    if (!gdi_init(instance,gdi_format)) {
+        rdp_diag_log_event("gdi-init-fail",gdi_format,
+                           (unsigned long)errno,0);
         snprintf(post_connect_failure,sizeof(post_connect_failure),
                  "RDP graphics allocation failed (O3DS memory)");
         return FALSE;
     }
+    rdp_diag_log_event("gdi-init-ok",gdi_format,ctx->gdi->stride,
+                       (unsigned long)ctx->gdi->height);
     post_connect_failure[0]=0;
     ctx->update->BeginPaint = begin_paint;
     ctx->update->EndPaint = end_paint;
@@ -662,6 +927,14 @@ static void rdp_keyboard_pump_worker(void *arg)
     LightLock_Unlock(&pump->lock);
 }
 
+/* libctru threadCreate does not invoke POSIX pthread TSD destructors. */
+static void rdp_keyboard_pump_worker_with_cleanup(void *arg)
+{
+    rdp_keyboard_pump_worker(arg);
+    OPENSSL_thread_stop();
+    rdp_3ds_tsd_cleanup_current_thread();
+}
+
 /* The software keyboard still owns main-thread HID/GFX; a network-only
  * worker can process RDP updates without concurrent input. This is best
  * effort if the 3DS OS suspends all user threads during an applet. */
@@ -680,7 +953,7 @@ static bool send_text(freerdp *client, char *reason, size_t reason_size)
     swkbdSetHintText(&keyboard, "Remote text (ASCII only)");
     pump.context = client->context;
     LightLock_Init(&pump.lock);
-    worker = threadCreate(rdp_keyboard_pump_worker, &pump,
+    worker = threadCreate(rdp_keyboard_pump_worker_with_cleanup, &pump,
                           64 * 1024, 0x30, -2, false);
     if (!worker) {
         snprintf(reason, reason_size, "Cannot start keyboard network worker");
@@ -688,8 +961,10 @@ static bool send_text(freerdp *client, char *reason, size_t reason_size)
         return false;
     }
 
+    rdp_diag_log_event("keyboard-applet-open", 0, 0, 0);
     button = swkbdInputText(&keyboard, text, sizeof(text));
     rdp_display_restore_after_keyboard();
+    rdp_diag_log_event("keyboard-applet-result", (unsigned long)button, 0, 0);
     LightLock_Lock(&pump.lock);
     pump.stop_requested = true;
     LightLock_Unlock(&pump.lock);
@@ -704,15 +979,36 @@ static bool send_text(freerdp *client, char *reason, size_t reason_size)
         return false;
     }
     if (button == SWKBD_BUTTON_CONFIRM) {
-        for (i = 0; text[i]; ++i) {
-            /* UTF-8 multi-byte input is not supported by this simple path. */
-            const unsigned char ch = (unsigned char)text[i];
-            if (ch < 0x20 || ch > 0x7e)
+        unsigned sent=0, skipped=0, failures=0;
+        for (i=0; text[i]; ++i) {
+            uint8_t scan=0, shift=0;
+            /* Use the same RDP Set-1 keyboard events as the successful
+             * virtual-key panel. Unicode keyboard events were not reaching
+             * the Windows desktop in the physical O3DS test. This fallback
+             * assumes a US keyboard layout; no Unicode/IME support yet. */
+            if (!session_ascii_scan((unsigned char)text[i], &scan, &shift)) {
+                ++skipped;
                 continue;
-            (void)freerdp_input_send_unicode_keyboard_event(
-                client->context->input, 0, ch);
-            (void)freerdp_input_send_unicode_keyboard_event(
-                client->context->input, KBD_FLAGS_RELEASE, ch);
+            }
+            BOOL ok=TRUE;
+            if (shift) ok &= freerdp_input_send_keyboard_event(
+                client->context->input,0,0x2A);
+            ok &= freerdp_input_send_keyboard_event(
+                client->context->input,0,scan);
+            ok &= freerdp_input_send_keyboard_event(
+                client->context->input,KBD_FLAGS_RELEASE,scan);
+            if (shift) ok &= freerdp_input_send_keyboard_event(
+                client->context->input,KBD_FLAGS_RELEASE,0x2A);
+            if (ok) ++sent;
+            else ++failures;
+        }
+        rdp_diag_log_event("keyboard-ascii-result",sent,skipped,failures);
+        if (failures) {
+            snprintf(reason,reason_size,
+                     "Remote keyboard send failed (%u characters)", failures);
+            OPENSSL_cleanse(&keyboard,sizeof(keyboard));
+            OPENSSL_cleanse(text,sizeof(text));
+            return false;
         }
     }
     OPENSSL_cleanse(&keyboard, sizeof(keyboard));
@@ -728,8 +1024,18 @@ static void rdp_connect_worker(void *arg)
     LightLock_Lock(&gate->lock);
     const bool cancelled_before_start = gate->cancel_requested;
     LightLock_Unlock(&gate->lock);
+    rdp_diag_log_event("connect-worker-start", (unsigned long)cancelled_before_start, 0, 0);
+    /* libctru socket() returns ENODEV if FindDevice("soc:") fails.
+     * This is a registration check, not a probe socket or network access. */
+    rdp_diag_log_event("connect-worker-soc",
+                       (unsigned long)(int)FindDevice("soc:"), 0, 0);
     const bool ok = !cancelled_before_start &&
                     freerdp_connect(gate->client) == TRUE;
+    rdp_diag_log_event("connect-worker-end", (unsigned long)ok,
+            gate->client->context ? (unsigned long)freerdp_get_last_error(gate->client->context) : 0, 0);
+    /* Destroy worker-local OpenSSL and pthread TSD before publishing done. */
+    OPENSSL_thread_stop();
+    rdp_3ds_tsd_cleanup_current_thread();
     LightLock_Lock(&gate->lock);
     gate->succeeded = ok;
     gate->finished = true;
@@ -784,6 +1090,8 @@ static bool connect_with_ui(freerdp *client, const char *host,
     }
     connect_screen(host, false);
 
+    rdp_diag_log_event("connect-main-soc",
+                       (unsigned long)(int)FindDevice("soc:"), 0, 0);
     worker = threadCreate(rdp_connect_worker, &gate, 96 * 1024, 0x30, -2, false);
     if (!worker) {
         snprintf(reason, reason_size, "Could not start ARM11 RDP connection worker");
@@ -796,6 +1104,8 @@ static bool connect_with_ui(freerdp *client, const char *host,
         char pending_host[RDP_HOST_CAP];
         uint16_t pending_port = 0;
         unsigned char pending_sha[32];
+        bool pending_name_mismatch = false;
+        bool pending_name_is_ip = false;
         bool active = aptMainLoop();
         u32 down = 0;
 
@@ -806,6 +1116,8 @@ static bool connect_with_ui(freerdp *client, const char *host,
             memcpy(pending_host, gate.challenge_host, sizeof(pending_host));
             pending_port = gate.challenge_port;
             memcpy(pending_sha, gate.challenge_sha256, sizeof(pending_sha));
+            pending_name_mismatch = gate.challenge_name_mismatch;
+            pending_name_is_ip = gate.challenge_name_is_ip;
         }
         LightLock_Unlock(&gate.lock);
         if (done)
@@ -826,7 +1138,8 @@ static bool connect_with_ui(freerdp *client, const char *host,
                 connect_screen(host, true);
         } else if (pending && !cancelling) {
             if (!challenge_visible && active) {
-                draw_cert_challenge(pending_host, pending_port, pending_sha);
+                draw_cert_challenge(pending_host, pending_port, pending_sha,
+                                    pending_name_mismatch, pending_name_is_ip);
                 challenge_visible = true;
             }
             if (!active || (down & (KEY_B | KEY_START))) {
@@ -871,10 +1184,59 @@ static bool connect_with_ui(freerdp *client, const char *host,
     return connected;
 }
 
+/* Pinned FreeRDP TCP trace hook. Stage numbers and numeric local
+ * errors only: no credentials, IP addresses, hostnames, or TLS material.
+ * Upstream's generic 0x00020006 cannot identify which socket step failed. */
+void freerdp_3ds_tcp_checkpoint(unsigned int stage, int system_errno,
+                               unsigned int winpr_error)
+{
+    recent_tcp_stage=stage;
+    rdp_diag_log_event("tcp-stage", stage, (unsigned long)system_errno,
+                       (unsigned long)winpr_error);
+}
+
+/* Called from FreeRDP construction/cleanup through a weak, O3DS-only
+ * hook. Log just stage, numeric errno, and socket event counters; do not
+ * inspect remote hosts, credentials, certificate or other sensitive data. */
+void freerdp_3ds_context_checkpoint(unsigned int stage, unsigned long error_value)
+{
+    LoopbackPairStats stats = {0};
+    if (!rdp_diag_log_enabled())
+        return;
+    loopback_pair_get_stats(&stats);
+    rdp_diag_log_event("core-context-step", stage, error_value,
+                       ((stats.opened & 0xFFFFUL) << 16) |
+                       (stats.failed & 0xFFFFUL));
+    rdp_diag_log_event("core-socket-last", stats.last_stage,
+                       (unsigned long)stats.last_errno, 0);
+}
+
+/* Count the SOC loopback socket events separately from general errno.
+ * The extra capacity probe runs only on context failure AND when logging is
+ * explicitly enabled with a pre-existing rdplog.txt. It runs after FreeRDP
+ * cleanup, so it measures post-failure headroom, not peak socket usage. */
+static void log_loopback_budget(bool probe_capacity)
+{
+    LoopbackPairStats stats = {0};
+    if (!rdp_diag_log_enabled())
+        return;
+    loopback_pair_get_stats(&stats);
+    rdp_diag_log_event("loopback-stats", stats.opened, stats.failed,
+        ((unsigned long)stats.last_stage << 16) |
+        ((unsigned long)stats.last_errno & 0xFFFFu));
+    if (probe_capacity) {
+        unsigned int stage = 0;
+        int error = 0;
+        const unsigned int pairs = loopback_pair_probe_capacity(12u, &stage, &error);
+        rdp_diag_log_event("loopback-postfail-cap", pairs, stage, (unsigned long)error);
+    }
+}
+
 int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *reason, size_t reason_size)
 {
     freerdp *client = NULL;
     rdpSettings *settings;
+    OSSL_PROVIDER *rng_provider = NULL;
     char password[128] = {0};
     bool initialized = false;
     bool connected = false;
@@ -894,6 +1256,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     if (rdp_full_session_preflight(cfg, &opts, reason, reason_size))
         return -1;
     snprintf(reason, reason_size, "FreeRDP startup failed");
+    rdp_diag_log_event("rdp-start", 0, 0, 0);
 
     /* Load both trust sources before prompting for credentials. Missing files
        are allowed (new server); malformed or unreadable files fail closed. */
@@ -910,6 +1273,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         goto done;
     }
     have_manual_pin = (pin_state > 0);
+    rdp_diag_log_event("trust-files-loaded", 1, 0, 0);
 
     /* WinPR has no POSIX user account on Horizon. FreeRDP 3.32 requires
      * HOME to allocate the client settings during freerdp_context_new().
@@ -917,12 +1281,14 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
      * object is instantiated. */
     if (rdp_environment_init("sdmc:/3ds/3ds-rdp", reason, reason_size) != 0)
         goto done;
+    rdp_diag_log_event("winpr-env-ready", 1, 0, 0);
     {
         char *winpr_home = GetKnownPath(KNOWN_PATH_HOME);
         char *winpr_config = GetKnownPath(KNOWN_PATH_XDG_CONFIG_HOME);
         const bool ok = winpr_home && winpr_config;
         free(winpr_home);
         free(winpr_config);
+        rdp_diag_log_event("winpr-paths", (unsigned long)ok, 0, 0);
         if (!ok) {
             snprintf(reason, reason_size,
                      "WinPR cannot resolve HOME/XDG paths on SD");
@@ -939,28 +1305,28 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         if (!GetComputerNameExA(ComputerNameNetBIOS,
                                 client_name,&client_name_size) ||
             !client_name[0]) {
+            rdp_diag_log_event("winpr-hostname-fail", (unsigned long)GetLastError(), (unsigned long)errno, 0);
             snprintf(reason,reason_size,
                      "WinPR cannot get 3DS client hostname");
             goto done;
         }
     }
 
-    /* The OpenSSL 3DS backend must obtain cryptographic randomness from
-       Horizon PS before TLS/NLA. Fail with a specific message rather than
-       interpreting RAND/PS initialization failure as a Windows login error.
-       Never print or retain the generated bytes. */
+    /* Separate a Horizon PS IPC failure from an OpenSSL provider/DRBG
+       failure. Both are fatal: do not seed TLS with a weak substitute. */
     {
-        unsigned char entropy_check[32] = {0};
-        const int seeded = RAND_bytes(entropy_check, (int)sizeof(entropy_check));
-        OPENSSL_cleanse(entropy_check, sizeof(entropy_check));
-        if (seeded != 1) {
-            snprintf(reason, reason_size,
-                     "OpenSSL entropy unavailable (3DS PS service)");
+        char ps_status[96] = {0};
+        if (!horizon_rng_selftest(ps_status, sizeof(ps_status))) {
+            snprintf(reason, reason_size, "PS RNG: %.85s", ps_status);
             goto done;
         }
     }
+    if (!openssl_rng_preflight(&rng_provider, reason, reason_size))
+        goto done;
+    rdp_diag_log_event("rdp-crypto-ready", 1, 0, 0);
 
     client = freerdp_new();
+    rdp_diag_log_event("freerdp-new", (unsigned long)(client != NULL), (unsigned long)errno, 0);
     if (!client) {
         snprintf(reason, reason_size, "freerdp_new failed");
         goto done;
@@ -970,23 +1336,61 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     client->PostConnect = post_connect;
     client->PostDisconnect = post_disconnect;
     if (!freerdp_context_new(client)) {
-        snprintf(reason, reason_size,
-                 "FreeRDP context init failed (WinPR/heap)");
+        /* freerdp_context_new_ex() destroys its partial context on
+         * failure. Internal O3DS stage markers survive that cleanup. */
+        const unsigned int cstage = freerdp_3ds_context_init_stage();
+        const unsigned int rstage =
+            cstage == 4 ? freerdp_3ds_rdp_init_stage() : 0u;
+        const unsigned long saved_errno = (unsigned long)errno;
+        const unsigned long winpr_error = (unsigned long)GetLastError();
+        const unsigned int tstage =
+            (cstage == 4 && rstage == 17) ? freerdp_3ds_timer_init_stage() : 0u;
+        rdp_diag_log_event("freerdp-context-fail", cstage, rstage, saved_errno);
+        rdp_diag_log_event("freerdp-context-winpr", winpr_error, 0, 0);
+        if (tstage)
+            rdp_diag_log_event("freerdp-timer-stage", tstage, 0, 0);
+        if (cstage == 9)
+            rdp_diag_log_event("freerdp-channels-stage",
+                               freerdp_3ds_channels_init_stage(), 0, 0);
+        if (tstage == 5) {
+            unsigned int prio = 0, used = 0, limit = 0, heap_ok = 0;
+            freerdp_3ds_timer_thread_diag(&prio, &used, &limit, &heap_ok);
+            rdp_diag_log_event("freerdp-timer-thread", prio,
+                ((unsigned long)(used & 0xFFFFu) << 16) | (limit & 0xFFFFu),
+                heap_ok);
+        }
+        /* Recovery build: avoid creating more SOC sockets after a failure.
+         * Core-side checkpoints already preserve the failing socket count. */
+        log_loopback_budget(false);
+        snprintf(reason, reason_size, "FreeRDP ctx C%u R%u T%u",
+                 cstage, rstage, tstage);
         goto done;
     }
     initialized = true;
+    rdp_diag_log_event("freerdp-context-ok", freerdp_3ds_context_init_stage(), freerdp_3ds_rdp_init_stage(), 0);
+    log_loopback_budget(false);
     settings = client->context ? client->context->settings : NULL;
     if (!settings) {
         snprintf(reason, reason_size,
                  "FreeRDP context has no client settings");
         goto done;
     }
-    remote_w=opts.display_mode?640:RDP_W;
-    remote_h=opts.display_mode?360:RDP_H;
+    {
+        unsigned wanted_w = 0, wanted_h = 0;
+        if (!rdp_desktop_mode_size(opts.display_mode, &wanted_w, &wanted_h)) {
+            snprintf(reason, reason_size, "Invalid remote display resolution");
+            goto done;
+        }
+        remote_w=(int)wanted_w;
+        remote_h=(int)wanted_h;
+        rdp_diag_log_event("rdp-requested-size", wanted_w, wanted_h, 0);
+    }
     /* Do WinPR/client-context allocation before opening the modal password
        keyboard. On an O3DS allocation failure, users can diagnose the
        failure immediately instead of repeatedly entering a secret. */
+    rdp_diag_log_event("password-dialog-start", 0, 0, 0);
     if (!prompt_password(password, sizeof(password))) {
+        rdp_diag_log_event("password-dialog-cancel", 0, 0, 0);
         snprintf(reason, reason_size, "Password input cancelled");
         goto done;
     }
@@ -1026,10 +1430,21 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         goto done;
     }
     OPENSSL_cleanse(password, sizeof(password));
+    rdp_diag_log_event("rdp-settings-ok", 1, 0, 0);
+    rdp_diag_log_event("rdp-codec-mask",
+                        freerdp_settings_get_codecs_flags(settings),
+                        (unsigned long)remote_w, (unsigned long)remote_h);
+    recent_codec_stage=0;
+    recent_tcp_stage=0;
 
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
     desktop_dirty = false;
+    bool swap_rb = true; /* Fix actual O3DS red/blue reversal. */
+    bool smoothing_enabled = true;
+    unsigned blit_samples_remaining=3;
+    rdp_diag_log_event("display-colors", (unsigned long)swap_rb,
+                       (unsigned long)smoothing_enabled, 0);
     session_cursor_reset(&system_cursor);
     cursor_remote_x=RDP_W/2;cursor_remote_y=RDP_H/2;
     if (!connect_with_ui(client, cfg->host, reason, reason_size)) {
@@ -1043,12 +1458,25 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             snprintf(reason, reason_size, "%.90s", post_connect_failure);
         else {
             const UINT code=freerdp_get_last_error(client->context);
-            snprintf(reason,reason_size,"%.65s (0x%08lx)",
-                     connection_failure_hint(code),(unsigned long)code);
+            if (code == FREERDP_ERROR_SUCCESS &&
+                (recent_codec_stage == 2 || recent_codec_stage == 4)) {
+                snprintf(reason,reason_size,
+                         "O3DS decoder allocation failed (stage %u)",
+                         (unsigned)recent_codec_stage);
+            } else if (code == FREERDP_ERROR_SUCCESS &&
+                       recent_codec_stage && !recent_tcp_stage) {
+                snprintf(reason,reason_size,
+                         "RDP initialization failed before TCP (stage %u)",
+                         (unsigned)recent_codec_stage);
+            } else {
+                snprintf(reason,reason_size,"%.65s (0x%08lx)",
+                         connection_failure_hint(code),(unsigned long)code);
+            }
         }
         goto done;
     }
     connected = true;
+    rdp_diag_log_event("rdp-connected", 1, 0, 0);
     session_pad_init(&pad);
     pad.remote_w=remote_w;pad.remote_h=remote_h;
     pad.pointer_x=remote_w/2;pad.pointer_y=remote_h/2;
@@ -1091,7 +1519,21 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         if (action.redraw) pad_redraw = true;
         /* A is reserved for drag. D-pad nudges the remote pointer and thus
            pans the magnified viewport. Y always returns to fit view. */
-        if(down & KEY_Y){zoom.target=1.0f;pad_redraw=true;}
+        if ((down & KEY_Y) && (held & KEY_L)) {
+            smoothing_enabled=!smoothing_enabled;
+            blit_samples_remaining=3;
+            rdp_diag_log_event("display-smoothing", smoothing_enabled, 0, 0);
+            desktop_dirty=true;pad_redraw=true;
+        } else if(down & KEY_Y) {
+            zoom.target=1.0f;pad_redraw=true;
+        }
+        if ((down & KEY_X) && (held & KEY_L)) {
+            swap_rb=!swap_rb;
+            blit_samples_remaining=3;
+            rdp_diag_log_event("display-colors", swap_rb,
+                               smoothing_enabled, 0);
+            desktop_dirty=true;pad_redraw=true;
+        }
         if(down & KEY_R){
             float native_zoom=(float)remote_w/(float)RDP_W;
             float vertical=(float)remote_h/(float)RDP_H;
@@ -1122,7 +1564,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
 
         /* Software keyboard is transient, not a permanent overlay. It never
          * stores entered text and the pad layout returns after dismissal. */
-        if (down & KEY_X || action.text_input) {
+        if (((down & KEY_X) && !(held & KEY_L)) || action.text_input) {
             /* The software keyboard takes over HID until it closes. Release
                held remote buttons first or a drag can remain stuck while
                HID key-up events are consumed by the keyboard applet. */
@@ -1236,11 +1678,25 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         if (desktop_dirty || pad_redraw) {
             /* gfxSwapBuffers swaps BOTH screens. Always redraw the current
              * GDI desktop into the new top backbuffer when the bottom pad
-             * changes, otherwise the previous top console can reappear. */
-            if (!copy_desktop_frame(client->context,&zoom,pad.pointer_x,pad.pointer_y)) {
+             * changes, otherwise the previous top console can reappear.
+             * Sample the first 3 blits and 3 after filter/color toggle:
+             * a hardware timing comparison without continuous SD writes. */
+            const bool measure=blit_samples_remaining && rdp_diag_log_enabled();
+            const u64 start_ms=measure?osGetTime():0;
+            if (!copy_desktop_frame(client->context,&zoom,pad.pointer_x,pad.pointer_y,
+                                    swap_rb,smoothing_enabled)) {
                 snprintf(reason, reason_size, "Invalid GDI or top-screen framebuffer");
                 result = -1;
                 break;
+            }
+            if(measure) {
+                const u64 elapsed=osGetTime()-start_ms;
+                const unsigned depth=client->context->gdi->dstFormat==
+                                      PIXEL_FORMAT_RGB16?16u:32u;
+                rdp_diag_log_event("blit-ms",(unsigned long)elapsed,depth,
+                                   ((unsigned long)(smoothing_enabled?1u:0u)) |
+                                   ((unsigned long)(swap_rb?2u:0u)));
+                --blit_samples_remaining;
             }
             session_pad_draw(&pad,session_zoom_percent(&zoom));
             gfxFlushBuffers();
@@ -1254,6 +1710,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
        The abort event is also used by FreeRDP for fatal connection errors. */
     if (connected && freerdp_shall_disconnect_context(client->context)) {
         const UINT err = freerdp_get_last_error(client->context);
+        rdp_diag_log_event("rdp-disconnect", (unsigned long)err, 0, 0);
         if (err != FREERDP_ERROR_SUCCESS) {
             snprintf(reason, reason_size, "RDP connection ended (0x%08lx)",
                      (unsigned long)err);
@@ -1263,6 +1720,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         }
     }
 done:
+    rdp_diag_log_event("rdp-cleanup", (unsigned long)(result == 0), (unsigned long)connected, (unsigned long)initialized);
     if (connected && client && client->context && client->context->input) {
         rdpInput *input = client->context->input;
         if (left_down)
@@ -1288,6 +1746,8 @@ done:
         }
         freerdp_free(client);
     }
+    if (rng_provider)
+        OSSL_PROVIDER_unload(rng_provider);
     OPENSSL_cleanse(&active_pin, sizeof(active_pin));
     OPENSSL_cleanse(&active_pool, sizeof(active_pool));
     OPENSSL_cleanse(requested_host, sizeof(requested_host));

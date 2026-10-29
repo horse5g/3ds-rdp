@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -46,6 +47,35 @@ static void report_loopback_bind_failure(char *message, size_t length, int loop_
 }
 #endif
 
+/* Counters are diagnostic-only but WinPR events may be created concurrently.
+ * Atomic accesses avoid unsynchronized read/write races; no TCP socket
+ * addresses, payloads or remote endpoints are recorded. */
+static unsigned long loopback_opened;
+static unsigned long loopback_failed;
+static unsigned int loopback_last_stage;
+static int loopback_last_errno;
+static void record_failure_errno(unsigned int stage, int error_code) {
+    __atomic_fetch_add(&loopback_failed, 1u, __ATOMIC_RELAXED);
+    __atomic_store_n(&loopback_last_stage, stage, __ATOMIC_RELAXED);
+    __atomic_store_n(&loopback_last_errno, error_code, __ATOMIC_RELAXED);
+}
+void loopback_pair_get_stats(LoopbackPairStats *stats) {
+    if (!stats) return;
+    stats->opened = __atomic_load_n(&loopback_opened, __ATOMIC_RELAXED);
+    stats->failed = __atomic_load_n(&loopback_failed, __ATOMIC_RELAXED);
+    stats->last_stage = __atomic_load_n(&loopback_last_stage, __ATOMIC_RELAXED);
+    stats->last_errno = __atomic_load_n(&loopback_last_errno, __ATOMIC_RELAXED);
+}
+/* A 1-byte WinPR SetEvent token should not be delayed by Nagle/ACK. */
+static void set_nodelay(int fd) {
+#ifdef TCP_NODELAY
+    int one = 1;
+    (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+#else
+    (void)fd;
+#endif
+}
+
 static void diagnostic(char *error, size_t size, const char *stage) {
     if (error && size) snprintf(error, size, "%s (errno=%d)", stage, errno);
 }
@@ -67,9 +97,9 @@ static int ready(int fd, bool read_ready) {
     fd_set fds;
     struct timeval tv;
     int result;
-    tv.tv_sec = 1;
-    tv.tv_usec = 0;
     do {
+        tv.tv_sec = 1;
+        tv.tv_usec = 0;
         FD_ZERO(&fds);
         FD_SET(fd, &fds);
         result = select(fd + 1, read_ready ? &fds : NULL,
@@ -100,7 +130,7 @@ bool loopback_pair_open(LoopbackPair *pair, char *error, size_t error_len) {
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
     listener = socket(AF_INET, SOCK_STREAM, 0);
-    if (listener < 0) { diagnostic(error, error_len, "listen socket"); goto fail; }
+    if (listener < 0) { record_failure_errno(LOOPBACK_FAIL_LISTEN_SOCKET, errno); diagnostic(error, error_len, "listen socket"); goto fail; }
     if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 #ifdef __3DS__
         const int loop_err = errno;
@@ -117,44 +147,53 @@ bool loopback_pair_open(LoopbackPair *pair, char *error, size_t error_len) {
                 }
             }
         }
-        if (!used_fixed_port)
+        if (!used_fixed_port) {
+            record_failure_errno(LOOPBACK_FAIL_BIND, loop_err);
             report_loopback_bind_failure(error, error_len, loop_err);
+        }
 #else
+        record_failure_errno(LOOPBACK_FAIL_BIND, errno);
         diagnostic(error, error_len, "loopback bind");
 #endif
         if (!used_fixed_port) goto fail;
     }
-    if (listen(listener, 1) < 0) { diagnostic(error, error_len, "listen"); goto fail; }
+    if (listen(listener, 1) < 0) { record_failure_errno(LOOPBACK_FAIL_LISTEN, errno); diagnostic(error, error_len, "listen"); goto fail; }
     length = (socklen_t)sizeof(addr);
     if (getsockname(listener, (struct sockaddr *)&addr, &length) < 0 ||
         length < (socklen_t)sizeof(addr) || addr.sin_port == 0) {
+        record_failure_errno(LOOPBACK_FAIL_GETSOCKNAME, errno);
         diagnostic(error, error_len, "getsockname"); goto fail;
     }
 
     client = socket(AF_INET, SOCK_STREAM, 0);
-    if (client < 0) { diagnostic(error, error_len, "client socket"); goto fail; }
-    if (!nonblocking(client)) { diagnostic(error, error_len, "client nonblocking"); goto fail; }
+    if (client < 0) { record_failure_errno(LOOPBACK_FAIL_CLIENT_SOCKET, errno); diagnostic(error, error_len, "client socket"); goto fail; }
+    if (!nonblocking(client)) { record_failure_errno(LOOPBACK_FAIL_CLIENT_NONBLOCK, errno); diagnostic(error, error_len, "client nonblocking"); goto fail; }
     rc = connect(client, (struct sockaddr *)&addr, sizeof(addr));
     if (rc < 0 && errno != EINPROGRESS && errno != EWOULDBLOCK) {
+        record_failure_errno(LOOPBACK_FAIL_CONNECT, errno);
         diagnostic(error, error_len, "loopback connect"); goto fail;
     }
     if (rc < 0) {
         if (ready(client, false) <= 0) {
+            record_failure_errno(LOOPBACK_FAIL_CONNECT_TIMEOUT, errno);
             diagnostic(error, error_len, "connect timeout"); goto fail;
         }
         length = (socklen_t)sizeof(so_error);
         if (getsockopt(client, SOL_SOCKET, SO_ERROR, &so_error, &length) < 0 || so_error != 0) {
             if (so_error) errno = so_error;
+            record_failure_errno(LOOPBACK_FAIL_CONNECT_SO_ERROR, errno);
             diagnostic(error, error_len, "connect SO_ERROR"); goto fail;
         }
     }
 
-    if (ready(listener, true) <= 0) { diagnostic(error, error_len, "accept timeout"); goto fail; }
+    if (ready(listener, true) <= 0) { record_failure_errno(LOOPBACK_FAIL_ACCEPT_TIMEOUT, errno); diagnostic(error, error_len, "accept timeout"); goto fail; }
     accepted = accept(listener, NULL, NULL);
-    if (accepted < 0) { diagnostic(error, error_len, "accept"); goto fail; }
-    if (!nonblocking(accepted)) { diagnostic(error, error_len, "reader nonblocking"); goto fail; }
+    if (accepted < 0) { record_failure_errno(LOOPBACK_FAIL_ACCEPT, errno); diagnostic(error, error_len, "accept"); goto fail; }
+    if (!nonblocking(accepted)) { record_failure_errno(LOOPBACK_FAIL_READER_NONBLOCK, errno); diagnostic(error, error_len, "reader nonblocking"); goto fail; }
 
     close(listener);
+    set_nodelay(client);
+    __atomic_fetch_add(&loopback_opened, 1u, __ATOMIC_RELAXED);
     pair->read_fd = accepted;
     pair->write_fd = client;
     if (error && error_len) {
@@ -171,6 +210,35 @@ fail:
     if (client >= 0) close(client);
     if (listener >= 0) close(listener);
     return false;
+}
+
+/* Maximum 12 extra pairs for a bounded, opt-in, temporary capacity probe.
+ * This records probe operations in cumulative counters. It intentionally
+ * does not restore an old counters snapshot (which would race active threads).
+ * Capacity observed after FreeRDP cleanup is not the peak usage at failure. */
+unsigned int loopback_pair_probe_capacity(unsigned int max_pairs,
+                                          unsigned int *fail_stage,
+                                          int *fail_errno) {
+    enum { PROBE_LIMIT = 12 };
+    LoopbackPair pairs[PROBE_LIMIT];
+    unsigned int count = 0, i;
+    if (fail_stage) *fail_stage = LOOPBACK_FAIL_NONE;
+    if (fail_errno) *fail_errno = 0;
+    if (max_pairs > PROBE_LIMIT) max_pairs = PROBE_LIMIT;
+    while (count < max_pairs) {
+        LoopbackPairStats now;
+        loopback_pair_init(&pairs[count]);
+        if (!loopback_pair_open(&pairs[count], NULL, 0)) {
+            loopback_pair_get_stats(&now);
+            if (fail_stage) *fail_stage = now.last_stage;
+            if (fail_errno) *fail_errno = now.last_errno;
+            break;
+        }
+        count++;
+    }
+    for (i = 0; i < count; ++i)
+        loopback_pair_close(&pairs[i]);
+    return count;
 }
 
 bool loopback_pair_selftest(char *error, size_t error_len) {

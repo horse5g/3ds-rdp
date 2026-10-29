@@ -23,6 +23,7 @@ FRBUILD := $(TOPDIR)/build/freerdp-3ds
 SSLROOT := $(TOPDIR)/external/openssl
 SSLBUILD := $(TOPDIR)/build/openssl-3ds
 CFLAGS += -DRDP_FULL_CLIENT
+LDFLAGS += -Wl,--wrap=pthread_key_create -Wl,--wrap=pthread_key_delete -Wl,--wrap=pthread_getspecific -Wl,--wrap=pthread_setspecific
 CFLAGS += -I$(FRROOT)/include -I$(FRROOT)/winpr/include
 CFLAGS += -I$(FRBUILD) -I$(FRBUILD)/include -I$(FRBUILD)/winpr -I$(FRBUILD)/winpr/include
 CFLAGS += -I$(SSLBUILD)/include -I$(SSLROOT)/include

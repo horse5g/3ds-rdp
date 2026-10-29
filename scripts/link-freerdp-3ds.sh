@@ -41,9 +41,9 @@ mkdir -p "$frbuild"
   -I"$frbuild" -I"$frbuild/include" \
   -I"$frbuild/winpr" -I"$frbuild/winpr/include" \
   -I"$sslbuild/include" -I"$sslsrc/include" \
-  -specs=3dsx.specs -Wl,--gc-sections \
+  -specs=3dsx.specs -Wl,--gc-sections -Wl,--wrap=pthread_key_create -Wl,--wrap=pthread_key_delete -Wl,--wrap=pthread_getspecific -Wl,--wrap=pthread_setspecific \
   -Wl,-Map,"$out.map" \
-  "$root/tests/freerdp-arm11-link.c" \
+  "$root/tests/freerdp-arm11-link.c" "$root/source/rdp_pthread_tsd.c" \
   -L"$DEVKITPRO/libctru/lib" -L"$DEVKITPRO/portlibs/3ds/lib" \
   -Wl,--start-group \
     "$freerdp_archive" "$winpr_archive" \

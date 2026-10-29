@@ -1,0 +1,66 @@
+diff --git a/libfreerdp/core/client.c b/libfreerdp/core/client.c
+--- a/libfreerdp/core/client.c
++++ b/libfreerdp/core/client.c
+@@ -33,6 +33,18 @@
+ 
+ #define TAG FREERDP_TAG("core.client")
+ 
++#ifdef __3DS__
++/* O3DS diagnostic: last channel-construction step survives cleanup. */
++static unsigned int o3ds_channels_init_stage;
++unsigned int freerdp_3ds_channels_init_stage(void)
++{
++    return o3ds_channels_init_stage;
++}
++#define O3DS_CHANNELS_STAGE(n) (o3ds_channels_init_stage = (n))
++#else
++#define O3DS_CHANNELS_STAGE(n) ((void)0)
++#endif
++
+ typedef struct
+ {
+ 	freerdp_channel_handle_fkt_t fkt;
+@@ -150,22 +162,27 @@
+ 
+ rdpChannels* freerdp_channels_new(freerdp* instance)
+ {
++    O3DS_CHANNELS_STAGE(1); /* global table initialization */
+ 	if (!InitOnceExecuteOnce(&g_ChannelHandlesOnce, init_channel_handles_table, nullptr, nullptr))
+ 		return nullptr;
+ 
+ 	wObject* obj = nullptr;
+ 	rdpChannels* channels = nullptr;
++    O3DS_CHANNELS_STAGE(2); /* channel allocation */
+ 	channels = (rdpChannels*)calloc(1, sizeof(rdpChannels));
+ 
+ 	if (!channels)
+ 		return nullptr;
+ 
++    O3DS_CHANNELS_STAGE(3); /* global channel table */
+ 	if (!g_ChannelHandles)
+ 		goto error;
++    O3DS_CHANNELS_STAGE(4); /* channel lock */
+ 	if (!InitializeCriticalSectionAndSpinCount(&channels->channelsLock, 4000))
+ 		goto error;
+ 
+ 	channels->instance = instance;
++    O3DS_CHANNELS_STAGE(5); /* WinPR message queue / event */
+ 	channels->queue = MessageQueue_New(nullptr);
+ 
+ 	if (!channels->queue)
+@@ -174,6 +191,7 @@
+ 	obj = MessageQueue_Object(channels->queue);
+ 	obj->fnObjectFree = channel_queue_free;
+ 
++    O3DS_CHANNELS_STAGE(6); /* channel-event hashmap */
+ 	channels->channelEvents = HashTable_New(FALSE);
+ 	if (!channels->channelEvents)
+ 		goto error;
+@@ -182,6 +200,7 @@
+ 	WINPR_ASSERT(obj);
+ 	obj->fnObjectFree = free;
+ 	obj->fnObjectNew = channel_event_entry_clone;
++    O3DS_CHANNELS_STAGE(7); /* success */
+ 	return channels;
+ error:
+ 	WINPR_PRAGMA_DIAG_PUSH

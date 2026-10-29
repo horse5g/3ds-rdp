@@ -137,6 +137,22 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'Horizon SOC does not implement Unix-domain sockets' "$src/libfreerdp/core/tcp.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-tcp-ipv4-soc.patch"
   fi
+  # Preserve numeric errno / WSA status at FreeRDP's true TCP failure
+  # stage (the public 0x00020006 code is too broad to diagnose alone).
+  if ! grep -q 'Optional O3DS TCP diagnostic hook' "$src/libfreerdp/core/tcp.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-tcp-stage-diag.patch"
+  fi
+  # Once TCP is connected, libctru SOC may reject growing SO_RCVBUF to 32K.
+  # Keep a valid, positive kernel buffer on 3DS instead of killing the RDP
+  # connection. Leave desktop and other FreeRDP targets strict.
+  if ! grep -q 'Horizon SOC may reject the 32-KiB receive-buffer request' "$src/libfreerdp/core/tcp.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-soc-rcvbuf.patch"
+  fi
+  # Prevent desktop-sized planar temp allocation (18 bytes/pixel) on O3DS
+  # before TCP connect. Preserve codec stage breadcrumbs when it still fails.
+  if ! grep -q 'O3DS resource policy' "$src/libfreerdp/common/settings.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-highres-codecs.patch"
+  fi
   if ! grep -q 'IPv6 subnet matching is unavailable on Horizon' "$src/libfreerdp/core/proxy.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-proxy-ipv4.patch"
   fi
@@ -154,6 +170,38 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   fi
   if ! grep -q 'Do not falsely claim Unix sharing/locking semantics on FAT' "$src/winpr/libwinpr/file/file.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-flock.patch"
+  fi
+  # Context and RDP subtree failures are otherwise flattened to a generic
+  # boolean. Keep the last non-sensitive initialization stage after cleanup.
+  if ! grep -q 'O3DS diagnostic: preserve the last context construction stage' "$src/libfreerdp/core/freerdp.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-context-stages.patch"
+  fi
+  if ! grep -q 'O3DS diagnostic: last channel-construction step survives cleanup' "$src/libfreerdp/core/client.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-channels-stages.patch"
+  fi
+  # A context may fail at the channel-error event and then hang in
+  # partial cleanup. Persist low-level numeric breadcrumbs *before* free.
+  if ! grep -q 'O3DS_CTX_CHECKPOINT(80, errno)' "$src/libfreerdp/core/freerdp.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-context-cleanup-checkpoints.patch"
+  fi
+  # O3DS recovery: no optional FreeRDP timer worker, preventing a
+  # native thread blocked in WinPR event wait from hanging context cleanup.
+  # Preserve this client's timer handle API without extra wake sockets.
+  # Replace the older experimental patch on managed tagged source trees.
+  if grep -q 'O3DS: keep native timer diagnostic state' "$src/libfreerdp/core/timer.c"; then
+    git -C "$src" checkout -- libfreerdp/core/timer.c
+  fi
+  if ! grep -q 'O3DS diagnostic: keep timer constructor stage after' "$src/libfreerdp/core/timer.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-native-core-timer.patch"
+  fi
+  # WinPR events on the 3DS use nonblocking SOC loopback sockets.
+  if ! grep -q 'SOC loopback buffer full means' "$src/winpr/libwinpr/synch/event.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-event-hardening.patch"
+  fi
+  # Ordinary events should not consume SOC sockets until a wait requests
+  # an event FD. Without this, C9 exhausts socket/FD resources on O3DS.
+  if ! grep -q 'Prevent idle events from consuming two SOC sockets each' "$src/winpr/libwinpr/synch/event.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-lazy-events.patch"
   fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."

@@ -30,11 +30,21 @@ int main(void)
     assert(rdp_profiles_upsert(&store, "office", &cfg, error, sizeof(error)) == 0);
     assert(store.count == 1);
     assert(rdp_profiles_upsert(&store, "bad|name", &cfg, error, sizeof(error)) < 0);
+    store.items[0].options.display_mode = 3; /* Full HD */
+    assert(rdp_options_valid(&store.items[0].options));
     assert(rdp_profiles_save(file, &store, error, sizeof(error)) == 0);
     assert(rdp_profiles_load(file, &loaded, error, sizeof(error)) == 0);
     assert(loaded.count == 1 && strcmp(loaded.items[0].name, "office") == 0);
     assert(strcmp(loaded.items[0].config.host, cfg.host) == 0);
     assert(strcmp(loaded.items[0].config.domain, "CORP") == 0);
+    assert(loaded.items[0].options.display_mode == 3);
+    store.items[0].options.display_mode = 2; /* 720p */
+    assert(rdp_profiles_save(file, &store, error, sizeof(error)) == 0);
+    assert(rdp_profiles_load(file, &loaded, error, sizeof(error)) == 0);
+    assert(loaded.items[0].options.display_mode == 2);
+    store.items[0].options.display_mode = 4; /* Unsafe/unavailable */
+    assert(!rdp_options_valid(&store.items[0].options));
+    store.items[0].options.display_mode = 2;
     /* Stale transaction sidecars must never be overwritten or deleted. */
     {
         FILE *side = fopen("test-profiles.tmp.bak", "wb");

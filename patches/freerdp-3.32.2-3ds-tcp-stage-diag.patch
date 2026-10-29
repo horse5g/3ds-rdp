@@ -1,0 +1,224 @@
+diff --git a/libfreerdp/core/tcp.c b/libfreerdp/core/tcp.c
+--- a/libfreerdp/core/tcp.c
++++ b/libfreerdp/core/tcp.c
+@@ -92,6 +92,20 @@
+ 
+ #define TAG FREERDP_TAG("core")
+ 
++#ifdef __3DS__
++/* Optional O3DS TCP diagnostic hook, only backed by the full 3DS app.
++ * Never log endpoint addresses, credentials, or certificate material. */
++extern void freerdp_3ds_tcp_checkpoint(unsigned int step, int system_errno,
++                                      unsigned int winpr_error)
++    __attribute__((weak));
++#define O3DS_TCP_STEP(n, winpr_error) do { \
++    if (freerdp_3ds_tcp_checkpoint) \
++        freerdp_3ds_tcp_checkpoint((n), errno, (unsigned int)(winpr_error)); \
++} while (0)
++#else
++#define O3DS_TCP_STEP(n, winpr_error) ((void)0)
++#endif
++
+ /* Simple Socket BIO */
+ 
+ typedef struct
+@@ -819,16 +833,21 @@
+ 	u_long arg = 0;
+ 	DWORD tout = (timeout > 0) ? timeout : INFINITE;
+ 
++    O3DS_TCP_STEP(10, 0); /* connecting: request WinPR socket event */
+ 	handles[count] = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+ 
+ 	if (!handles[count])
++    {
++        O3DS_TCP_STEP(11, 0);
+ 		return FALSE;
++    }
+ 
+ 	const int wsastatus = WSAEventSelect((SOCKET)sockfd, handles[count++],
+ 	                                     FD_READ | FD_WRITE | FD_CONNECT | FD_CLOSE);
+ 
+ 	if (wsastatus < 0)
+ 	{
++        O3DS_TCP_STEP(12, WSAGetLastError());
+ 		WLog_ERR(TAG, "WSAEventSelect failed with %d", WSAGetLastError());
+ 		goto fail;
+ 	}
+@@ -849,6 +868,7 @@
+ 					break;
+ 
+ 				default:
++                    O3DS_TCP_STEP(13, estatus); /* _connect sync failure */
+ 					goto fail;
+ 			}
+ 		}
+@@ -856,6 +876,7 @@
+ 
+ 	{
+ 		const DWORD wstatus = WaitForMultipleObjects(count, handles, FALSE, tout);
++        O3DS_TCP_STEP(14, wstatus); /* wait result incl. timeout/WAIT_FAILED */
+ 		if (WAIT_OBJECT_0 != wstatus)
+ 			goto fail;
+ 	}
+@@ -864,15 +885,20 @@
+ 		const int status = WSAEventSelect((SOCKET)sockfd, handles[0], 0);
+ 		if (status < 0)
+ 		{
++            O3DS_TCP_STEP(15, WSAGetLastError()); /* cannot clear socket mode */
+ 			WLog_ERR(TAG, "WSAEventSelect failed with %d", WSAGetLastError());
+ 			goto fail;
+ 		}
+ 	}
+ 
+ 	if (_ioctlsocket((SOCKET)sockfd, FIONBIO, &arg) != 0)
++    {
++        O3DS_TCP_STEP(16, WSAGetLastError());
+ 		goto fail;
++    }
+ 
+ 	rc = TRUE;
++    O3DS_TCP_STEP(17, 0); /* TCP connect established */
+ fail:
+ {
+ 	INT32 optval = 0;
+@@ -891,6 +917,7 @@
+ 			WLog_WARN(TAG, "connect to %s:%s failed with error: %s [%" PRId32 "]", hostname, serv,
+ 			          winpr_strerror(optval, ebuffer, sizeof(ebuffer)), optval);
+ 			rc = FALSE;
++            O3DS_TCP_STEP(18, (unsigned int)optval); /* SO_ERROR */
+ 		}
+ 	}
+ }
+@@ -1252,10 +1279,12 @@
+ {
+ 	int sockfd = -1;
+ 	struct addrinfo* addr = nullptr;
++    O3DS_TCP_STEP(20, 0); /* hostname resolve begin */
+ 	struct addrinfo* result = freerdp_tcp_resolve_host(hostname, port, 0);
+ 
+ 	if (!result)
+ 	{
++        O3DS_TCP_STEP(21, 0); /* DNS resolution failed */
+ 		freerdp_set_last_error_if_not(context, FREERDP_ERROR_DNS_NAME_NOT_FOUND);
+ 		return -1;
+ 	}
+@@ -1269,11 +1298,17 @@
+ 
+ 	const int rc = get_next_addrinfo(context, result, &addr, FREERDP_ERROR_DNS_NAME_NOT_FOUND);
+ 	if (rc < 0)
++    {
++        O3DS_TCP_STEP(22, 0); /* No usable IPv4 address */
+ 		goto fail;
++    }
+ 
+ 	do
+ 	{
++        O3DS_TCP_STEP(23, 0); /* native socket */
+ 		sockfd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
++        if (sockfd < 0)
++            O3DS_TCP_STEP(24, 0);
+ 		if (sockfd >= 0)
+ 		{
+ 			log_connection_address(hostname, addr);
+@@ -1281,6 +1316,7 @@
+ 			if (!freerdp_tcp_connect_timeout(context, sockfd, addr->ai_addr, addr->ai_addrlen,
+ 			                                 timeout))
+ 			{
++                O3DS_TCP_STEP(25, 0); /* connect helper failed */
+ 				close(sockfd);
+ 				sockfd = -1;
+ 			}
+@@ -1296,6 +1332,7 @@
+ 	} while (sockfd < 0);
+ 
+ fail:
++    O3DS_TCP_STEP(sockfd >= 0 ? 26 : 27, 0); /* host connect result */
+ 	freeaddrinfo(result);
+ 	return sockfd;
+ }
+@@ -1360,6 +1397,7 @@
+ 	{
+ 		if (!freerdp_tcp_get_ip_address(settings, sockfd))
+ 		{
++            O3DS_TCP_STEP(31, 0); /* get socket addresses failed */
+ 			if (!useExternalDefinedSocket)
+ 				close(sockfd);
+ 
+@@ -1391,6 +1429,7 @@
+ 
+ 				freerdp_set_last_error_if_not(context, FREERDP_ERROR_CONNECT_FAILED);
+ 
++                O3DS_TCP_STEP(32, 0); /* SO_RCVBUF set */
+ 				WLog_ERR(TAG, "unable to set receive buffer len");
+ 				return -1;
+ 			}
+@@ -1405,6 +1444,7 @@
+ 
+ 			freerdp_set_last_error_if_not(context, FREERDP_ERROR_CONNECT_FAILED);
+ 
++            O3DS_TCP_STEP(33, 0); /* keepalive configuration */
+ 			WLog_ERR(TAG, "Couldn't set keep alive mode.");
+ 			return -1;
+ 		}
+@@ -1412,10 +1452,12 @@
+ 
+ 	if (WaitForSingleObject(utils_get_abort_event(context->rdp), 0) == WAIT_OBJECT_0)
+ 	{
++        O3DS_TCP_STEP(34, 0); /* connect was aborted */
+ 		close(sockfd);
+ 		return -1;
+ 	}
+ 
++    O3DS_TCP_STEP(35, 0); /* default TCP setup successful */
+ 	return sockfd;
+ }
+ 
+@@ -1552,15 +1594,25 @@
+ 	rdpTransportLayer* layer = nullptr;
+ 	rdpTcpLayer* tcpLayer = nullptr;
+ 
++    O3DS_TCP_STEP(40, 0); /* transport-layer TCP start */
+ 	int sockfd = freerdp_tcp_connect(context, hostname, port, timeout);
+ 	if (sockfd < 0)
++    {
++        O3DS_TCP_STEP(41, 0); /* initial TCP connect failed */
+ 		goto fail;
++    }
+ 	if (!freerdp_tcp_set_keep_alive_mode(settings, sockfd))
++    {
++        O3DS_TCP_STEP(42, 0);
+ 		goto fail;
++    }
+ 
+ 	layer = transport_layer_new(freerdp_get_transport(context), sizeof(rdpTcpLayer));
+ 	if (!layer)
++    {
++        O3DS_TCP_STEP(43, 0);
+ 		goto fail;
++    }
+ 
+ 	layer->Read = freerdp_tcp_layer_read;
+ 	layer->Write = freerdp_tcp_layer_write;
+@@ -1574,17 +1626,22 @@
+ 	tcpLayer->sockfd = -1;
+ 	tcpLayer->hEvent = WSACreateEvent();
+ 	if (!tcpLayer->hEvent)
++    {
++        O3DS_TCP_STEP(44, 0);
+ 		goto fail;
++    }
+ 
+ 	/* WSAEventSelect automatically sets the socket in non-blocking mode */
+ 	if (WSAEventSelect((SOCKET)sockfd, tcpLayer->hEvent, FD_READ | FD_ACCEPT | FD_CLOSE))
+ 	{
++        O3DS_TCP_STEP(45, WSAGetLastError());
+ 		WLog_ERR(TAG, "WSAEventSelect returned 0x%08x", (unsigned)WSAGetLastError());
+ 		goto fail;
+ 	}
+ 
+ 	tcpLayer->sockfd = sockfd;
+ 
++    O3DS_TCP_STEP(46, 0); /* transport layer fully connected */
+ 	return layer;
+ 
+ fail:

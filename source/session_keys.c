@@ -75,3 +75,42 @@ const char *session_key_label(int k)
       default:return "?";
     }
 }
+
+/* ASCII text from the built-in 3DS software keyboard. The NLA session's
+ * ordinary physical keyboard path already uses Set-1 scan codes, whereas
+ * the generic FreeRDP Unicode events were not observed reaching Windows.
+ * Use conventional US-QWERTY scan codes, including Shift for punctuation.
+ * No keyboard layout guessing or password persistence. */
+int session_ascii_scan(unsigned char ch,uint8_t *scan,uint8_t *shift)
+{
+    static const uint8_t alpha[26]={
+        0x1E,0x30,0x2E,0x20,0x12,0x21,0x22,0x23,0x17,0x24,
+        0x25,0x26,0x32,0x31,0x18,0x19,0x10,0x13,0x1F,0x14,
+        0x16,0x2F,0x11,0x2D,0x15,0x2C
+    };
+    static const uint8_t number[10]={0x0B,0x02,0x03,0x04,0x05,
+                                      0x06,0x07,0x08,0x09,0x0A};
+    const char *plain="`-=[]\\;',./";
+    const char *raised="~_+{}|:\"<>?";
+    const char *digit_shift=")!@#$%^&*(";
+    if(!scan||!shift)return 0;
+    *shift=0;
+    if(ch>='a'&&ch<='z'){*scan=alpha[ch-'a'];return 1;}
+    if(ch>='A'&&ch<='Z'){*scan=alpha[ch-'A'];*shift=1;return 1;}
+    if(ch>='0'&&ch<='9'){*scan=number[ch-'0'];return 1;}
+    for(unsigned i=0;i<10;++i)
+        if(ch==(unsigned char)digit_shift[i]) {
+            *scan=number[i];*shift=1;return 1;
+        }
+    static const uint8_t punctuation[]={
+        0x29,0x0C,0x0D,0x1A,0x1B,0x2B,0x27,0x28,0x33,0x34,0x35
+    };
+    for(unsigned i=0;i<11;++i){
+        if(ch==(unsigned char)plain[i]){*scan=punctuation[i];return 1;}
+        if(ch==(unsigned char)raised[i]){*scan=punctuation[i];*shift=1;return 1;}
+    }
+    if(ch==' '){*scan=0x39;return 1;}
+    if(ch=='\n'||ch=='\r'){*scan=0x1C;return 1;}
+    if(ch=='\t'){*scan=0x0F;return 1;}
+    return 0;
+}

@@ -12,6 +12,7 @@
 #include "loopback_pair.h"
 #include "horizon_rng.h"
 #include "freerdp_session.h"
+#include "rdp_diag_log.h"
 #ifdef RDP_FULL_CLIENT
 #include "cert_manager.h"
 #endif
@@ -33,14 +34,22 @@ static void draw_status(int network_ready)
     bool valid = connection_ui_ready(&ui,validation,sizeof(validation));
     rdp_display_bind_console(&top, GFX_TOP);
     consoleSelect(&top);
-    printf("\x1b[2J\x1b[H3DS Remote Desktop (O3DS)\n");
-    printf("=========================\n\n");
+    /* The iconic RDC computer/desktop belongs on the top LCD. Keep the
+     * bottom 320x240 touchscreen available for actual form controls. The
+     * character-art is original and does not embed Microsoft's logo. */
+    printf("\x1b[2J\x1b[H");
+    printf("\x1b[1;34m  +------------------+\x1b[0m\n");
+    printf("\x1b[1;34m  |  []   []   []    |\x1b[0m  REMOTE DESKTOP\n");
+    printf("\x1b[1;34m  +------------------+\x1b[0m  CONNECTION\n");
+    printf("        |    |             3DS / O3DS\n");
+    printf("        +----+\n");
+    printf("---------------------------------------------\n");
     printf("Computer: %.38s\n", valid ? ui.current.host : "(not configured)");
-    printf("Port: %u\n", (unsigned)ui.current.port);
-    printf("User: %.30s\n",ui.current.username[0] ? ui.current.username : "(not set)");
-    printf("Domain: %.30s\n\n",ui.current.domain[0] ? ui.current.domain : "(not set)");
-    printf("Status: %.36s\n",status);
-    printf("Detail: %.36s\n\n",detail);
+    printf("User: %.34s\n",ui.current.username[0] ? ui.current.username : "(not set)");
+    printf("Domain: %.30s  Port: %u\n",ui.current.domain[0] ? ui.current.domain : "(none)", (unsigned)ui.current.port);
+    printf("\nSTATUS: %.36s\n",status);
+    printf("%.43s\n",detail);
+    printf("---------------------------------------------\n");
     if (!network_ready) printf("Network initialization failed.\n");
     else if (!valid) printf("Set a valid host before connecting.\n");
 #ifdef RDP_FULL_CLIENT
@@ -89,7 +98,9 @@ static void full_session(const ConnectionUI *state)
         connection_ui_draw_status("CONNECTING TO REMOTE DESKTOP",
                                   "SIGN IN AND VERIFY CERTIFICATE",false);
         gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
+        rdp_diag_log_event("app-connect-attempt", 0, 0, 0);
         result=freerdp_3ds_run(&state->current,&state->options,message,sizeof(message));
+        rdp_diag_log_event("app-connect-return", (unsigned long)(result != 0), 0, 0);
         if(result!=0){
             connection_ui_draw_status("CONNECTION FAILED",message,true);
             gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
@@ -121,6 +132,7 @@ int main(int argc, char **argv)
 {
     void *buffer;
     int netok = 0;
+    bool ran_freerdp = false;
     (void)argc; (void)argv;
     gfxInitDefault();
     gfxSetScreenFormat(GFX_BOTTOM,GSP_RGB565_OES);
@@ -144,6 +156,9 @@ int main(int argc, char **argv)
             snprintf(detail,sizeof(detail),"%s",environment_error);
         }
     }
+    /* Logging is OFF unless an existing, writable rdplog.txt opts in. */
+    rdp_diag_log_init();
+    rdp_diag_log_event("app-boot", (unsigned long)netok, 0, 0);
     connection_ui_init(&ui,HOST_FILE,PROFILES_FILE);
     if (!netok) {
         snprintf(status,sizeof(status),"Network initialization failed");
@@ -220,15 +235,41 @@ int main(int argc, char **argv)
                 probe(&ui);
             }
 #ifdef RDP_FULL_CLIENT
-            else full_session(&ui);
+            else {
+                /* A run of FreeRDP currently leaves SOCU_Shutdown blocked on
+                 * physical O3DS after all context cleanup finished. */
+                ran_freerdp = true;
+                full_session(&ui);
+            }
 #endif
         }
         draw_status(netok);
         connection_ui_draw(&ui);
         gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
     }
-    if (netok) socExit();
-    free(buffer);
+    /* HOME/START can reach this code while remaining SOC sockets still
+     * exist. Distinguish the final app frame from SOC/GFX shutdown hangs. */
+    rdp_diag_log_event("app-exit", 0, 0, 0);
+    if (netok && ran_freerdp) {
+        /* O3DS recovery workaround: after a FreeRDP attempt, socExit()
+         * reproducibly never returns from SOCU_Shutdown, freezing HOME.
+         * Defer the SOC service/IPC handle and shared-memory cleanup to
+         * process termination. Do not free the context buffer while its
+         * kernel memory block may still reference it. This is intentionally
+         * scoped to actual FreeRDP attempts; ordinary probe-only exits
+         * preserve the normal socExit() path. */
+        rdp_diag_log_event("app-soc-exit-deferred", 1, 0, 0);
+    } else {
+        rdp_diag_log_event("app-soc-exit-enter", (unsigned long)netok, 0, 0);
+        if (netok) {
+            const Result soc_result = socExit();
+            rdp_diag_log_event("app-soc-exit-done", (unsigned long)soc_result, 0, 0);
+        }
+        rdp_diag_log_event("app-soc-buffer-free", 0, 0, 0);
+        free(buffer);
+    }
+    rdp_diag_log_event("app-gfx-exit-enter", 0, 0, 0);
     gfxExit();
+    rdp_diag_log_event("app-gfx-exit-done", 0, 0, 0);
     return 0;
 }

@@ -1,0 +1,68 @@
+diff --git a/libfreerdp/common/settings.c b/libfreerdp/common/settings.c
+--- a/libfreerdp/common/settings.c
++++ b/libfreerdp/common/settings.c
+@@ -2024,5 +2024,16 @@ UINT32 freerdp_settings_get_codecs_flags(const rdpSettings* settings)
+ 		flags &= (uint32_t)~FREERDP_CODEC_NSCODEC;
+ 	}
++#ifdef __3DS__
++	/* An original 3DS cannot reserve the PLANAR decoder's 18 bytes per
++	 * source pixel before TCP connect. At 1280x720 that is 16.6 MiB,
++	 * and at 1920x1080 it is 37.3 MiB, BEFORE the GDI framebuffer.
++	 * Prefer ordinary bitmap/NSCodec/RemoteFX at higher resolutions.
++	 * This is an O3DS resource policy, not a TLS/security fallback.
++	 * The server may still choose a codec this reduced build cannot
++	 * render; native hardware testing is required. */
++	if (settings->DesktopWidth >= 1024 || settings->DesktopHeight >= 600)
++		flags &= (uint32_t)~(FREERDP_CODEC_PLANAR | FREERDP_CODEC_PROGRESSIVE);
++#endif
+ 	/*TODO: check other codecs flags */
+ 	return flags;
+ }
+diff --git a/libfreerdp/core/connection.c b/libfreerdp/core/connection.c
+--- a/libfreerdp/core/connection.c
++++ b/libfreerdp/core/connection.c
+@@ -197,6 +197,16 @@
+ 
+ static BOOL rdp_set_state(rdpRdp* rdp, CONNECTION_STATE state);
+ 
++#ifdef __3DS__
++/* Marker is optional and never compiled on desktop FreeRDP. */
++extern void freerdp_3ds_codec_checkpoint(unsigned int stage, unsigned int flags,
++                                        unsigned int width, unsigned int height)
++    __attribute__((weak));
++#define O3DS_CODEC_STEP(s,f,w,h) do { if (freerdp_3ds_codec_checkpoint) \
++    freerdp_3ds_codec_checkpoint((s),(f),(w),(h)); } while(0)
++#else
++#define O3DS_CODEC_STEP(s,f,w,h) do {} while(0)
++#endif
+ static BOOL rdp_client_reset_codecs(rdpContext* context)
+ {
+ 	rdpSettings* settings = nullptr;
+@@ -209,15 +219,25 @@ static BOOL rdp_client_reset_codecs(rdpContext* context)
+ 	if (!freerdp_settings_get_bool(settings, FreeRDP_DeactivateClientDecoding))
+ 	{
+ 		const UINT32 flags = freerdp_settings_get_uint32(settings, FreeRDP_ThreadingFlags);
++		const UINT32 codecMask = freerdp_settings_get_codecs_flags(settings);
++		O3DS_CODEC_STEP(1, codecMask, settings->DesktopWidth, settings->DesktopHeight);
+ 		freerdp_client_codecs_free(context->codecs);
+ 		context->codecs = freerdp_client_codecs_new(flags);
+ 
+ 		if (!context->codecs)
++		{
++			O3DS_CODEC_STEP(2, codecMask, settings->DesktopWidth, settings->DesktopHeight);
+ 			return FALSE;
++		}
+ 
+-		if (!freerdp_client_codecs_prepare(context->codecs,
+-		                                   freerdp_settings_get_codecs_flags(settings),
++		O3DS_CODEC_STEP(3, codecMask, settings->DesktopWidth, settings->DesktopHeight);
++		if (!freerdp_client_codecs_prepare(context->codecs,
++		                                   codecMask,
+ 		                                   settings->DesktopWidth, settings->DesktopHeight))
++		{
++			O3DS_CODEC_STEP(4, codecMask, settings->DesktopWidth, settings->DesktopHeight);
+ 			return FALSE;
++		}
++		O3DS_CODEC_STEP(5, codecMask, settings->DesktopWidth, settings->DesktopHeight);
+ 
+ /* Runtime H264 detection. (only available if dynamic backend loading is defined)

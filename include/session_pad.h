@@ -22,6 +22,7 @@ typedef enum {
     PAD_DISCONNECT,
     PAD_SETTINGS,
     PAD_KEYBOARD,
+    PAD_HELP,
     PAD_SPEED,
     PAD_SCROLL_AMOUNT,
     PAD_REVERSE
@@ -35,6 +36,7 @@ typedef struct {
     bool reverse_scroll;
     bool settings_open;
     bool keyboard_open;
+    bool help_open;
     bool fn_page;
     unsigned key_mods;
     bool disconnect_armed;

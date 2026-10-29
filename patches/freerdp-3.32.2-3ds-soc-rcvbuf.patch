@@ -1,0 +1,58 @@
+diff --git a/libfreerdp/core/tcp.c b/libfreerdp/core/tcp.c
+--- a/libfreerdp/core/tcp.c
++++ b/libfreerdp/core/tcp.c
+@@ -1419,20 +1419,42 @@
+ 	if (getsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (void*)&optval, &optlen) == 0)
+ 	{
+ 		if (optval < (1024 * 32))
+ 		{
+-			optval = 1024 * 32;
+-			optlen = sizeof(optval);
+-
+-			if (setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (void*)&optval, optlen) < 0)
+-			{
+-				close(sockfd);
+-
+-				freerdp_set_last_error_if_not(context, FREERDP_ERROR_CONNECT_FAILED);
+-
+-                O3DS_TCP_STEP(32, 0); /* SO_RCVBUF set */
+-				WLog_ERR(TAG, "unable to set receive buffer len");
+-				return -1;
++#ifdef __3DS__
++            /* Horizon SOC may reject the 32-KiB receive-buffer request.
++             * The existing positive socket buffer remains usable; log it
++             * and continue instead of failing an already established TCP
++             * connection. Let FreeRDP's streaming BIO process data in
++             * chunks and verify throughput on hardware later. */
++            const UINT32 o3ds_original_rcvbuf = optval;
++            O3DS_TCP_STEP(38, o3ds_original_rcvbuf);
++#endif
++			optval = 1024 * 32;
++			optlen = sizeof(optval);
++
++			if (setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (void*)&optval, optlen) < 0)
++			{
++#ifdef __3DS__
++                /* Failure at previous stage 32 was exactly here, after
++                 * TCP had connected. Never suppress an invalid zero
++                 * receive buffer or non-3DS failures. */
++                if (o3ds_original_rcvbuf > 0)
++                {
++                    O3DS_TCP_STEP(36, o3ds_original_rcvbuf);
++                    WLog_WARN(TAG, "Horizon SOC declined 32KiB SO_RCVBUF; using existing buffer");
++                }
++                else
++#endif
++                {
++				close(sockfd);
++
++				freerdp_set_last_error_if_not(context, FREERDP_ERROR_CONNECT_FAILED);
++
++                O3DS_TCP_STEP(32, 0); /* SO_RCVBUF set */
++				WLog_ERR(TAG, "unable to set receive buffer len");
++				return -1;
++                }
+ 			}
+ 		}
+ 	}
+ 

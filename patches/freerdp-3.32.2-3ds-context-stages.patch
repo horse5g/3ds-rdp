@@ -1,0 +1,287 @@
+diff --git a/libfreerdp/core/freerdp.c b/libfreerdp/core/freerdp.c
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -867,7 +867,19 @@
+ 	return rc;
+ }
+ 
++#ifdef __3DS__
++/* O3DS diagnostic: preserve the last context construction stage after cleanup. */
++static unsigned int o3ds_ctx_init_stage;
++unsigned int freerdp_3ds_context_init_stage(void)
++{
++    return o3ds_ctx_init_stage;
++}
++#define O3DS_CTX_STAGE(n) (o3ds_ctx_init_stage = (n))
++#else
++#define O3DS_CTX_STAGE(n) ((void)0)
++#endif
++
+ BOOL freerdp_context_new_ex(freerdp* instance, rdpSettings* settings)
+ {
+ 	rdpRdp* rdp = nullptr;
+ 	rdpContext* context = nullptr;
+@@ -875,12 +887,14 @@
+ 
+ 	WINPR_ASSERT(instance);
+ 
++	O3DS_CTX_STAGE(1);
+ 	instance->context = context = (rdpContext*)calloc(1, instance->ContextSize);
+ 
+ 	if (!context)
+ 		return FALSE;
+ 
++	O3DS_CTX_STAGE(2);
+ 	context->log = WLog_Get(TAG);
+ 	if (!context->log)
+ 		goto fail;
+ 
+@@ -890,18 +904,21 @@
+ 	context->ServerMode = FALSE;
+ 	context->disconnectUltimatum = 0;
+ 
++	O3DS_CTX_STAGE(3);
+ 	context->metrics = metrics_new(context);
+ 
+ 	if (!context->metrics)
+ 		goto fail;
+ 
++	O3DS_CTX_STAGE(4);
+ 	rdp = rdp_new(context);
+ 
+ 	if (!rdp)
+ 		goto fail;
+ 
+ 	context->rdp = rdp;
++	O3DS_CTX_STAGE(5);
+ 	context->pubSub = rdp->pubSub;
+ 
+ 	if (!context->pubSub)
+ 		goto fail;
+@@ -916,7 +933,8 @@
+ #endif
+ 
+ 	instance->heartbeat = rdp->heartbeat;
++	O3DS_CTX_STAGE(6);
+ 	context->graphics = graphics_new(context);
+ 
+ 	if (!context->graphics)
+ 		goto fail;
+@@ -926,13 +944,15 @@
+ 	context->settings = rdp->settings;
+ 	context->autodetect = rdp->autodetect;
+ 
++	O3DS_CTX_STAGE(7);
+ 	if (!(context->errorDescription = calloc(1, 500)))
+ 	{
+ 		WLog_Print(context->log, WLOG_ERROR, "calloc failed!");
+ 		goto fail;
+ 	}
+ 
++	O3DS_CTX_STAGE(8);
+ 	if (!(context->channelErrorEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr)))
+ 	{
+ 		WLog_Print(context->log, WLOG_ERROR, "CreateEvent failed!");
+ 		goto fail;
+@@ -940,10 +960,12 @@
+ 
+ 	update_register_client_callbacks(rdp->update);
+ 
++	O3DS_CTX_STAGE(9);
+ 	if (!(context->channels = freerdp_channels_new(instance)))
+ 		goto fail;
+ 
++	O3DS_CTX_STAGE(10);
+ 	context->dump = stream_dump_new();
+ 	if (!context->dump)
+ 		goto fail;
+ 
+@@ -951,10 +973,12 @@
+ 	 * Client common library might set a function pointer to handle this, but here we provide a
+ 	 * default implementation that simply calls instance->GetAccessToken.
+ 	 */
++	O3DS_CTX_STAGE(11);
+ 	if (!freerdp_set_common_access_token(context, freerdp_common_context))
+ 		goto fail;
+ 
++	O3DS_CTX_STAGE(12);
+ 	IFCALLRET(instance->ContextNew, ret, instance, context);
+ 
+ 	if (!ret)
+ 		goto fail;
+diff --git a/libfreerdp/core/rdp.c b/libfreerdp/core/rdp.c
+--- a/libfreerdp/core/rdp.c
++++ b/libfreerdp/core/rdp.c
+@@ -2370,38 +2370,57 @@
+ }
+ 
++#ifdef __3DS__
++/* O3DS diagnostic: subtree stages 100-199 describe rdp_new_common(). */
++static unsigned int o3ds_rdp_init_stage;
++unsigned int freerdp_3ds_rdp_init_stage(void)
++{
++    return o3ds_rdp_init_stage;
++}
++#define O3DS_RDP_STAGE(n) (o3ds_rdp_init_stage = (n))
++#else
++#define O3DS_RDP_STAGE(n) ((void)0)
++#endif
++
+ WINPR_ATTR_NODISCARD
+ static bool rdp_new_common(rdpRdp* rdp)
+ {
+ 	WINPR_ASSERT(rdp);
+ 
+ 	bool rc = false;
++	O3DS_RDP_STAGE(101);
+ 	rdp->transport = transport_new(rdp->context);
+ 	if (!rdp->transport)
+ 		goto fail;
+ 
+ 	if (rdp->io)
+ 	{
++		O3DS_RDP_STAGE(102);
+ 		if (!transport_set_io_callbacks(rdp->transport, rdp->io))
+ 			goto fail;
+ 	}
+ 
++	O3DS_RDP_STAGE(103);
+ 	rdp->aad = aad_new(rdp->context);
+ 	if (!rdp->aad)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(104);
+ 	rdp->nego = nego_new(rdp->transport);
+ 	if (!rdp->nego)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(105);
+ 	rdp->mcs = mcs_new(rdp->context);
+ 	if (!rdp->mcs)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(106);
+ 	rdp->license = license_new(rdp);
+ 	if (!rdp->license)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(107);
+ 	rdp->fastpath = fastpath_new(rdp);
+ 	if (!rdp->fastpath)
+ 		goto fail;
+ 
+@@ -2418,17 +2437,20 @@
+ rdpRdp* rdp_new(rdpContext* context)
+ {
+ 	DWORD flags = 0;
++	O3DS_RDP_STAGE(1);
+ 	rdpRdp* rdp = (rdpRdp*)calloc(1, sizeof(rdpRdp));
+ 
+ 	if (!rdp)
+ 		return nullptr;
+ 
++	O3DS_RDP_STAGE(2);
+ 	rdp->log = WLog_Create(RDP_TAG, WLog_GetRoot());
+ 	if (!rdp->log)
+ 		goto fail;
+ 
+ 	(void)_snprintf(rdp->log_context, sizeof(rdp->log_context), "%p", (void*)context);
++	O3DS_RDP_STAGE(3);
+ 	if (!WLog_SetContext(rdp->log, nullptr, rdp->log_context))
+ 		goto fail;
+ 
+ 	InitializeCriticalSection(&rdp->critical);
+@@ -2440,7 +2462,8 @@
+ 
+ 	if (!context->settings)
+ 	{
++	O3DS_RDP_STAGE(4);
+ 		context->settings = rdp->settings = freerdp_settings_new(flags);
+ 
+ 		if (!rdp->settings)
+ 			goto fail;
+@@ -2449,7 +2472,8 @@
+ 		rdp->settings = context->settings;
+ 
+ 	/* Keep a backup copy of settings for later comparisons */
++	O3DS_RDP_STAGE(5);
+ 	if (!rdp_set_backup_settings(rdp))
+ 		goto fail;
+ 
+ 	rdp->settings->instance = context->instance;
+@@ -2466,11 +2490,13 @@
+ #endif
+ 	}
+ 
++	O3DS_RDP_STAGE(6);
+ 	if (!rdp_new_common(rdp))
+ 		goto fail;
+ 
+ 	{
++	O3DS_RDP_STAGE(7);
+ 		const rdpTransportIo* io = transport_get_io_callbacks(rdp->transport);
+ 		if (!io)
+ 			goto fail;
+ 		rdp->io = calloc(1, sizeof(rdpTransportIo));
+@@ -2479,51 +2505,61 @@
+ 		*rdp->io = *io;
+ 	}
+ 
++	O3DS_RDP_STAGE(8);
+ 	rdp->input = input_new(rdp);
+ 
+ 	if (!rdp->input)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(9);
+ 	rdp->update = update_new(rdp);
+ 
+ 	if (!rdp->update)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(10);
+ 	rdp->redirection = redirection_new();
+ 
+ 	if (!rdp->redirection)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(11);
+ 	rdp->autodetect = autodetect_new(rdp->context);
+ 
+ 	if (!rdp->autodetect)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(12);
+ 	rdp->heartbeat = heartbeat_new();
+ 
+ 	if (!rdp->heartbeat)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(13);
+ 	rdp->multitransport = multitransport_new(rdp, INITIATE_REQUEST_PROTOCOL_UDPFECL |
+ 	                                                  INITIATE_REQUEST_PROTOCOL_UDPFECR);
+ 
+ 	if (!rdp->multitransport)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(14);
+ 	rdp->bulk = bulk_new(context);
+ 
+ 	if (!rdp->bulk)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(15);
+ 	rdp->pubSub = PubSub_New(TRUE);
+ 	if (!rdp->pubSub)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(16);
+ 	rdp->abortEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+ 	if (!rdp->abortEvent)
+ 		goto fail;
+ 
++	O3DS_RDP_STAGE(17);
+ 	rdp->timer = freerdp_timer_new(rdp);
+ 	if (!rdp->timer)
+ 		goto fail;
+ 
