@@ -369,7 +369,25 @@ void connection_ui_draw_status(const char *heading,const char *message,bool retr
     fill(0,0,320,240,BG);topbar();
     fill(10,40,300,136,WHITE);outline(10,40,300,136,BORDER);
     label(20,55,heading?heading:"RDP STATUS",307,BLUE);
-    label(20,93,message?message:"",306,INK);
+    /* Long connection failure reasons include important numeric error codes.
+       Wrap onto up to three rows rather than clipping the code at the edge. */
+    if (message) {
+        const char *cursor=message;
+        for (int row=0; row<3 && *cursor; ++row) {
+            char line[45];
+            size_t n=strlen(cursor);
+            if (n>44) {
+                n=44;
+                while (n>20 && cursor[n]!=' ') --n;
+                if (n<=20) n=44;
+            }
+            memcpy(line,cursor,n);
+            line[n]=0;
+            label(20,88+row*20,line,306,INK);
+            cursor+=n;
+            while (*cursor==' ') ++cursor;
+        }
+    }
     if(retry) {
         button(10,205,145,"RETRY (A)",1);
         button(165,205,145,"BACK (B)",0);
