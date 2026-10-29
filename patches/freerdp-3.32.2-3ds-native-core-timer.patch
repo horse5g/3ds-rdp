@@ -10,7 +10,7 @@ diff --git a/libfreerdp/core/timer.c b/libfreerdp/core/timer.c
 +#include <3ds/thread.h>
 +#include "rdp_pthread_tsd.h"
 +
-+/* Retain the last attempted timer construction step after context cleanup. */
++/* O3DS: keep native timer diagnostic state after context cleanup. */
 +static unsigned int o3ds_timer_init_stage;
 +static unsigned int o3ds_timer_priority;
 +static unsigned int o3ds_timer_threads_used;
