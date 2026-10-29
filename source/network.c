@@ -11,10 +11,22 @@
 #include <netdb.h>
 #define MAX_TPKT 512
 static int waitfd(int fd,int write_ready) {
-    fd_set fds; struct timeval tv; int rc;
-    tv.tv_sec=3; tv.tv_usec=0; FD_ZERO(&fds); FD_SET(fd,&fds);
-    do { rc=select(fd+1,write_ready?NULL:&fds,write_ready?&fds:NULL,NULL,&tv); } while(rc<0&&errno==EINTR);
-    return rc;
+    fd_set fds;
+    struct timeval tv;
+    int rc;
+    /* select() may modify both fd_set and timeval even on EINTR.
+       Reinitialize them before every retry, otherwise the next probe read
+       or write can spuriously fail after Horizon/SOC signals. */
+    for (;;) {
+        FD_ZERO(&fds);
+        FD_SET(fd,&fds);
+        tv.tv_sec=3;
+        tv.tv_usec=0;
+        rc=select(fd+1,write_ready?NULL:&fds,
+                  write_ready?&fds:NULL,NULL,&tv);
+        if (rc>=0 || errno!=EINTR)
+            return rc;
+    }
 }
 static int transfer(int fd,uint8_t *data,size_t n,int writing) {
     size_t offset=0;
