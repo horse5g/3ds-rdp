@@ -389,10 +389,27 @@ static BOOL pointer_null(rdpContext *context)
 }
 static BOOL pointer_default(rdpContext *context)
 {
+    uint8_t arrow[16*16*4]={0};
+    static const uint16_t rows[16]={
+        0x0001,0x0003,0x0007,0x000F,0x001F,0x003F,0x007F,0x00FF,
+        0x01FF,0x03FF,0x003F,0x0067,0x00C3,0x0181,0x0000,0x0000
+    };
     (void)context;
-    /* A default pointer is not a cached server bitmap. Keep the last known
-       Windows cursor where available, otherwise a safe generic fallback. */
-    system_cursor.visible=system_cursor.shape_known;
+    /* PointerSystem=DEFAULT requests the ordinary Windows arrow. Render a
+       small local fallback instead of leaving an old text or resize cursor. */
+    for(int y=0;y<16;++y) {
+        for(int x=0;x<16;++x) {
+            if(!(rows[y] & (1u<<x)))continue;
+            const bool outline=(x==0 || x==15 ||
+                !(rows[y]&(1u<<(x+1))) ||
+                (y>0 && !(rows[y-1]&(1u<<x))) ||
+                (y<15 && !(rows[y+1]&(1u<<x))));
+            uint8_t *p=&arrow[((size_t)y*16+x)*4];
+            p[0]=p[1]=p[2]=outline?0:255;
+            p[3]=255;
+        }
+    }
+    (void)session_cursor_set(&system_cursor,arrow,16,16,0,0);
     desktop_dirty=true;
     return TRUE;
 }
