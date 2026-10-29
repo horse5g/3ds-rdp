@@ -1442,6 +1442,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     desktop_dirty = false;
     bool swap_rb = true; /* Fix actual O3DS red/blue reversal. */
     bool smoothing_enabled = true;
+    unsigned blit_samples_remaining=3;
     rdp_diag_log_event("display-colors", (unsigned long)swap_rb,
                        (unsigned long)smoothing_enabled, 0);
     session_cursor_reset(&system_cursor);
@@ -1520,6 +1521,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
            pans the magnified viewport. Y always returns to fit view. */
         if ((down & KEY_Y) && (held & KEY_L)) {
             smoothing_enabled=!smoothing_enabled;
+            blit_samples_remaining=3;
             rdp_diag_log_event("display-smoothing", smoothing_enabled, 0, 0);
             desktop_dirty=true;pad_redraw=true;
         } else if(down & KEY_Y) {
@@ -1527,6 +1529,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         }
         if ((down & KEY_X) && (held & KEY_L)) {
             swap_rb=!swap_rb;
+            blit_samples_remaining=3;
             rdp_diag_log_event("display-colors", swap_rb,
                                smoothing_enabled, 0);
             desktop_dirty=true;pad_redraw=true;
@@ -1675,12 +1678,25 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         if (desktop_dirty || pad_redraw) {
             /* gfxSwapBuffers swaps BOTH screens. Always redraw the current
              * GDI desktop into the new top backbuffer when the bottom pad
-             * changes, otherwise the previous top console can reappear. */
+             * changes, otherwise the previous top console can reappear.
+             * Sample the first 3 blits and 3 after filter/color toggle:
+             * a hardware timing comparison without continuous SD writes. */
+            const bool measure=blit_samples_remaining && rdp_diag_log_enabled();
+            const u64 start_ms=measure?osGetTime():0;
             if (!copy_desktop_frame(client->context,&zoom,pad.pointer_x,pad.pointer_y,
                                     swap_rb,smoothing_enabled)) {
                 snprintf(reason, reason_size, "Invalid GDI or top-screen framebuffer");
                 result = -1;
                 break;
+            }
+            if(measure) {
+                const u64 elapsed=osGetTime()-start_ms;
+                const unsigned depth=client->context->gdi->dstFormat==
+                                      PIXEL_FORMAT_RGB16?16u:32u;
+                rdp_diag_log_event("blit-ms",(unsigned long)elapsed,depth,
+                                   ((unsigned long)(smoothing_enabled?1u:0u)) |
+                                   ((unsigned long)(swap_rb?2u:0u)));
+                --blit_samples_remaining;
             }
             session_pad_draw(&pad,session_zoom_percent(&zoom));
             gfxFlushBuffers();
