@@ -10,7 +10,7 @@
 #include "rdp_pixels.h"
 #include "session_wait.h"
 #include "display_buffers.h"
-#include "connection_ui.h"
+#include "rdp_environment.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -37,6 +37,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
 #include <freerdp/update.h>
 #include <freerdp/input.h>
 #include <winpr/synch.h>
+#include <winpr/path.h>
 #include <openssl/crypto.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
@@ -839,6 +840,25 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         goto done;
     }
     have_manual_pin = (pin_state > 0);
+
+    /* WinPR has no POSIX user account on Horizon. FreeRDP 3.32 requires
+     * HOME to allocate the client settings during freerdp_context_new().
+     * Export a private, existing SD directory before any FreeRDP client
+     * object is instantiated. */
+    if (rdp_environment_init("sdmc:/3ds/3ds-rdp", reason, reason_size) != 0)
+        goto done;
+    {
+        char *winpr_home = GetKnownPath(KNOWN_PATH_HOME);
+        char *winpr_config = GetKnownPath(KNOWN_PATH_XDG_CONFIG_HOME);
+        const bool ok = winpr_home && winpr_config;
+        free(winpr_home);
+        free(winpr_config);
+        if (!ok) {
+            snprintf(reason, reason_size,
+                     "WinPR cannot resolve HOME/XDG paths on SD");
+            goto done;
+        }
+    }
 
     /* Password is prompted for at runtime; never accepted from host.txt. */
     if (!prompt_password(password, sizeof(password))) {
