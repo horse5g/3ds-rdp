@@ -198,9 +198,10 @@ static void dropdown_overlay(const ConnectionUI *ui)
     label(41,63,"SELECT A VALUE",284,NAVY);
     for(int i=0;i<count;i++) {
         int y=80+22*i;
-        fill(36,y,251,21,(i&1)?PALE:WHITE);
-        outline(36,y,251,21,C(217,222,229));
-        label(46,y+7,items[i],275,INK);
+        const bool current=i==ui->choice_highlight;
+        fill(36,y,251,21,current?HIGHLIGHT:(i&1)?PALE:WHITE);
+        outline(36,y,251,21,current?BLUE:C(217,222,229));
+        label(46,y+7,items[i],275,current?BLUE:INK);
     }
     label(39,174,"TAP OUTSIDE TO CANCEL",286,MUTED);
 }
