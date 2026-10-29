@@ -17,6 +17,7 @@
 #include "rdp_ps_rng_diag.h"
 #include "rdp_openssl_init_diag.h"
 #include "rdp_freerdp_diag.h"
+#include "rdp_diag_log.h"
 #include "rdp_pthread_tsd.h"
 #include <stdio.h>
 
@@ -137,6 +138,7 @@ static bool openssl_rng_preflight(OSSL_PROVIDER **provider_ref,
     const char *description;
     RdpPsRngDiag baseline = {0};
     bool ok = false;
+    unsigned int log_stage = 1u;
 
     if (!provider_ref || !error || !cap)
         return false;
@@ -148,38 +150,47 @@ static bool openssl_rng_preflight(OSSL_PROVIDER **provider_ref,
     if (!OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL))
         goto fail;
     stage = "default provider";
+    log_stage = 2u;
     /* Retain the embedded default provider through the entire session. */
     *provider_ref = OSSL_PROVIDER_load(NULL, "default");
     if (!*provider_ref)
         goto fail;
     stage = "CTR-DRBG";
+    log_stage = 3u;
     algorithm = EVP_RAND_fetch(NULL, "CTR-DRBG", NULL);
     if (!algorithm)
         goto fail;
     EVP_RAND_free(algorithm);
     algorithm = NULL;
     stage = "primary DRBG";
+    log_stage = 4u;
     primary = RAND_get0_primary(NULL);
     if (!primary)
         goto fail;
     stage = "primary state";
+    log_stage = 5u;
     if (EVP_RAND_get_state(primary) != EVP_RAND_STATE_READY)
         goto fail;
     stage = "public DRBG";
+    log_stage = 6u;
     public_rng = RAND_get0_public(NULL);
     if (!public_rng)
         goto fail;
     stage = "public state";
+    log_stage = 7u;
     if (EVP_RAND_get_state(public_rng) != EVP_RAND_STATE_READY)
         goto fail;
     stage = "RAND_bytes";
+    log_stage = 8u;
     if (RAND_bytes(check, (int)sizeof(check)) != 1)
         goto fail;
     ok = true;
+    rdp_diag_log_event("openssl-ready", ossl_3ds_crypto_init_stage(), 0, 0);
     error[0] = 0;
     goto done;
 fail:
     code = ERR_peek_last_error();
+    rdp_diag_log_event("openssl-failed", log_stage, code, ossl_3ds_crypto_init_stage());
     description = code ? ERR_reason_error_string(code) : NULL;
     /* Provider/DRBG failures sometimes pop OpenSSL's error queue. Snapshot
      * the actual Horizon backend without reading RNG seed bytes. */
@@ -835,8 +846,11 @@ static void rdp_connect_worker(void *arg)
     LightLock_Lock(&gate->lock);
     const bool cancelled_before_start = gate->cancel_requested;
     LightLock_Unlock(&gate->lock);
+    rdp_diag_log_event("connect-worker-start", (unsigned long)cancelled_before_start, 0, 0);
     const bool ok = !cancelled_before_start &&
                     freerdp_connect(gate->client) == TRUE;
+    rdp_diag_log_event("connect-worker-end", (unsigned long)ok,
+            gate->client->context ? (unsigned long)freerdp_get_last_error(gate->client->context) : 0, 0);
     /* Destroy worker-local OpenSSL and pthread TSD before publishing done. */
     OPENSSL_thread_stop();
     rdp_3ds_tsd_cleanup_current_thread();
@@ -1005,6 +1019,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     if (rdp_full_session_preflight(cfg, &opts, reason, reason_size))
         return -1;
     snprintf(reason, reason_size, "FreeRDP startup failed");
+    rdp_diag_log_event("rdp-start", 0, 0, 0);
 
     /* Load both trust sources before prompting for credentials. Missing files
        are allowed (new server); malformed or unreadable files fail closed. */
@@ -1021,6 +1036,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         goto done;
     }
     have_manual_pin = (pin_state > 0);
+    rdp_diag_log_event("trust-files-loaded", 1, 0, 0);
 
     /* WinPR has no POSIX user account on Horizon. FreeRDP 3.32 requires
      * HOME to allocate the client settings during freerdp_context_new().
@@ -1028,12 +1044,14 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
      * object is instantiated. */
     if (rdp_environment_init("sdmc:/3ds/3ds-rdp", reason, reason_size) != 0)
         goto done;
+    rdp_diag_log_event("winpr-env-ready", 1, 0, 0);
     {
         char *winpr_home = GetKnownPath(KNOWN_PATH_HOME);
         char *winpr_config = GetKnownPath(KNOWN_PATH_XDG_CONFIG_HOME);
         const bool ok = winpr_home && winpr_config;
         free(winpr_home);
         free(winpr_config);
+        rdp_diag_log_event("winpr-paths", (unsigned long)ok, 0, 0);
         if (!ok) {
             snprintf(reason, reason_size,
                      "WinPR cannot resolve HOME/XDG paths on SD");
@@ -1050,6 +1068,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         if (!GetComputerNameExA(ComputerNameNetBIOS,
                                 client_name,&client_name_size) ||
             !client_name[0]) {
+            rdp_diag_log_event("winpr-hostname-fail", (unsigned long)GetLastError(), (unsigned long)errno, 0);
             snprintf(reason,reason_size,
                      "WinPR cannot get 3DS client hostname");
             goto done;
@@ -1067,8 +1086,10 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     }
     if (!openssl_rng_preflight(&rng_provider, reason, reason_size))
         goto done;
+    rdp_diag_log_event("rdp-crypto-ready", 1, 0, 0);
 
     client = freerdp_new();
+    rdp_diag_log_event("freerdp-new", (unsigned long)(client != NULL), (unsigned long)errno, 0);
     if (!client) {
         snprintf(reason, reason_size, "freerdp_new failed");
         goto done;
@@ -1083,10 +1104,15 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         const unsigned int cstage = freerdp_3ds_context_init_stage();
         const unsigned int rstage =
             cstage == 4 ? freerdp_3ds_rdp_init_stage() : 0u;
+        const unsigned long saved_errno = (unsigned long)errno;
+        const unsigned long winpr_error = (unsigned long)GetLastError();
+        rdp_diag_log_event("freerdp-context-fail", cstage, rstage, saved_errno);
+        rdp_diag_log_event("freerdp-context-winpr", winpr_error, 0, 0);
         snprintf(reason, reason_size, "FreeRDP ctx C%u R%u", cstage, rstage);
         goto done;
     }
     initialized = true;
+    rdp_diag_log_event("freerdp-context-ok", freerdp_3ds_context_init_stage(), freerdp_3ds_rdp_init_stage(), 0);
     settings = client->context ? client->context->settings : NULL;
     if (!settings) {
         snprintf(reason, reason_size,
@@ -1098,7 +1124,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     /* Do WinPR/client-context allocation before opening the modal password
        keyboard. On an O3DS allocation failure, users can diagnose the
        failure immediately instead of repeatedly entering a secret. */
+    rdp_diag_log_event("password-dialog-start", 0, 0, 0);
     if (!prompt_password(password, sizeof(password))) {
+        rdp_diag_log_event("password-dialog-cancel", 0, 0, 0);
         snprintf(reason, reason_size, "Password input cancelled");
         goto done;
     }
@@ -1138,6 +1166,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         goto done;
     }
     OPENSSL_cleanse(password, sizeof(password));
+    rdp_diag_log_event("rdp-settings-ok", 1, 0, 0);
 
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
@@ -1161,6 +1190,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         goto done;
     }
     connected = true;
+    rdp_diag_log_event("rdp-connected", 1, 0, 0);
     session_pad_init(&pad);
     pad.remote_w=remote_w;pad.remote_h=remote_h;
     pad.pointer_x=remote_w/2;pad.pointer_y=remote_h/2;
@@ -1366,6 +1396,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
        The abort event is also used by FreeRDP for fatal connection errors. */
     if (connected && freerdp_shall_disconnect_context(client->context)) {
         const UINT err = freerdp_get_last_error(client->context);
+        rdp_diag_log_event("rdp-disconnect", (unsigned long)err, 0, 0);
         if (err != FREERDP_ERROR_SUCCESS) {
             snprintf(reason, reason_size, "RDP connection ended (0x%08lx)",
                      (unsigned long)err);
@@ -1375,6 +1406,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         }
     }
 done:
+    rdp_diag_log_event("rdp-cleanup", (unsigned long)(result == 0), (unsigned long)connected, (unsigned long)initialized);
     if (connected && client && client->context && client->context->input) {
         rdpInput *input = client->context->input;
         if (left_down)
