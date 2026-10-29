@@ -45,6 +45,9 @@ typedef struct {
     PadRegion captured;
     int touch_x, touch_y, start_x, start_y;
     int hold_frames, scroll_remainder;
+    int zoom_q8;             /* 256=fit, max 1280=5x zoom */
+    int pointer_fraction_x;   /* signed Q16 accumulated subpixel motion */
+    int pointer_fraction_y;
 } SessionPad;
 
 typedef struct {
@@ -59,6 +62,10 @@ typedef struct {
 } PadActions;
 
 void session_pad_init(SessionPad *pad);
+/* Keep touch and D-pad pointer travel consistent across 400p..1080p
+ * and fit/native zoom, without changing the baseline 400x240 behavior. */
+void session_pad_set_zoom(SessionPad *pad, float visible_zoom);
+int session_pad_nudge(const SessionPad *pad, bool horizontal);
 PadRegion session_pad_hit(const SessionPad *pad, int x, int y);
 void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *out);
 
