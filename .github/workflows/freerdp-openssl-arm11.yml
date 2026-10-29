@@ -186,7 +186,5 @@ jobs:
           test "${{ steps.fullsyntax.outcome }}" = success
           test "${{ steps.combined.outcome }}" = success
           test "${{ steps.fullapp.outcome }}" = success
-          "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only 3ds-rdp-full.elf |
-            grep -Eq ' [Tt] pthread_key_create
-          "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only 3ds-rdp-full.elf |
-            grep -Eq ' [Tt] rdp_3ds_tsd_cleanup_current_thread
+          "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only 3ds-rdp-full.elf | grep -E ' [Tt] pthread_key_create$'
+          "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only 3ds-rdp-full.elf | grep -E ' [Tt] rdp_3ds_tsd_cleanup_current_thread$'
