@@ -37,7 +37,7 @@ mkdir -p "$build"
   -I"$build/include" -I"$root/external/openssl/include" \
   -specs=3dsx.specs -Wl,--gc-sections \
   -Wl,-Map,"$output.map" \
-  "$source_file" \
+  "$source_file" "$root/source/rdp_pthread_tsd.c" \
   -L"$build" -L"$DEVKITPRO/libctru/lib" \
   -Wl,--start-group -lssl -lcrypto -lctru -lm -Wl,--end-group \
   -o "$output.elf"
