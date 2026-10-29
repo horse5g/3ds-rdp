@@ -137,9 +137,15 @@ The values are hex: C4, R17, errno 11 (EAGAIN). WinPR 0xCB (203)
 could be stale and does not necessarily identify the timer failure.
 
 In pinned FreeRDP 3.32.2, libfreerdp/core/rdp.c stage R17 calls
-freerdp_timer_new(). Its last constructor step in core/timer.c uses
-WinPR CreateThread, which internally calls pthread_create. That
-platform pthread path is not verified on original 3DS.
+freerdp_timer_new(). **R17 covers multiple operations**: allocation,
+entry-list creation, two WinPR events, and timer thread creation.
+WinPR CreateThread uses pthread_create. Current devkitARM provides
+a pthread creation bridge on 3DS; the missing pthread_key_* operations
+are separate and are already addressed by the project's TSD bridge.
+Therefore R17 alone does **not** prove the pthread_create syscall failed.
+The errno 11 can be left over from nonblocking SOC socket operations.
+Each 3DS WinPR event uses a TCP loopback socket pair, so socket pressure
+is another candidate. 3dbrew documents a 64-socket total for soc:U.
 
 patches/freerdp-3.32.2-3ds-native-core-timer.patch retains the complete
 FreeRDP timer logic, events and scheduling, but creates, joins and frees
@@ -165,3 +171,35 @@ If context creation fails again, the screen reports
 FreeRDP ctx C# R# T# and an opted-in rdplog.txt records a
 freerdp-timer-stage event. Keep the PR draft until real TLS/NLA
 and remote desktop sessions are validated.
+
+### Updated diagnostics from the user-submitted R17 patches
+
+The timer now records its actual requested priority and, on T5
+thread-creation failure, attempts to read the process thread-resource
+limit and test an additional 68 KiB heap allocation. These checks are
+**diagnostic clues**, not proof of the exact allocator or svc failure.
+`freerdp-timer-thread` contains priority in column a,
+`(used << 16) | max` thread-resource counts in b (0xFFFF means unknown),
+and the allocation-probe result (1/0) in c.
+
+The loopback adapter now records open/failure totals and the last
+failed opening stage. The `loopback-stats` entry records open count,
+failure count, and `(last-stage << 16) | (errno & 0xffff)`.
+If context creation fails, an optional `loopback-postfail-cap`
+entry records how many **additional** pairs (up to 12) can be opened
+**after FreeRDP's failed context has already been released**.
+This is not the peak socket headroom at the exact failure point.
+Capacity probing deliberately does not run on a successful context
+because the session is about to establish TLS/NLA.
+
+`freerdp-3.32.2-3ds-event-hardening.patch` avoids a busy loop
+when ResetEvent sees loopback EOF and treats a full nonblocking
+SetEvent write buffer as an already-pending wake token. Loopback
+writers also request TCP_NODELAY on a best-effort basis. No changes
+to TLS validation, NLA authentication or certificate pinning.
+
+The opt-in switch remains the **pre-existing writable**
+`sdmc:/3ds/3ds-rdp/rdplog.txt`. No automatic file creation or
+diagnostic writes if that file is absent at startup. These are
+**experimental** changes; CI success does not confirm physical-device
+operation, and the branch is not merged to main.
