@@ -67,6 +67,9 @@ if [[ "$src" == "$root/external/openssl" ]]; then
   if ! grep -q 'Horizon PS nonce pool: reserve DRBG-specific salt space first' "$src/crypto/rand/prov_seed.c"; then
     patch -d "$src" -p1 < "$root/patches/openssl-3.5.9-3ds-nonce-salt.patch"
   fi
+  if ! grep -q 'Non-sensitive first failing OpenSSL core initialization stage' "$src/crypto/init.c"; then
+    patch -d "$src" -p1 < "$root/patches/openssl-3.5.9-3ds-init-diagnostics.patch"
+  fi
 elif [[ ! -f "$src/Configurations/15-3ds.conf" ]]; then
   echo "Custom OPENSSL_SOURCE requires its own 3ds-armv6k target config" >&2
   exit 2
