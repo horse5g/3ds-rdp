@@ -113,7 +113,7 @@ diff --git a/libfreerdp/core/timer.c b/libfreerdp/core/timer.c
 +     * Keep the existing timer worker and use native, joinable ARM11 thread. */
 +    timer->thread = threadCreate(o3ds_timer_entry, timer, 64 * 1024, 0x30, -2, false);
 +#else
-+	imer->thread = CreateThread(nullptr, 0, timer_thread, timer, 0, nullptr);
++	timer->thread = CreateThread(nullptr, 0, timer_thread, timer, 0, nullptr);
 +#endif
  	if (!timer->thread)
  		goto fail;
