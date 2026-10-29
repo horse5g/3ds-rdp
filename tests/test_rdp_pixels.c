@@ -38,6 +38,19 @@ int main(void)
         assert(rdp_desktop_box4_to_rgb565(white,white,white,white,1)==0xFFFF);
         assert(rdp_desktop_box4_to_rgb565(red,red,red,red,1)==0xF800);
     }
-    puts("RDP RGB565 conversion, channel reversal and box downscale passed");
+    {
+        const uint8_t red[2]={0x00,0xF8},blue[2]={0x1F,0x00};
+        const uint8_t green[2]={0xE0,0x07},white[2]={0xFF,0xFF};
+        assert(rdp_desktop_native565(red,1)==0xF800);
+        assert(rdp_desktop_native565(red,0)==0x001F);
+        assert(rdp_desktop_native565(blue,1)==0x001F);
+        assert(rdp_desktop_native565(blue,0)==0xF800);
+        assert(rdp_desktop_native565(green,1)==0x07E0);
+        assert(rdp_desktop_native565_box4(red,red,red,red,1)==0xF800);
+        assert(rdp_desktop_native565_box4(red,blue,green,white,1)==0x8410);
+        assert(rdp_desktop_native565_box4(white,white,white,white,1)==0xFFFF);
+        assert(rdp_desktop_native565_box4(blue,blue,blue,blue,0)==0xF800);
+    }
+    puts("RDP RGB565 conversion, native16, channel reversal and box downscale passed");
     return 0;
 }
