@@ -100,6 +100,17 @@ int main(void)
     assert(pad.disconnect_armed && !a.disconnect);
     a=tap(&pad,50,15);
     assert(a.disconnect);
+    /* F1-F12 page must have an exit back to Esc/Tab/arrow/modifier keys.
+       Prior version had only CLOSE, trapping active sticky modifiers. */
+    pad.keyboard_open=true;
+    pad.fn_page=false;
+    a=tap(&pad, 110, 214); /* Basic row 4 col 2: F1-F12 */
+    assert(a.redraw && pad.fn_page);
+    assert(session_pad_keyboard_key(&pad,6,45)==SK_F1);
+    assert(session_pad_keyboard_key(&pad,110,214)==SK_FN);
+    a=tap(&pad,110,214); /* Function row 4 col 2: BASIC */
+    assert(a.redraw && !pad.fn_page);
+    assert(session_pad_keyboard_key(&pad,6,45)==SK_ESC);
     pad.keyboard_open=false; /* return to touchpad after keyboard test */
     /* x clamping and negative speed deltas */
     pad.settings_open=false;
