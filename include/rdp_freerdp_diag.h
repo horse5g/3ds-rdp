@@ -7,6 +7,11 @@ extern "C" {
 unsigned int freerdp_3ds_context_init_stage(void);
 unsigned int freerdp_3ds_rdp_init_stage(void);
 unsigned int freerdp_3ds_timer_init_stage(void);
+/* Diagnostic only, meaningful after the timer worker fails at T5. */
+void freerdp_3ds_timer_thread_diag(unsigned int *priority,
+                                  unsigned int *threads_used,
+                                  unsigned int *threads_max,
+                                  unsigned int *stack_alloc_ok);
 #ifdef __cplusplus
 }
 #endif
