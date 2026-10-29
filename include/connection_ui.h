@@ -36,6 +36,9 @@ typedef struct {
  * Fields edit through the 3DS on-screen keyboard, no secrets are persisted. */
 void connection_ui_init(ConnectionUI *ui, const char *legacy_file, const char *profile_file);
 void connection_ui_draw(const ConnectionUI *ui);
+void connection_ui_draw_status(const char *heading,const char *message, bool retry);
+void connection_ui_draw_cert_manager(const char *title,const char *info,
+                                      const char *notice,int confirmation);
 void connection_ui_key(ConnectionUI *ui, uint32_t keys, const char *profile_file);
 void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *profile_file);
 bool connection_ui_ready(const ConnectionUI *ui, char *error, size_t cap);
