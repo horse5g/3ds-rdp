@@ -1,5 +1,6 @@
 #include "session_pad.h"
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 
 #define SCROLL_PX_PER_NOTCH 14
@@ -24,6 +25,46 @@ void session_pad_init(SessionPad *pad)
     pad->pointer_y = RDP_PAD_REMOTE_H / 2;
     pad->sensitivity = 2;
     pad->scroll_amount = 1;
+    pad->zoom_q8 = 256;
+}
+
+/* Keep exactly the old pointer feel for 400x240 at fit. Remote pixels
+ * per touch pixel increase with desktop size but decrease with zoom, so
+ * the number of VISIBLE screen pixels travelled stays consistent.
+ * A signed Q16 remainder ensures slow motion is not rounded away when
+ * a highly magnified viewport covers fewer remote pixels than the LCD. */
+void session_pad_set_zoom(SessionPad *pad,float visible_zoom)
+{
+    if (!pad) return;
+    if (!(visible_zoom >= 1.0f)) visible_zoom=1.0f;
+    if (visible_zoom > 5.0f) visible_zoom=5.0f;
+    pad->zoom_q8=(int)(visible_zoom*256.0f+0.5f);
+}
+
+static int axis_motion(int delta,int sensitivity,int size,int screen,
+                       int zoom_q8,int *fraction)
+{
+    if (!delta || size<=0 || !fraction) return 0;
+    if (zoom_q8<256) zoom_q8=256;
+    /* 64-bit product is bounded for native touch deltas and for our
+     * user-selected remote size (<=1920x1080). */
+    const int64_t q16=(int64_t)delta*sensitivity*size*65536*256 /
+                      ((int64_t)screen*zoom_q8);
+    const int64_t total=q16 + *fraction;
+    const int motion=(int)(total/65536);
+    *fraction=(int)(total%65536);
+    return motion;
+}
+
+int session_pad_nudge(const SessionPad *pad,bool horizontal)
+{
+    if (!pad)return 8;
+    const int size=horizontal?pad->remote_w:pad->remote_h;
+    const int screen=horizontal?RDP_PAD_REMOTE_W:RDP_PAD_REMOTE_H;
+    const int zoom=pad->zoom_q8>=256?pad->zoom_q8:256;
+    const int64_t value=((int64_t)8*size*256+((int64_t)screen*zoom)/2)/
+                        ((int64_t)screen*zoom);
+    return (int)(value>0?value:1);
 }
 
 /* Four-column touch panel. The final row supplies shortcuts and a text
@@ -123,13 +164,23 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
         if (!pad->keyboard_open && pad->captured == PAD_AREA &&
             session_pad_hit(pad, x, y) == PAD_AREA &&
             (dx || dy)) {
-            int nx = clamp(pad->pointer_x + dx * pad->sensitivity,
-                           0, pad->remote_w - 1);
-            int ny = clamp(pad->pointer_y + dy * pad->sensitivity,
-                           0, pad->remote_h - 1);
-            out->pointer_moved = nx != pad->pointer_x || ny != pad->pointer_y;
-            pad->pointer_x = nx;
-            pad->pointer_y = ny;
+            const int step_x=axis_motion(dx,pad->sensitivity,
+                         pad->remote_w,RDP_PAD_REMOTE_W,
+                         pad->zoom_q8,&pad->pointer_fraction_x);
+            const int step_y=axis_motion(dy,pad->sensitivity,
+                         pad->remote_h,RDP_PAD_REMOTE_H,
+                         pad->zoom_q8,&pad->pointer_fraction_y);
+            const int nx=clamp(pad->pointer_x+step_x,0,pad->remote_w-1);
+            const int ny=clamp(pad->pointer_y+step_y,0,pad->remote_h-1);
+            /* Discard fraction at a hard edge: do not carry a hidden
+             * overscroll into the next swipe away from the boundary. */
+            if ((nx==0 && step_x<0) || (nx==pad->remote_w-1 && step_x>0))
+                pad->pointer_fraction_x=0;
+            if ((ny==0 && step_y<0) || (ny==pad->remote_h-1 && step_y>0))
+                pad->pointer_fraction_y=0;
+            out->pointer_moved=nx!=pad->pointer_x || ny!=pad->pointer_y;
+            pad->pointer_x=nx;
+            pad->pointer_y=ny;
         } else if (pad->captured == PAD_SCROLL_STRIP) {
             /* Accumulate little strokes; movement down means scroll down. */
             pad->scroll_remainder += dy;
