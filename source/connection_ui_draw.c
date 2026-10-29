@@ -11,15 +11,15 @@
 #define UI_W 320
 #define UI_H 240
 #define C(r,g,b) (((uint32_t)(r)<<16)|((uint32_t)(g)<<8)|(uint32_t)(b))
-#define NAVY C(23,68,122)
-#define BLUE C(0,107,190)
+#define NAVY C(32,65,108)
+#define BLUE C(0,104,189)
 #define WHITE C(255,255,255)
-#define BG C(240,243,247)
-#define BORDER C(174,185,198)
-#define INK C(37,47,60)
-#define MUTED C(100,113,129)
+#define BG C(241,242,244)
+#define BORDER C(176,182,190)
+#define INK C(35,42,50)
+#define MUTED C(114,122,130)
 #define HIGHLIGHT C(217,235,252)
-#define PALE C(250,251,253)
+#define PALE C(250,251,252)
 
 static uint16_t *fb;
 
@@ -118,97 +118,153 @@ static void button(int x, int y, int w, const char *title, int accent)
     outline(x,y,w,26,accent ? NAVY : BORDER);
     label(x+8,y+10,title,x+w-5,accent ? WHITE : INK);
 }
+/* Compact Windows RDC-inspired chrome: the top screen owns the large
+ * branding, leaving the bottom screen as a practical form/dialog. */
 static void topbar(void)
 {
-    fill(0,0,320,29,NAVY);
-    fill(10,7,14,14,WHITE);
-    fill(12,9,4,4,BLUE); fill(18,9,4,4,BLUE);
-    fill(12,15,4,4,BLUE); fill(18,15,4,4,BLUE);
-    label(31,11,"Remote Desktop Connection",258,WHITE);
-    label(268,11,"SAVED",318,WHITE);
+    fill(0,0,320,22,C(229,234,240));
+    fill(0,21,320,1,BORDER);
+    fill(8,6,13,10,BLUE);
+    fill(10,8,9,6,C(208,234,254));
+    fill(13,16,4,2,NAVY);
+    label(27,8,"REMOTE DESKTOP",225,INK);
+    fill(263,2,55,18,WHITE);
+    outline(263,2,55,18,BORDER);
+    label(270,8,"OPEN",315,BLUE);
 }
 static void tabs(const ConnectionUI *ui)
 {
     static const char *titles[] = {"GENERAL","DISPLAY","LOCAL","EXPERIENCE","ADVANCED"};
-    int i;
-    for (i=0; i<RDP_UI_TAB_COUNT; ++i) {
-        int x = i*64;
-        int active = ui->tab == i;
-        fill(x,31,64,23,active ? WHITE : C(219,226,235));
-        outline(x,31,64,23,active ? BLUE : BORDER);
-        label(x+2,40,titles[i],x+63,active ? BLUE : INK);
+    for (int i=0;i<RDP_UI_TAB_COUNT;++i) {
+        int x=i*64, active=ui->tab==i;
+        fill(x,24,64,22,active?WHITE:C(230,232,235));
+        outline(x,24,64,22,active?BORDER:C(209,213,219));
+        if(active)fill(x+1,43,62,2,BLUE);
+        label(x+3,31,titles[i],x+63,active?BLUE:MUTED);
     }
 }
-static void field(int row, const char *name, const char *value, bool focus)
+static void field(int row, const char *name, const char *value, bool focus, bool combo)
 {
-    int y = 57 + row*25;
-    fill(6,y,308,22,focus ? HIGHLIGHT : BG);
-    label(12,y+8,name,94,MUTED);
-    fill(95,y+2,213,18,WHITE);
-    outline(95,y+2,213,18,focus ? BLUE : BORDER);
-    if (value && value[0])
-        label(101,y+8,value,300,INK);
-    else
-        label(101,y+8,"(NOT SET)",300,MUTED);
+    int y=75+row*30;
+    label(13,y,name,107,focus?BLUE:INK);
+    fill(104,y-2,186,24,WHITE);
+    outline(104,y-2,186,24,focus?BLUE:BORDER);
+    if(value && value[0])label(109,y+7,value,combo?265:283,INK);
+    else label(109,y+7,"(NOT SET)",combo?265:283,MUTED);
+    if(combo) {
+        fill(267,y-1,22,22,C(237,240,245));
+        fill(267,y-1,1,22,BORDER);
+        label(273,y+7,"V",288,INK);
+    }
 }
-static void panel_text(int y,const char *heading,const char *sub)
+static void setting_row(int row,const char *name,const char *value,int interactive)
 {
-    fill(8,y,304,35,WHITE);
-    outline(8,y,304,35,BORDER);
-    label(16,y+8,heading,305,INK);
-    label(16,y+20,sub,305,MUTED);
+    const int y=73+row*30;
+    fill(11,y,282,28,interactive?WHITE:C(244,246,249));
+    outline(11,y,282,28,interactive?BORDER:C(226,230,235));
+    label(17,y+10,name,166,interactive?INK:MUTED);
+    if(interactive) {
+        fill(166,y+3,120,22,WHITE);
+        outline(166,y+3,120,22,BLUE);
+        label(172,y+10,value,271,BLUE);
+        label(275,y+10,"V",284,BLUE);
+    } else {
+        label(174,y+10,value,283,MUTED);
+    }
+}
+static void dropdown_overlay(const ConnectionUI *ui)
+{
+    static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080"};
+    static const char *depth[]={"16 BIT","32 BIT"};
+    static const char *speed[]={"1 X","2 X","3 X"};
+    static const char *scroll[]={"1 NOTCH","2 NOTCH","3 NOTCH"};
+    static const char *bools[]={"OFF","ON"};
+    static const char *timeout[]={"8 SECONDS","12 SECONDS","20 SECONDS"};
+    const char *const *items=NULL;
+    int count=0;
+    switch(ui->choice_menu) {
+    case 1: items=sizes;count=4;break;
+    case 2: items=depth;count=2;break;
+    case 3: items=speed;count=3;break;
+    case 4: items=scroll;count=3;break;
+    case 5: case 6: items=bools;count=2;break;
+    case 7: items=timeout;count=3;break;
+    default:return;
+    }
+    fill(27,49,270,146,C(217,222,229));
+    fill(30,52,262,139,WHITE);
+    outline(30,52,262,139,BLUE);
+    label(41,63,"SELECT A VALUE",284,NAVY);
+    for(int i=0;i<count;i++) {
+        int y=80+22*i;
+        fill(36,y,251,21,(i&1)?PALE:WHITE);
+        outline(36,y,251,21,C(217,222,229));
+        label(46,y+7,items[i],275,INK);
+    }
+    label(39,174,"TAP OUTSIDE TO CANCEL",286,MUTED);
 }
 static void main_panel(const ConnectionUI *ui)
 {
-    char port[9];
-    if (ui->tab == RDP_UI_GENERAL) {
-        snprintf(port,sizeof(port),"%u",(unsigned)ui->current.port);
-        field(0,"COMPUTER",ui->current.host,ui->focus == 0);
-        field(1,"USER NAME",ui->current.username,ui->focus == 1);
-        field(2,"DOMAIN",ui->current.domain,ui->focus == 2);
-        field(3,"PORT",port,ui->focus == 3);
-        field(4,"SAVE AS",ui->name,ui->focus == 4);
-        return;
-    }
-    {
-        char line[96];
-        const RdpUiOptions *o=&ui->options;
+    const RdpUiOptions *o=&ui->options;
+    char value[50];
+    fill(6,49,308,134,WHITE);
+    outline(6,49,308,134,BORDER);
+    if(ui->tab==RDP_UI_GENERAL) {
+        if(ui->panel_scroll==0) {
+            label(13,56,"LOGON SETTINGS",282,NAVY);
+            field(0,"COMPUTER",ui->current.host,ui->focus==0,true);
+            field(1,"USER NAME",ui->current.username,ui->focus==1,false);
+            field(2,"DOMAIN",ui->current.domain,ui->focus==2,false);
+        } else {
+            label(13,56,"CONNECTION SETTINGS",282,NAVY);
+            snprintf(value,sizeof(value),"%u",(unsigned)ui->current.port);
+            field(0,"PORT",value,ui->focus==3,false);
+            field(1,"SAVE AS",ui->name,ui->focus==4,false);
+            label(15,148,"PASSWORDS ARE REQUESTED ON CONNECT",291,MUTED);
+        }
+        fill(297,56,13,120,C(237,240,244));
+        outline(297,56,13,120,BORDER);
+        label(301,60,"^",311,ui->panel_scroll==0?BLUE:MUTED);
+        fill(300,83+ui->panel_scroll*57,7,47,BLUE);
+        label(301,163,"V",311,ui->panel_scroll?MUTED:BLUE);
+        label(13,170,ui->panel_scroll?"PAGE 2 / 2":"PAGE 1 / 2",280,MUTED);
+    } else {
+        const char *group=ui->tab==RDP_UI_DISPLAY?"REMOTE DISPLAY":
+                          ui->tab==RDP_UI_LOCAL?"LOCAL RESOURCES":
+                          ui->tab==RDP_UI_EXPERIENCE?"CONNECTION EXPERIENCE":
+                          "SECURITY AND CONNECTION";
+        label(13,56,group,301,NAVY);
         switch(ui->tab) {
-        case RDP_UI_DISPLAY:
-            {
-                static const char *sizes[] = {
-                    "400 X 240", "640 X 360", "1280 X 720", "1920 X 1080"
-                };
-                const unsigned mode = o->display_mode < 4 ? o->display_mode : 0;
-                snprintf(line,sizeof(line),"DESKTOP SIZE: %s",sizes[mode]);
-            }
-            panel_text(63,line,"TAP: CYCLE REMOTE SIZE");
-            snprintf(line,sizeof(line),"COLOR DEPTH: %u BIT",o->color_depth);
-            panel_text(103,line,"TAP TO SWITCH 16 / 32 BIT");
-            panel_text(143,"ZOOM: L + CIRCLE ROTATE","100% TO 500%  LOCAL VIEW");
-            break;
-        case RDP_UI_LOCAL:
-            snprintf(line,sizeof(line),"TOUCH SPEED: %uX",o->touch_speed);
-            panel_text(63,line,"TAP TO ADJUST RELATIVE MOUSE");
-            snprintf(line,sizeof(line),"SCROLL STEP: %u",o->scroll_step);
-            panel_text(103,line,"TAP TO ADJUST WHEEL");
-            panel_text(143,o->reverse_scroll?"REVERSE SCROLL: ON":"REVERSE SCROLL: OFF",
-                       "TAP TO TOGGLE");
-            break;
-        case RDP_UI_EXPERIENCE:
-            panel_text(63,o->low_bandwidth?"LOW BANDWIDTH: ON":"LOW BANDWIDTH: OFF",
-                       "TAP TO DISABLE WALLPAPER");
-            panel_text(103,"NETWORK: DIRECT TCP","NO GATEWAY OR PROXY");
-            panel_text(143,"COMPRESSION: FREERDP","SERVER NEGOTIATED");
-            break;
-        default:
-            snprintf(line,sizeof(line),"CONNECT TIMEOUT: %u SEC",o->timeout_seconds);
-            panel_text(63,line,"TAP TO CYCLE 8 / 12 / 20");
-            panel_text(103,"SECURITY: NLA / CREDSSP","CERTIFICATE CHECK REQUIRED");
-            panel_text(143,"TRUSTED CERTIFICATES","HOLD L + PRESS X IN LAUNCHER");
+        case RDP_UI_DISPLAY: {
+            static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080"};
+            setting_row(0,"DESKTOP SIZE",sizes[o->display_mode<4?o->display_mode:0],1);
+            snprintf(value,sizeof(value),"%u BIT",(unsigned)o->color_depth);
+            setting_row(1,"COLOR DEPTH",value,1);
+            setting_row(2,"LOCAL ZOOM","100 - 500%",0);
             break;
         }
+        case RDP_UI_LOCAL:
+            snprintf(value,sizeof(value),"%u X",(unsigned)o->touch_speed);
+            setting_row(0,"POINTER SPEED",value,1);
+            snprintf(value,sizeof(value),"%u NOTCH",(unsigned)o->scroll_step);
+            setting_row(1,"SCROLL STEP",value,1);
+            setting_row(2,"REVERSE SCROLL",o->reverse_scroll?"ON":"OFF",1);
+            break;
+        case RDP_UI_EXPERIENCE:
+            setting_row(0,"LOW BANDWIDTH",o->low_bandwidth?"ON":"OFF",1);
+            setting_row(1,"TRANSPORT","DIRECT TCP",0);
+            setting_row(2,"CLIPBOARD","NOT ENABLED",0);
+            break;
+        default:
+            snprintf(value,sizeof(value),"%u SEC",(unsigned)o->timeout_seconds);
+            setting_row(0,"CONNECT TIMEOUT",value,1);
+            setting_row(1,"SECURITY","NLA REQUIRED",0);
+            setting_row(2,"CERTIFICATES","L + X TO VIEW",0);
+            break;
+        }
+        label(13,172,"BLUE BOX = SETTING; GRAY = STATUS",294,MUTED);
     }
+    if(ui->choice_menu)dropdown_overlay(ui);
 }
 static void saved_panel(const ConnectionUI *ui)
 {
@@ -245,18 +301,19 @@ void connection_ui_draw(const ConnectionUI *ui)
         label(270,40,"UP/DN",319,MUTED);
         saved_panel(ui);
     }
-    fill(0,185,320,55,C(220,229,239));
+    fill(0,185,320,55,C(231,235,240));
     fill(0,185,320,1,BORDER);
-    label(7,193,ui->message,313,MUTED);
+    label(7,193,"STATUS:",54,MUTED);
+    label(54,193,ui->message,313,INK);
     if (ui->show_saved) {
         button(4,209,74,"BACK",0);
         button(82,209,74,"NEW",0);
         button(160,209,76,ui->pending_delete >= 0 ? "SURE?" : "DELETE",0);
         button(240,209,76,"NEXT",1);
     } else {
-        button(4,209,74,"SAVE",0);
-        button(82,209,74,"SAVED",0);
-        button(160,209,64,"NEW",0);
+        button(4,209,65,"SAVE",0);
+        button(72,209,75,"SAVE AS",0);
+        button(150,209,75,"OPEN",0);
         button(228,209,88,"CONNECT",1);
     }
 }
