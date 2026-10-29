@@ -382,9 +382,9 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
         label(15,130,"X OR KEYBOARD: TYPE / SHORTCUTS",307,INK);
         label(15,146,"L + CIRCLE ROTATION: SMOOTH ZOOM",307,INK);
         label(15,162,"Y: FIT    R: DETAIL / FIT",307,INK);
-        label(15,178,"L+X: COLOR SWAP  L+Y: SMOOTH",307,INK);
+        label(15,178,"L+X: COLORS  L+Y: SMOOTH",307,INK);
         fill(14,199,292,1,C(224,230,238));
-        label(17,211,"START: EXIT  /  HELP: CLOSE",304,MUTED);
+        label(17,211,"SELECT: FPS  START: EXIT",304,MUTED);
         return;
     }
     if(pad->settings_open){
@@ -426,6 +426,25 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
     label(19,53,line,251,MUTED);
     label(68,120,"TOUCHPAD",205,C(147,155,166));
     label(67,140,"SWIPE TO MOVE",225,C(160,168,178));
+    if(pad->perf_open) {
+        /* Read-only metrics, visually distinct from blue input controls.
+         * Only measured render/wait time and allocated GDI primary size;
+         * do not claim total process RAM or RDP bandwidth. */
+        fill(14,78,243,110,C(246,248,250));
+        outline(14,78,243,110,BORDER);
+        label(23,87,"SESSION PERFORMANCE",248,NAVY);
+        snprintf(line,sizeof(line),"PAINTS/S: %u",pad->perf_fps);
+        label(23,105,line,248,INK);
+        snprintf(line,sizeof(line),"BLIT: %u MS   WAIT: %u MS",
+                 pad->perf_blit_ms,pad->perf_wait_ms);
+        label(23,121,line,248,INK);
+        snprintf(line,sizeof(line),"REMOTE: %d X %d",pad->remote_w,pad->remote_h);
+        label(23,137,line,248,INK);
+        snprintf(line,sizeof(line),"GDI: %u KB  %u BIT",
+                 pad->perf_gdi_kib,pad->perf_gdi_bpp);
+        label(23,153,line,248,INK);
+        label(23,172,"SELECT: HIDE",248,MUTED);
+    }
     if(pad->touching && pad->captured==PAD_AREA)
         outline(8,40,254,166,C(105,145,187));
 
