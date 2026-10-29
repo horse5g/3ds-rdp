@@ -15,7 +15,7 @@ The bottom screen uses a window-style tab strip: **General, Display, Local, Expe
 
 The bottom command bar provides **Save**, **Save As**, **Open**, **Connect**. Save uses the selected profile name or asks for one; Save As requires a *different* name and refuses accidental overwrite of another saved connection; Open presents the paged list of up to 12 saved profiles; Connect starts the full client in a full-client build and runs the X.224-only probe in the lightweight build. The Open list has **Back, New, Delete, Next**. Existing safeguards require confirming deletion and discarding unsaved edits.
 
-**Display:** Remote desktop resolution dropdown (400×240 / 640×360 / 1280×720 / 1920×1080) and negotiated 16-/32-bit color-depth dropdown. The physical top screen stays 400×240. 720p and 1080p are experimental on the original 3DS; the server cannot force an unconfigured desktop allocation.
+**Display:** Remote desktop resolution dropdown (400×240 / 640×360 / 800×480 / 960×540 / 1280×720 / 1920×1080) and negotiated 16-/32-bit color-depth dropdown. The physical top screen stays 400×240. 800×480 and higher modes are experimental on the original 3DS; the server cannot force an unconfigured desktop allocation.
 
 **Local:** Editable pointer speed (1–3×), scroll step (1–3 notches), and reverse scrolling (on/off). Profile preferences apply at connection start; the session's Settings overlay can adjust these for the current connection.
 
@@ -53,12 +53,13 @@ Gestures and controls:
 | R | Toggle fit and close-up |
 | X / Text | Open stock 3DS text entry |
 | START | Disconnect |
+| SELECT | Toggle read-only performance panel during a connected session |
 
 A tap on **Help** disables pointer/click hit-testing in the content area until closed; only the toolbar remains actionable. Opening Keyboard or Settings closes Help, and keyboard modifiers are cleared when switching modes. Settings remain session-only.
 
 ### Rendering and performance
 
-FreeRDP decodes a full remote desktop into a GDI `PIXEL_FORMAT_XRGB32` buffer; a software blitter scales/samples it into the upper LCD's native 400×240 RGB565 buffer. High desktop resolutions preserve the true remote pointer coordinates while zooming/panning locally. The source reports a red/yellow rendering tint on physical hardware despite a correctly colored local cursor; opt-in aggregate GDI color diagnostics are in development. 1080p has a primary 32-bit GDI buffer of at least 8.3 MB before codec caches; test 720p first on original 3DS.
+FreeRDP uses `PIXEL_FORMAT_XRGB32` at 400×240 and 640×360, and the memory-saving local `PIXEL_FORMAT_RGB16` path at 800×480 and higher. A software blitter scales/samples the desktop into the top LCD's 400×240 RGB565 framebuffer. The user observed a red/blue channel reversal in early hardware builds; a reversible fix is present but still requires physical confirmation. The new 800×480 mode is an exact 2× source resolution in both top-screen dimensions, and 960×540 is a modest 16:9 option. All intermediate-resolution rendering remains experimental on O3DS.
 
 ## Profiles and security
 
@@ -87,3 +88,9 @@ pixels at any desktop size. At 400x240 fit view the old sensitivity
 is unchanged. This is a local input change, not a remote RDP display
 resize or graphics security change. Portable tests cover fit,
 720p/1080p, 4x/5x zoom, fractional moves and desktop clamping.
+
+### Connected-session performance and reconnect
+
+Press **SELECT** to show/hide the noninteractive diagnostic panel over the trackpad. It reports measured top-screen paints/second, last desktop software-blit time, the latest FreeRDP event wait, remote resolution, and primary GDI allocation KiB. It neither measures total memory use nor full network latency, and adding the panel itself requires occasional display redraws. The renderer avoids continuous extra SD logs.
+
+After leaving a session, the client now shows **A: Reconnect** / **B: Back** on the bottom screen. Reconnection is always deliberate: a new FreeRDP client, password prompt, fresh certificate verification, and cleaned-up prior context. This adds no automatic retry or trust bypass. Repeated connections are not yet confirmed on physical O3DS, and the earlier SOC shutdown workaround is retained for program exit.
