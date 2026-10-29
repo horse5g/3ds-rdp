@@ -49,6 +49,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/err.h>
+#include <openssl/provider.h>
 #include <arpa/inet.h>
 #include <limits.h>
 #include <errno.h>
@@ -117,6 +118,76 @@ static const char *connection_failure_hint(UINT error)
         default:
             return "RDP connection failed (see code)";
     }
+}
+
+/* RAND_bytes can return 0 without queuing an OpenSSL error when
+ * global RNG state or a thread-local DRBG fails to initialize. */
+static bool openssl_rng_preflight(OSSL_PROVIDER **provider_ref,
+                                char *error, size_t cap)
+{
+    EVP_RAND *algorithm = NULL;
+    EVP_RAND_CTX *primary = NULL, *public_rng = NULL;
+    unsigned char check[32] = {0};
+    const char *stage = "provider";
+    unsigned long code;
+    const char *description;
+    bool ok = false;
+
+    if (!provider_ref || !error || !cap)
+        return false;
+    *provider_ref = NULL;
+    ERR_clear_error();
+    if (!OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL))
+        goto fail;
+    /* Retain the embedded default provider through the entire session. */
+    *provider_ref = OSSL_PROVIDER_load(NULL, "default");
+    if (!*provider_ref)
+        goto fail;
+    stage = "CTR-DRBG";
+    algorithm = EVP_RAND_fetch(NULL, "CTR-DRBG", NULL);
+    if (!algorithm)
+        goto fail;
+    EVP_RAND_free(algorithm);
+    algorithm = NULL;
+    stage = "primary DRBG";
+    primary = RAND_get0_primary(NULL);
+    if (!primary)
+        goto fail;
+    stage = "primary state";
+    if (EVP_RAND_get_state(primary) != EVP_RAND_STATE_READY)
+        goto fail;
+    stage = "public DRBG";
+    public_rng = RAND_get0_public(NULL);
+    if (!public_rng)
+        goto fail;
+    stage = "public state";
+    if (EVP_RAND_get_state(public_rng) != EVP_RAND_STATE_READY)
+        goto fail;
+    stage = "RAND_bytes";
+    if (RAND_bytes(check, (int)sizeof(check)) != 1)
+        goto fail;
+    ok = true;
+    error[0] = 0;
+    goto done;
+fail:
+    code = ERR_peek_last_error();
+    description = code ? ERR_reason_error_string(code) : NULL;
+    if (description && *description)
+        snprintf(error, cap, "OpenSSL %.22s: %.28s (0x%08lX)",
+                 stage, description, code);
+    else
+        snprintf(error, cap, "OpenSSL %.36s unavailable (0x%08lX)",
+                 stage, code);
+    ERR_clear_error();
+done:
+    EVP_RAND_free(algorithm);
+    OPENSSL_cleanse(check, sizeof(check));
+    if (!ok) {
+        if (*provider_ref)
+            OSSL_PROVIDER_unload(*provider_ref);
+        *provider_ref = NULL;
+    }
+    return ok;
 }
 
 static bool desktop_dirty;
@@ -877,6 +948,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
 {
     freerdp *client = NULL;
     rdpSettings *settings;
+    OSSL_PROVIDER *rng_provider = NULL;
     char password[128] = {0};
     bool initialized = false;
     bool connected = false;
@@ -956,31 +1028,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             goto done;
         }
     }
-    {
-        unsigned char entropy_check[32] = {0};
-        int seeded;
-        unsigned long openssl_error;
-        const char *openssl_reason;
-
-        ERR_clear_error();
-        seeded = RAND_bytes(entropy_check, (int)sizeof(entropy_check));
-        OPENSSL_cleanse(entropy_check, sizeof(entropy_check));
-        if (seeded != 1) {
-            openssl_error = ERR_peek_last_error();
-            openssl_reason = openssl_error ?
-                  ERR_reason_error_string(openssl_error) : NULL;
-            if (openssl_reason && openssl_reason[0])
-                snprintf(reason, reason_size,
-                         "OpenSSL RAND: %.43s (0x%08lX)",
-                         openssl_reason, openssl_error);
-            else
-                snprintf(reason, reason_size,
-                         "OpenSSL RAND failed (code 0x%08lX)",
-                         openssl_error);
-            ERR_clear_error();
-            goto done;
-        }
-    }
+    if (!openssl_rng_preflight(&rng_provider, reason, reason_size))
+        goto done;
 
     client = freerdp_new();
     if (!client) {
@@ -1310,6 +1359,8 @@ done:
         }
         freerdp_free(client);
     }
+    if (rng_provider)
+        OSSL_PROVIDER_unload(rng_provider);
     OPENSSL_cleanse(&active_pin, sizeof(active_pin));
     OPENSSL_cleanse(&active_pool, sizeof(active_pool));
     OPENSSL_cleanse(requested_host, sizeof(requested_host));
