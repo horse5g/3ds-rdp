@@ -70,6 +70,12 @@ allocation, and first desktop paint.
   user CredSSP identity. A separate portable preflight now validates the
   selected profile and options and requires a username *before* allocating
   WinPR client settings. It preserves passwordless profile storage.
+- **Password entry before context allocation:** The app previously prompted
+  for a secret even when `freerdp_context_new()` was about to fail on WinPR
+  paths or memory. FreeRDP client/context setup now happens **before** the
+  password applet, so the user gets the initialization error without
+  re-entering credentials. The password is still only held transiently in
+  RAM and never saved.
 - **OpenSSL PS entropy failure:** TLS/NLA previously began without a specific
   entropy diagnostic. A 32-byte `RAND_bytes()` preflight runs after WinPR
   HOME/XDG initialization and before the password prompt. The bytes are
@@ -85,8 +91,10 @@ allocation, and first desktop paint.
   memory error if `gdi_init` fails.
 - **Opaque failures:** Map known FreeRDP error codes to useful DNS, TCP,
   NLA security, TLS, credential, account permission, and desktop-activation
-  error messages while retaining the hexadecimal code. Certificate pin
-  changes and unknown certificate refusals still take precedence.
+  error messages while retaining the hexadecimal code. The lower-screen
+  error dialog wraps longer messages so the numeric code remains visible.
+  Certificate pin changes and unknown certificate refusals still take
+  precedence.
 - **Null context settings:** Check client settings after context allocation
   before using them, rather than unconditionally dereferencing the pointer.
 
