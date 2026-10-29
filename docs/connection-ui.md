@@ -21,7 +21,7 @@ The bottom command bar provides **Save**, **Save As**, **Open**, **Connect**. Sa
 
 **Experience:** Editable low-bandwidth/wallpaper preference; gray read-only transport (direct TCP) and clipboard (disabled) indicators.
 
-**Advanced:** Editable connection timeout (8/12/20 seconds), read-only NLA-required and trusted-certificate manager shortcut notes. There is no bypass of TLS or NLA.
+**Advanced:** Editable connection timeout (8/12/20 seconds), read-only NLA-required status, and **Cache Password: This Run On/Off**. This cache is OFF by default, never written to SD, and only retained until returning to the launcher or exiting. It is valid only for the same host:port, username and domain, and is stored only after a successful NLA connection. There is no bypass of TLS or NLA. The certificate manager remains available with L+X in the launcher.
 
 **What is actionable?** A blue-outlined white field with a dropdown arrow is an editable setting. A muted gray value row is status or unavailable capability, not a switch. The slim footer includes a clearly marked `STATUS:` message area, visually separated from action buttons. The option dropdown is a true modal list: tap a choice or use D-pad Up/Down, A to confirm; B or tapping outside cancels.
 
@@ -54,12 +54,13 @@ Gestures and controls:
 | X / Text | Open stock 3DS text entry |
 | START | Disconnect |
 | SELECT | Toggle read-only performance panel during a connected session |
+| L + SELECT | Toggle native LCD red/green/blue/white/yellow/cyan/magenta test strip on the top screen; independent of RDP decoding |
 
 A tap on **Help** disables pointer/click hit-testing in the content area until closed; only the toolbar remains actionable. Opening Keyboard or Settings closes Help, and keyboard modifiers are cleared when switching modes. Settings remain session-only.
 
 ### Rendering and performance
 
-FreeRDP uses `PIXEL_FORMAT_XRGB32` at 400×240 and 640×360, and the memory-saving local `PIXEL_FORMAT_RGB16` path at 800×480 and higher. A software blitter scales/samples the desktop into the top LCD's 400×240 RGB565 framebuffer. The user observed a red/blue channel reversal in early hardware builds; a reversible fix is present but still requires physical confirmation. The new 800×480 mode is an exact 2× source resolution in both top-screen dimensions, and 960×540 is a modest 16:9 option. All intermediate-resolution rendering remains experimental on O3DS.
+A recent hardware test found that the experimental local `PIXEL_FORMAT_RGB16` GDI output showed only a solid color at 720p/1080p. This diagnostic build therefore requests `PIXEL_FORMAT_XRGB32` at all resolutions; it still disables oversized optional planar codec allocations at large desktop sizes. The increased primary buffer size may cause 1080p to fail on memory-constrained original hardware. A software blitter scales/samples the desktop into the top LCD's 400×240 RGB565 framebuffer. The user observed a red/blue channel reversal in early hardware builds; a reversible fix is present but still requires physical confirmation. The new 800×480 mode is an exact 2× source resolution in both top-screen dimensions, and 960×540 is a modest 16:9 option. All intermediate-resolution rendering remains experimental on O3DS.
 
 ## Profiles and security
 
@@ -94,3 +95,9 @@ resize or graphics security change. Portable tests cover fit,
 Press **SELECT** to show/hide the noninteractive diagnostic panel over the trackpad. It reports measured top-screen paints/second, last desktop software-blit time, the latest FreeRDP event wait, remote resolution, and primary GDI allocation KiB. It neither measures total memory use nor full network latency, and adding the panel itself requires occasional display redraws. The renderer avoids continuous extra SD logs.
 
 After leaving a session, the client now shows **A: Reconnect** / **B: Back** on the bottom screen. Reconnection is always deliberate: a new FreeRDP client, password prompt, fresh certificate verification, and cleaned-up prior context. This adds no automatic retry or trust bypass. Repeated connections are not yet confirmed on physical O3DS, and the earlier SOC shutdown workaround is retained for program exit.
+
+### Session-only password caching security
+
+Under **Advanced → Cache Password**, choose **This Run: On** before connecting to opt into RAM-only password reuse. Default OFF. The password is held only after a successful NLA connection; it is scoped to the exact host, port, username and domain. Failed/cancelled connections and a switch to another endpoint wipe it. Returning from the reconnect dialog to the launcher or exiting wipes it, including explicit OpenSSL cleansing. No password is stored in `connections.txt`, a new SD credential file, or diagnostic logs. Reconnects still verify the server certificate anew, and the cache does not support unattended or automatic reconnect.
+
+**Persistent saving across power cycles is intentionally not implemented.** A 3DS SD card is removable and cannot safely store a reusable plaintext Windows password; a persistent mode should require a separate user passphrase and an authenticated encrypted vault before it is offered.
