@@ -24,6 +24,7 @@ typedef struct {
     int focus;          /* General field 0..4, settings row 0..2 */
     int panel_scroll;   /* General editor page: 0 logon, 1 connection */
     int choice_menu;    /* 0=closed; other IDs are active option dropdowns */
+    int choice_highlight; /* D-pad selection within the open dropdown */
     int tab;
     int scroll;         /* saved-connections list first visible item */
     int highlight;      /* selected row in saved connections view */
