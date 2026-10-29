@@ -497,7 +497,8 @@ void connection_ui_draw_status(const char *heading,const char *message,bool retr
         }
     }
     if(retry) {
-        button(10,205,145,"RETRY (A)",1);
+        button(10,205,145,heading && strcmp(heading,"SESSION ENDED")==0 ?
+               "RECONNECT (A)" : "RETRY (A)",1);
         button(165,205,145,"BACK (B)",0);
     } else {
         button(10,205,300,"PLEASE WAIT",0);
