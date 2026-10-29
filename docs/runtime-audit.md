@@ -130,6 +130,18 @@ trailing dots and wildcard forms are **not** allowed to match. SHA-256
 fingerprints still have to match exactly. Duplicates with different
 case are rejected during pool parsing, including changed fingerprints.
 
+### Do not advertise unimplemented transport features
+
+Upstream FreeRDP settings initialize `FreeRDP_SupportMultitransport`
+and `FreeRDP_RedirectClipboard` as enabled, although this homebrew build
+deliberately uses IPv4/TCP transport and configures
+`-DWITH_CHANNELS=OFF`. Before starting the connection, explicitly set
+both options to `FALSE` to avoid requesting RDP UDP multitransport or a
+clipboard channel that the current O3DS client cannot use. This does not
+downgrade CredSSP/NLA or TLS; all current certificate requirements stay
+enabled. Future channel work can re-enable individual features only when
+they have a matching implementation and tests.
+
 ## Validation and constraints
 
 - Portable tests: desktop resize limit and duplicate profile rejection.
