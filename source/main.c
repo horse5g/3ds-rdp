@@ -101,25 +101,31 @@ static void full_session(const ConnectionUI *state)
         rdp_diag_log_event("app-connect-attempt", 0, 0, 0);
         result=freerdp_3ds_run(&state->current,&state->options,message,sizeof(message));
         rdp_diag_log_event("app-connect-return", (unsigned long)(result != 0), 0, 0);
-        if(result!=0){
-            connection_ui_draw_status("CONNECTION FAILED",message,true);
-            gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
-            /* No automatic reconnect: a failed certificate validation must
-               never be silently retried or accepted. */
-            while(aptMainLoop()){
-                u32 keys;
-                hidScanInput();keys=hidKeysDown();
-                if(keys&KEY_TOUCH){
-                    touchPosition touch;hidTouchRead(&touch);
-                    if(touch.py>=205){
-                        if(touch.px<155)keys|=KEY_A;
-                        else keys|=KEY_B;
-                    }
+        /* Always return to a deliberate choice after the FreeRDP context
+         * and worker have been fully torn down. Reconnect never reuses an
+         * old socket, password, OpenSSL context or certificate decision.
+         * A/B mean retry/menu; no automatic retry of a bad certificate. */
+        connection_ui_draw_status(result==0?"SESSION ENDED":"CONNECTION FAILED",
+                                  message,true);
+        gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
+        rdp_diag_log_event("app-session-clean",result==0,0,0);
+        while(aptMainLoop()){
+            u32 keys;
+            hidScanInput();keys=hidKeysDown();
+            if(keys&KEY_TOUCH){
+                touchPosition touch;hidTouchRead(&touch);
+                if(touch.py>=205){
+                    if(touch.px<155)keys|=KEY_A;
+                    else keys|=KEY_B;
                 }
-                if(keys&KEY_A){again=true;break;}
-                if(keys&(KEY_B|KEY_START))break;
-                gspWaitForVBlank();
             }
+            if(keys&KEY_A){
+                again=true;
+                rdp_diag_log_event("app-reconnect-request",result==0,0,0);
+                break;
+            }
+            if(keys&(KEY_B|KEY_START))break;
+            gspWaitForVBlank();
         }
     }while(again);
     snprintf(status,sizeof(status),"%s",result==0 ? "Session exited" : "RDP session error");
