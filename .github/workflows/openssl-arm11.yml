@@ -46,48 +46,9 @@ jobs:
         run: |
           bash scripts/link-openssl-3ds.sh runtime
           test -s build/openssl-3ds/openssl-rng-smoke.3dsx
-          # A green build must contain our strong pthread-key adapter,
-          # not newlib's ENOSYS symbols. Runtime behavior still needs O3DS.
-          "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only \
-            build/openssl-3ds/openssl-rng-smoke.elf |
-            grep -Eq ' [Tt] pthread_key_create      # Keep the runnable .3dsx separate from developer .a archives.
-      # Uploading archives alone must NEVER imply the smoke app was built.
-      - name: Upload standalone O3DS RNG diagnostic
-        uses: actions/upload-artifact@v4
-        with:
-          name: openssl-rng-smoke-o3ds
-          path: build/openssl-3ds/openssl-rng-smoke.3dsx
-          if-no-files-found: error
-      - name: Upload OpenSSL static developer archives
-        uses: actions/upload-artifact@v4
-        with:
-          name: openssl-arm11-static-experimental
-          path: |
-            build/openssl-3ds/libcrypto.a
-            build/openssl-3ds/libssl.a
-          if-no-files-found: error
-
-          "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only \
-            build/openssl-3ds/openssl-rng-smoke.elf |
-            grep -Eq ' [Tt] rdp_3ds_tsd_cleanup_current_thread      # Keep the runnable .3dsx separate from developer .a archives.
-      # Uploading archives alone must NEVER imply the smoke app was built.
-      - name: Upload standalone O3DS RNG diagnostic
-        uses: actions/upload-artifact@v4
-        with:
-          name: openssl-rng-smoke-o3ds
-          path: build/openssl-3ds/openssl-rng-smoke.3dsx
-          if-no-files-found: error
-      - name: Upload OpenSSL static developer archives
-        uses: actions/upload-artifact@v4
-        with:
-          name: openssl-arm11-static-experimental
-          path: |
-            build/openssl-3ds/libcrypto.a
-            build/openssl-3ds/libssl.a
-          if-no-files-found: error
-
-      # Keep the runnable .3dsx separate from developer .a archives.
-      # Uploading archives alone must NEVER imply the smoke app was built.
+          # Check strong pthread implementation symbols in the final ELF.
+          "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only build/openssl-3ds/openssl-rng-smoke.elf | grep -E ' [Tt] pthread_key_create$'
+          "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only build/openssl-3ds/openssl-rng-smoke.elf | grep -E ' [Tt] rdp_3ds_tsd_cleanup_current_thread$'
       - name: Upload standalone O3DS RNG diagnostic
         uses: actions/upload-artifact@v4
         with:
