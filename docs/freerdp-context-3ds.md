@@ -124,3 +124,44 @@ a local diagnostic artifact: review it before sharing. Logging adds
 SD I/O on recorded checkpoints, so remove or rename `rdplog.txt`
 and relaunch to disable it. The main session remains safe to start
 without the file.
+
+## Physical O3DS result: C4 R17 is the FreeRDP timer
+
+The attached physical-device rdplog.txt records two identical failures after
+successful OpenSSL readiness:
+```text
+freerdp-context-fail 00000004 00000011 0000000B
+freerdp-context-winpr 000000CB 00000000 00000000
+```
+The values are hex: C4, R17, errno 11 (EAGAIN). WinPR 0xCB (203)
+could be stale and does not necessarily identify the timer failure.
+
+In pinned FreeRDP 3.32.2, libfreerdp/core/rdp.c stage R17 calls
+freerdp_timer_new(). Its last constructor step in core/timer.c uses
+WinPR CreateThread, which internally calls pthread_create. That
+platform pthread path is not verified on original 3DS.
+
+patches/freerdp-3.32.2-3ds-native-core-timer.patch retains the complete
+FreeRDP timer logic, events and scheduling, but creates, joins and frees
+the timer worker through the native libctru thread API on __3DS__.
+Non-3DS platforms retain their original CreateThread behavior. The
+native timer thread invokes the app's pthread TSD destructor cleanup
+on exit. This is an experimental compatibility repair, not yet
+validated on hardware.
+
+A nested T-stage diagnostic now shows or logs timer construction
+failures:
+
+| T | Operation |
+|---|---|
+| 1 | Allocate timer |
+| 2 | Allocate synchronized timer-entry list |
+| 3 | Create timer wake event |
+| 4 | Create main-loop timer event |
+| 5 | Create native ARM11 timer thread |
+| 6 | Timer constructed successfully |
+
+If context creation fails again, the screen reports
+FreeRDP ctx C# R# T# and an opted-in rdplog.txt records a
+freerdp-timer-stage event. Keep the PR draft until real TLS/NLA
+and remote desktop sessions are validated.
