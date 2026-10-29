@@ -88,6 +88,18 @@ static char post_connect_failure[100];
 /* Give hardware tests an actionable stage instead of reporting every
  * authentication, DNS, transport and activation error as "connect failed".
  * Never include the password or FreeRDP's credential buffers. */
+/* Callbacks from pinned FreeRDP's pre-TCP codec initialization. The
+ * packed dimensions are non-secret and identify resource failure stage.
+ * stage 1=enter reset, 2=codecs_new OOM, 3=prepare begins,
+ * 4=prepare failed, 5=prepare succeeded. */
+void freerdp_3ds_codec_checkpoint(unsigned int stage,unsigned int flags,
+                                 unsigned int width,unsigned int height)
+{
+    rdp_diag_log_event("rdp-codec-stage",stage,flags,
+                       ((unsigned long)(width & 0xFFFFu) << 16) |
+                       (height & 0xFFFFu));
+}
+
 static const char *connection_failure_hint(UINT error)
 {
     switch (error) {
