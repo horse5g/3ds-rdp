@@ -42,7 +42,7 @@ Gestures and controls:
 
 | Input | Remote effect |
 | --- | --- |
-| Swipe pad | Relative mouse movement without cursor teleport |
+| Swipe pad | Relative mouse movement, automatically scaled by remote resolution and visible zoom with subpixel accumulation; no cursor teleport |
 | Quick tap | Left click |
 | Physical A + swipe | Drag with the left button held |
 | Physical B | Right mouse button |
@@ -72,3 +72,18 @@ FreeRDP decodes a full remote desktop into a GDI `PIXEL_FORMAT_XRGB32` buffer; a
 UI controller logic: `source/connection_ui.c`; screen drawing: `source/connection_ui_draw.c`; portable geometry: `source/connection_ui_hit.c`. Session state and gestures: `source/session_pad.c` and `include/session_pad.h`, zoom: `source/session_zoom.c`. Profile persistence: `source/profile_store.c`.
 
 Run `make -C tests test` for portable parsers, controller-independent hit bounds, trackpad transitions, zoom, pixel conversion and desktop allocation guards. The full FreeRDP and libctru CI job builds `3ds-rdp-full.3dsx`. Both code review and physical input testing remain necessary; CI does not validate LCD color, touchpad ergonomics or live RDP frame rate.
+
+### Large-desktop pointer feel
+
+The pad now interprets a finger swipe in **visible LCD space**, not a
+fixed remote-pixel count. The prior fixed `dx * sensitivity` movement
+felt roughly 4.8 times slower on 1920x1080 than on 400x240 in fit
+view. It now uses `dx * sensitivity * remote_width / (400 * zoom)`
+(and the equivalent 240-high Y axis), retaining a signed Q16
+subpixel remainder so single-pixel motion still works when the
+viewport is highly magnified. D-pad nudges scale with the same
+remote resolution and visible zoom: roughly eight LCD-equivalent
+pixels at any desktop size. At 400x240 fit view the old sensitivity
+is unchanged. This is a local input change, not a remote RDP display
+resize or graphics security change. Portable tests cover fit,
+720p/1080p, 4x/5x zoom, fractional moves and desktop clamping.
