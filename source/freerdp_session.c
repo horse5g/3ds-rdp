@@ -19,6 +19,7 @@
 #include "rdp_freerdp_diag.h"
 #include "rdp_diag_log.h"
 #include "rdp_pthread_tsd.h"
+#include "loopback_pair.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -995,6 +996,27 @@ static bool connect_with_ui(freerdp *client, const char *host,
     return connected;
 }
 
+/* Count the SOC loopback socket events separately from general errno.
+ * The extra capacity probe runs only on context failure AND when logging is
+ * explicitly enabled with a pre-existing rdplog.txt. It runs after FreeRDP
+ * cleanup, so it measures post-failure headroom, not peak socket usage. */
+static void log_loopback_budget(bool probe_capacity)
+{
+    LoopbackPairStats stats = {0};
+    if (!rdp_diag_log_enabled())
+        return;
+    loopback_pair_get_stats(&stats);
+    rdp_diag_log_event("loopback-stats", stats.opened, stats.failed,
+        ((unsigned long)stats.last_stage << 16) |
+        ((unsigned long)stats.last_errno & 0xFFFFu));
+    if (probe_capacity) {
+        unsigned int stage = 0;
+        int error = 0;
+        const unsigned int pairs = loopback_pair_probe_capacity(12u, &stage, &error);
+        rdp_diag_log_event("loopback-postfail-cap", pairs, stage, (unsigned long)error);
+    }
+}
+
 int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *reason, size_t reason_size)
 {
     freerdp *client = NULL;
@@ -1112,12 +1134,21 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         rdp_diag_log_event("freerdp-context-winpr", winpr_error, 0, 0);
         if (tstage)
             rdp_diag_log_event("freerdp-timer-stage", tstage, 0, 0);
+        if (tstage == 5) {
+            unsigned int prio = 0, used = 0, limit = 0, heap_ok = 0;
+            freerdp_3ds_timer_thread_diag(&prio, &used, &limit, &heap_ok);
+            rdp_diag_log_event("freerdp-timer-thread", prio,
+                ((unsigned long)(used & 0xFFFFu) << 16) | (limit & 0xFFFFu),
+                heap_ok);
+        }
+        log_loopback_budget(true);
         snprintf(reason, reason_size, "FreeRDP ctx C%u R%u T%u",
                  cstage, rstage, tstage);
         goto done;
     }
     initialized = true;
     rdp_diag_log_event("freerdp-context-ok", freerdp_3ds_context_init_stage(), freerdp_3ds_rdp_init_stage(), 0);
+    log_loopback_budget(false);
     settings = client->context ? client->context->settings : NULL;
     if (!settings) {
         snprintf(reason, reason_size,
