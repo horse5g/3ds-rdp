@@ -8,8 +8,21 @@
 #define RDP_PROFILE_NAME_CAP 41
 
 typedef struct {
+    uint8_t display_mode;     /* 0=400x240, 1=640x360 */
+    uint8_t color_depth;      /* 16 or 32 */
+    uint8_t touch_speed;      /* 1..3 */
+    uint8_t scroll_step;      /* 1..3 */
+    uint8_t reverse_scroll;   /* 0/1 */
+    uint8_t low_bandwidth;    /* 0/1: avoid wallpaper */
+    uint8_t timeout_seconds;  /* 8, 12 or 20 */
+} RdpUiOptions;
+RdpUiOptions rdp_options_default(void);
+int rdp_options_valid(const RdpUiOptions *options);
+
+typedef struct {
     char name[RDP_PROFILE_NAME_CAP];
     RdpConfig config;
+    RdpUiOptions options;
 } RdpProfile;
 
 typedef struct {

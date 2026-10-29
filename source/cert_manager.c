@@ -1,6 +1,7 @@
 #include "cert_manager.h"
 #ifdef RDP_FULL_CLIENT
 #include "cert_store.h"
+#include "connection_ui.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,26 +54,22 @@ static void draw_manager(PrintConsole *top, PrintConsole *bottom,
         }
     }
 
-    consoleSelect(bottom);
-    printf("\x1b[2J\x1b[H");
-    if (screen == 0) {
-        puts("Up/Down: Select an entry");
-        puts("A: View fingerprint");
-        puts("Y: Reload file");
-        puts("B/START: Return to main menu");
-    } else if (screen == 1) {
-        puts("X: Remove saved trust");
-        puts("B: Back to list");
-        puts("START: Main menu");
-        puts("Manual cert-pin.txt is separate.");
-    } else {
-        puts("A: CONFIRM REMOVE");
-        puts("B: Cancel");
-        puts("START: Main menu");
-        puts("This cannot be undone here.");
+    (void)bottom;
+    {
+        char info[80],title[64];
+        if(screen==0){
+            snprintf(title,sizeof(title),"SAVED CERTIFICATES");
+            snprintf(info,sizeof(info),"%u TRUSTED ENDPOINTS",
+                     (unsigned)pool->count);
+        }else {
+            const RdpCertPin *p=&pool->entries[selected];
+            snprintf(title,sizeof(title),"CERTIFICATE DETAILS");
+            snprintf(info,sizeof(info),"%.40s PORT %u",p->host,(unsigned)p->port);
+        }
+        connection_ui_draw_cert_manager(title,info,
+             (screen==0 ? "UP/DOWN: SELECT CERT" : notice),
+             screen==2);
     }
-    if (notice && *notice)
-        printf("\n%.39s\n", notice);
 }
 
 int rdp_cert_manager_run(PrintConsole *top, PrintConsole *bottom,
@@ -103,7 +100,16 @@ int rdp_cert_manager_run(PrintConsole *top, PrintConsole *bottom,
 
     while (aptMainLoop()) {
         hidScanInput();
-        const u32 keys = hidKeysDown();
+        u32 keys = hidKeysDown();
+        if(keys & KEY_TOUCH){
+            touchPosition touch;
+            hidTouchRead(&touch);
+            if(touch.py>=205){
+                if(touch.px<108) keys|=KEY_A;
+                else if(touch.px<213)keys|=KEY_X;
+                else keys|=KEY_B;
+            }
+        }
         bool redraw = false;
 
         if (keys & KEY_START)
@@ -139,6 +145,9 @@ int rdp_cert_manager_run(PrintConsole *top, PrintConsole *bottom,
                     selected = pool->count ? pool->count - 1 : 0;
                 snprintf(notice, sizeof(notice), "Trust pool reloaded");
                 redraw = true;
+            }
+            if ((keys & KEY_X) && pool->count) {
+                screen=2;redraw=true;
             }
         } else if (screen == 1) {
             if (keys & KEY_X) {

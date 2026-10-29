@@ -100,6 +100,7 @@ int main(void)
     assert(pad.disconnect_armed && !a.disconnect);
     a=tap(&pad,50,15);
     assert(a.disconnect);
+    pad.keyboard_open=false; /* return to touchpad after keyboard test */
     /* x clamping and negative speed deltas */
     pad.settings_open=false;
     pad.pointer_x=399; pad.pointer_y=0;

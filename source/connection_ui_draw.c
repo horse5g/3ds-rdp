@@ -170,27 +170,39 @@ static void main_panel(const ConnectionUI *ui)
         field(4,"SAVE AS",ui->name,ui->focus == 4);
         return;
     }
-    switch(ui->tab) {
-    case RDP_UI_DISPLAY:
-        panel_text(63,"DESKTOP SIZE: 400 X 240","O3DS TOP SCREEN NATIVE SIZE");
-        panel_text(103,"COLOR: 32 BIT","EXPERIMENTAL CLIENT DEFAULT");
-        panel_text(143,"DISPLAY OPTIONS","NOT YET CONFIGURABLE");
-        break;
-    case RDP_UI_LOCAL:
-        panel_text(63,"TOUCH: MOUSE POINTER","A BUTTON: LEFT MOUSE CLICK");
-        panel_text(103,"X: SOFTWARE KEYBOARD","PASSWORD PROMPT AT LOGIN");
-        panel_text(143,"LOCAL DEVICE REDIRECTION","NOT IMPLEMENTED");
-        break;
-    case RDP_UI_EXPERIENCE:
-        panel_text(63,"NETWORK: DIRECT TCP","NO GATEWAY OR PROXY");
-        panel_text(103,"QUALITY PRESETS","NOT YET CONFIGURABLE");
-        panel_text(143,"FULL DESKTOP","RENDERER STILL EXPERIMENTAL");
-        break;
-    default:
-        panel_text(63,"SECURITY: NLA / CREDSSP","NO INSECURE RDP FALLBACK");
-        panel_text(103,"CERTIFICATE TRUST","UNKNOWN: CONFIRM / SAVE PIN");
-        panel_text(143,"SAVED CREDENTIALS","PASSWORD NEVER STORED");
-        break;
+    {
+        char line[96];
+        const RdpUiOptions *o=&ui->options;
+        switch(ui->tab) {
+        case RDP_UI_DISPLAY:
+            snprintf(line,sizeof(line),"DESKTOP SIZE: %s",
+                     o->display_mode?"640 X 360":"400 X 240");
+            panel_text(63,line,"TAP TO SWITCH REMOTE SIZE");
+            snprintf(line,sizeof(line),"COLOR DEPTH: %u BIT",o->color_depth);
+            panel_text(103,line,"TAP TO SWITCH 16 / 32 BIT");
+            panel_text(143,"ZOOM: L + CIRCLE ROTATE","100% TO 300%  LOCAL VIEW");
+            break;
+        case RDP_UI_LOCAL:
+            snprintf(line,sizeof(line),"TOUCH SPEED: %uX",o->touch_speed);
+            panel_text(63,line,"TAP TO ADJUST RELATIVE MOUSE");
+            snprintf(line,sizeof(line),"SCROLL STEP: %u",o->scroll_step);
+            panel_text(103,line,"TAP TO ADJUST WHEEL");
+            panel_text(143,o->reverse_scroll?"REVERSE SCROLL: ON":"REVERSE SCROLL: OFF",
+                       "TAP TO TOGGLE");
+            break;
+        case RDP_UI_EXPERIENCE:
+            panel_text(63,o->low_bandwidth?"LOW BANDWIDTH: ON":"LOW BANDWIDTH: OFF",
+                       "TAP TO DISABLE WALLPAPER");
+            panel_text(103,"NETWORK: DIRECT TCP","NO GATEWAY OR PROXY");
+            panel_text(143,"COMPRESSION: FREERDP","SERVER NEGOTIATED");
+            break;
+        default:
+            snprintf(line,sizeof(line),"CONNECT TIMEOUT: %u SEC",o->timeout_seconds);
+            panel_text(63,line,"TAP TO CYCLE 8 / 12 / 20");
+            panel_text(103,"SECURITY: NLA / CREDSSP","CERTIFICATE CHECK REQUIRED");
+            panel_text(143,"TRUSTED CERTIFICATES","HOLD L + PRESS X IN LAUNCHER");
+            break;
+        }
     }
 }
 static void saved_panel(const ConnectionUI *ui)
@@ -268,8 +280,25 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
     outline(109,2,101,28,BORDER);
     label(119,13,pad->settings_open ? "BACK TO PAD" : "SETTINGS",208,WHITE);
     fill(213,2,105,28,BLUE);
-    label(222,13,"KEYBOARD",316,WHITE);
+    label(222,13,pad->keyboard_open ? "CLOSE KEYS" : "KEYBOARD",316,WHITE);
 
+    if (pad->keyboard_open) {
+        int row,col;
+        fill(0,36,320,204,BG);
+        for(row=0;row<4;++row) for(col=0;col<4;++col) {
+            int x=4+col*78,y=40+row*48;
+            int key=session_pad_keyboard_key(pad,x+20,y+20);
+            const char *name=session_key_label(key);
+            bool selected = (key==SK_CTRL && (pad->key_mods&SK_MOD_CTRL)) ||
+                (key==SK_ALT && (pad->key_mods&SK_MOD_ALT)) ||
+                (key==SK_SHIFT && (pad->key_mods&SK_MOD_SHIFT)) ||
+                (key==SK_WIN && (pad->key_mods&SK_MOD_WIN));
+            fill(x,y,74,44,selected?BLUE:WHITE);
+            outline(x,y,74,44,selected?NAVY:BORDER);
+            label(x+6,y+19,name,x+73,selected?WHITE:INK);
+        }
+        return;
+    }
     if (pad->settings_open) {
         fill(6,37,308,195,WHITE);
         outline(6,37,308,195,BORDER);
@@ -299,7 +328,7 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
     label(24,94,"DRAG FINGER TO MOVE MOUSE",258,MUTED);
     label(28,109,"LIFT AND REPOSITION ANYTIME",258,MUTED);
     label(57,126,"TAP TO LEFT CLICK",258,MUTED);
-    label(20,177,"L+CIRCLE ROTATE: ZOOM",262,BLUE);
+    label(20,177,"L+CIRCLE:ZOOM Y:FIT R:1:1",262,BLUE);
     label(20,193,"A: DRAG  B: RIGHT CLICK",262,MUTED);
     /* Thin inner grip marks, no cursor teleport on contact. */
     fill(16,62,238,1,C(226,234,243));
@@ -328,4 +357,42 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
     fill(137,214,129,24,WHITE);
     outline(137,214,129,24,BORDER);
     label(174,223,"RIGHT",260,INK);
+}
+
+ 
+void connection_ui_draw_status(const char *heading,const char *message,bool retry)
+{
+    u16 w=0,h=0;
+    fb=(uint16_t*)gfxGetFramebuffer(GFX_BOTTOM,GFX_LEFT,&w,&h);
+    if(!fb)return;
+    fill(0,0,320,240,BG);topbar();
+    fill(10,40,300,136,WHITE);outline(10,40,300,136,BORDER);
+    label(20,55,heading?heading:"RDP STATUS",307,BLUE);
+    label(20,93,message?message:"",306,INK);
+    if(retry) {
+        button(10,205,145,"RETRY (A)",1);
+        button(165,205,145,"BACK (B)",0);
+    } else {
+        button(10,205,300,"PLEASE WAIT",0);
+    }
+}
+void connection_ui_draw_cert_manager(const char *title,const char *info,
+                                      const char *notice,int confirmation)
+{
+    u16 w=0,h=0;
+    fb=(uint16_t*)gfxGetFramebuffer(GFX_BOTTOM,GFX_LEFT,&w,&h);
+    if(!fb)return;
+    fill(0,0,320,240,BG);topbar();
+    fill(8,38,304,154,WHITE);outline(8,38,304,154,BORDER);
+    label(16,51,title?title:"TRUSTED CERTIFICATES",308,BLUE);
+    label(16,91,info?info:"",306,INK);
+    label(16,157,notice?notice:"",304,MUTED);
+    if(confirmation){
+        button(8,206,146,"REMOVE (A)",1);
+        button(164,206,148,"CANCEL (B)",0);
+    }else {
+        button(8,206,98,"VIEW (A)",1);
+        button(111,206,98,"DELETE (X)",0);
+        button(214,206,98,"BACK (B)",0);
+    }
 }

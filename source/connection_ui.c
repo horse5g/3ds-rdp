@@ -20,6 +20,7 @@ static void clear_profile(ConnectionUI *ui)
 {
     memset(&ui->current, 0, sizeof(ui->current));
     ui->current.port = 3389;
+    ui->options=rdp_options_default();
     ui->name[0] = 0;
     ui->selected = -1;
     ui->dirty = false;
@@ -34,6 +35,7 @@ static void select_profile(ConnectionUI *ui, int index)
     ui->selected = index;
     ui->highlight = index;
     ui->current = ui->store.items[index].config;
+    ui->options = ui->store.items[index].options;
     snprintf(ui->name, sizeof(ui->name), "%s", ui->store.items[index].name);
     ui->show_saved = false;
     ui->tab = RDP_UI_GENERAL;
@@ -125,6 +127,7 @@ static void save_profile(ConnectionUI *ui, const char *path)
     }
     index = rdp_profiles_upsert(&candidate, ui->name, &ui->current, error, sizeof(error));
     if (index < 0) { tell(ui, error); return; }
+    candidate.items[index].options=ui->options;
     if (rdp_profiles_save(path, &candidate, error, sizeof(error))) {
         tell(ui, error); return;
     }
@@ -188,13 +191,43 @@ static void delete_profile(ConnectionUI *ui, const char *path)
     reset_pending(ui);
     tell(ui, "Saved connection deleted");
 }
+static void cycle_option(ConnectionUI *ui,int row)
+{
+    RdpUiOptions *o=&ui->options;
+    if(row<0 || row>2)return;
+    if((ui->tab==RDP_UI_DISPLAY && row==2) ||
+       ((ui->tab==RDP_UI_EXPERIENCE || ui->tab==RDP_UI_ADVANCED) && row!=0))
+        return;
+    switch(ui->tab){
+      case RDP_UI_DISPLAY:
+        if(row==0)o->display_mode^=1u;
+        if(row==1)o->color_depth=(uint8_t)(o->color_depth==32?16:32);
+        break;
+      case RDP_UI_LOCAL:
+        if(row==0)o->touch_speed=(uint8_t)(o->touch_speed%3+1);
+        if(row==1)o->scroll_step=(uint8_t)(o->scroll_step%3+1);
+        if(row==2)o->reverse_scroll^=1u;
+        break;
+      case RDP_UI_EXPERIENCE:
+        if(row==0)o->low_bandwidth^=1u;
+        break;
+      case RDP_UI_ADVANCED:
+        if(row==0)o->timeout_seconds=(uint8_t)
+          (o->timeout_seconds==8?12:o->timeout_seconds==12?20:8);
+        break;
+      default:return;
+    }
+    ui->dirty=true;
+    tell(ui,"Preferences changed - SAVE to keep");
+}
 static void change_tab(ConnectionUI *ui, int tab)
 {
     if (tab < 0 || tab >= RDP_UI_TAB_COUNT) return;
     ui->tab = tab;
     reset_pending(ui);
+    ui->focus=0;
     if (tab != RDP_UI_GENERAL)
-        tell(ui, "Info only - advanced options pending");
+        tell(ui, "Tap a setting to cycle options");
     else
         tell(ui, "Touch a field to edit");
 }
@@ -258,6 +291,12 @@ void connection_ui_key(ConnectionUI *ui, uint32_t keys, const char *path)
     }
     if (keys & KEY_DLEFT) change_tab(ui, (ui->tab + RDP_UI_TAB_COUNT - 1) % RDP_UI_TAB_COUNT);
     if (keys & KEY_DRIGHT) change_tab(ui, (ui->tab + 1) % RDP_UI_TAB_COUNT);
+    if (ui->tab != RDP_UI_GENERAL && (keys & KEY_A))
+        cycle_option(ui,ui->focus%3);
+    if(ui->tab!=RDP_UI_GENERAL){
+        if(keys&KEY_DUP)ui->focus=(ui->focus+2)%3;
+        if(keys&KEY_DDOWN)ui->focus=(ui->focus+1)%3;
+    }
     if (ui->tab == RDP_UI_GENERAL) {
         if (keys & KEY_DUP) ui->focus = (ui->focus + F_COUNT - 1) % F_COUNT;
         if (keys & KEY_DDOWN) ui->focus = (ui->focus + 1) % F_COUNT;
@@ -296,6 +335,10 @@ void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
     }
     hit = connection_ui_tab_at(x,y);
     if (hit >= 0) { change_tab(ui,hit); return; }
+    if (ui->tab != RDP_UI_GENERAL && y>=57 && y<182){
+        int row=(y-57)/40;
+        cycle_option(ui,row);return;
+    }
     if (ui->tab == RDP_UI_GENERAL) {
         hit = connection_ui_field_at(x,y);
         if (hit >= 0) {

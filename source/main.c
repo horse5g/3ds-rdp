@@ -75,17 +75,43 @@ static void probe(const ConnectionUI *state)
 #ifdef RDP_FULL_CLIENT
 static void full_session(const ConnectionUI *state)
 {
-    char message[100] = {0};
-    int result;
-    snprintf(status,sizeof(status),"Experimental FreeRDP...");
-    snprintf(detail,sizeof(detail),"START disconnect; bottom touchpad + keyboard");
-    draw_status(1);
-    connection_ui_draw(state);
-    gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
-    result = freerdp_3ds_run(&state->current,message,sizeof(message));
-    snprintf(status,sizeof(status),"%s",result == 0 ? "Session exited" : "RDP session error");
+    char message[100]={0};
+    bool again;
+    int result=-1;
+    do{
+        again=false;
+        snprintf(status,sizeof(status),"Experimental FreeRDP...");
+        snprintf(detail,sizeof(detail),"Authenticating; password not saved");
+        draw_status(1);
+        connection_ui_draw_status("CONNECTING TO REMOTE DESKTOP",
+                                  "SIGN IN AND VERIFY CERTIFICATE",false);
+        gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
+        result=freerdp_3ds_run(&state->current,&state->options,message,sizeof(message));
+        if(result!=0){
+            connection_ui_draw_status("CONNECTION FAILED",message,true);
+            gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
+            /* No automatic reconnect: a failed certificate validation must
+               never be silently retried or accepted. */
+            while(aptMainLoop()){
+                u32 keys;
+                hidScanInput();keys=hidKeysDown();
+                if(keys&KEY_TOUCH){
+                    touchPosition touch;hidTouchRead(&touch);
+                    if(touch.py>=205){
+                        if(touch.px<155)keys|=KEY_A;
+                        else keys|=KEY_B;
+                    }
+                }
+                if(keys&KEY_A){again=true;break;}
+                if(keys&(KEY_B|KEY_START))break;
+                gspWaitForVBlank();
+            }
+        }
+    }while(again);
+    snprintf(status,sizeof(status),"%s",result==0 ? "Session exited" : "RDP session error");
     snprintf(detail,sizeof(detail),"%s",message);
 }
+
 #endif
 
 int main(int argc, char **argv)

@@ -8,7 +8,41 @@
 #include <sys/stat.h>
 
 #define PROFILE_LINE_CAP 1024
-#define PROFILE_SIGNATURE "3DSRDP1"
+#define PROFILE_SIGNATURE "3DSRDP2"
+#define LEGACY_SIGNATURE "3DSRDP1"
+
+RdpUiOptions rdp_options_default(void)
+{
+    RdpUiOptions o={0};
+    o.color_depth=32;
+    o.touch_speed=2;
+    o.scroll_step=1;
+    o.timeout_seconds=12;
+    return o;
+}
+int rdp_options_valid(const RdpUiOptions *o)
+{
+    return o && o->display_mode<=1 &&
+        (o->color_depth==16||o->color_depth==32) &&
+        o->touch_speed>=1 && o->touch_speed<=3 &&
+        o->scroll_step>=1 && o->scroll_step<=3 &&
+        o->reverse_scroll<=1 && o->low_bandwidth<=1 &&
+        (o->timeout_seconds==8||o->timeout_seconds==12||
+         o->timeout_seconds==20);
+}
+static int parse_u8(const char *s,uint8_t *out)
+{
+    unsigned n=0;
+    if(!s||!*s)return -1;
+    while(*s) {
+        if(*s<'0'||*s>'9')return -1;
+        n=n*10u+(unsigned)(*s-'0');
+        if(n>255)return -1;
+        ++s;
+    }
+    *out=(uint8_t)n;
+    return 0;
+}
 
 static int problem(char *error, size_t cap, const char *reason)
 {
@@ -90,6 +124,8 @@ int rdp_profiles_upsert(RdpProfileStore *store, const char *name, const RdpConfi
     if (i == store->count) ++store->count;
     snprintf(store->items[i].name, sizeof(store->items[i].name), "%s", name);
     store->items[i].config = *config;
+    if (!rdp_options_valid(&store->items[i].options))
+        store->items[i].options=rdp_options_default();
     if (error && cap) error[0] = 0;
     return (int)i;
 }
@@ -104,18 +140,18 @@ void rdp_profiles_delete(RdpProfileStore *store, size_t index)
     memset(&store->items[store->count], 0, sizeof(store->items[0]));
 }
 
-static int parse_line(char *line, RdpProfileStore *store, char *error, size_t cap)
+static int parse_line(char *line, int v2, RdpProfileStore *store, char *error, size_t cap)
 {
-    char *fields[5], *cursor = line;
+    char *fields[12], *cursor = line;
     RdpConfig config;
     char cfgtext[768];
     unsigned i;
     int n;
-    for (i = 0; i < 5; ++i) {
+    for (i = 0; i < (unsigned)(v2?12:5); ++i) {
         char *sep;
         fields[i] = cursor;
         sep = strchr(cursor, '|');
-        if (i < 4) {
+        if (i < (unsigned)(v2?11:4)) {
             if (!sep) return problem(error, cap, "Malformed saved connection");
             *sep = 0;
             cursor = sep + 1;
@@ -134,7 +170,22 @@ static int parse_line(char *line, RdpProfileStore *store, char *error, size_t ca
             return problem(error, cap, "Saved domain too long");
     }
     if (rdp_config_parse(cfgtext, &config, error, cap)) return -1;
-    if (rdp_profiles_upsert(store, fields[0], &config, error, cap) < 0) return -1;
+    {
+        int index=rdp_profiles_upsert(store,fields[0],&config,error,cap);
+        RdpUiOptions options=rdp_options_default();
+        if(index<0)return -1;
+        if(v2){
+            uint8_t *targets[7]={&options.display_mode,&options.color_depth,
+                &options.touch_speed,&options.scroll_step,&options.reverse_scroll,
+                &options.low_bandwidth,&options.timeout_seconds};
+            for(i=0;i<7;++i)
+                if(parse_u8(fields[5+i],targets[i])!=0)
+                    return problem(error,cap,"Invalid saved UI preference");
+            if(!rdp_options_valid(&options))
+                return problem(error,cap,"Invalid saved UI preference range");
+        }
+        store->items[index].options=options;
+    }
     return 0;
 }
 
@@ -142,12 +193,17 @@ static int read_file(const char *path, RdpProfileStore *out, char *error, size_t
 {
     char line[PROFILE_LINE_CAP];
     RdpProfileStore parsed = {0};
+    int v2=0;
     FILE *file = fopen(path, "rb");
     if (!file) return errno == ENOENT ? 1 : problem(error, cap, "Cannot open profiles");
-    if (!fgets(line, sizeof(line), file) ||
-        strcmp(line, PROFILE_SIGNATURE "\n") != 0) {
+    if (!fgets(line, sizeof(line), file)) {
         fclose(file);
         return problem(error, cap, "Unknown profile file format");
+    }
+    v2=(strcmp(line,PROFILE_SIGNATURE "\n")==0);
+    if(!v2 && strcmp(line,LEGACY_SIGNATURE "\n")!=0){
+        fclose(file);
+        return problem(error,cap,"Unknown profile file format");
     }
     while (fgets(line, sizeof(line), file)) {
         size_t n = strlen(line);
@@ -159,7 +215,7 @@ static int read_file(const char *path, RdpProfileStore *out, char *error, size_t
         if (n && line[n - 1] == '\r') line[--n] = 0;
         if (!n) continue;
         if (parsed.count >= RDP_PROFILE_LIMIT ||
-            parse_line(line, &parsed, error, cap)) {
+            parse_line(line, v2, &parsed, error, cap)) {
             fclose(file);
             return problem(error, cap, "Corrupt or excessive profiles");
         }
@@ -214,7 +270,8 @@ static int profiles_equal(const RdpProfileStore *left, const RdpProfileStore *ri
             strcmp(a->config.host, b->config.host) ||
             strcmp(a->config.username, b->config.username) ||
             strcmp(a->config.domain, b->config.domain) ||
-            a->config.port != b->config.port)
+            a->config.port != b->config.port ||
+            memcmp(&a->options,&b->options,sizeof(a->options))!=0)
             return 0;
     }
     return 1;
@@ -234,7 +291,8 @@ int rdp_profiles_save(const char *path, const RdpProfileStore *store, char *erro
 
     for (i = 0; i < store->count; ++i) {
         if (!safe_name(store->items[i].name) ||
-            rdp_profile_validate(&store->items[i].config, error, cap))
+            rdp_profile_validate(&store->items[i].config, error, cap) ||
+            !rdp_options_valid(&store->items[i].options))
             return -1;
         for (size_t j = 0; j < i; ++j)
             if (same_name(store->items[i].name, store->items[j].name))
@@ -273,9 +331,13 @@ int rdp_profiles_save(const char *path, const RdpProfileStore *store, char *erro
         goto write_error;
     for (i = 0; i < store->count; ++i) {
         const RdpProfile *p = &store->items[i];
-        if (fprintf(file, "%s|%s|%u|%s|%s\n",
+        if (fprintf(file, "%s|%s|%u|%s|%s|%u|%u|%u|%u|%u|%u|%u\n",
                     p->name, p->config.host, (unsigned)p->config.port,
-                    p->config.username, p->config.domain) < 0)
+                    p->config.username, p->config.domain,
+                    (unsigned)p->options.display_mode,(unsigned)p->options.color_depth,
+                    (unsigned)p->options.touch_speed,(unsigned)p->options.scroll_step,
+                    (unsigned)p->options.reverse_scroll,(unsigned)p->options.low_bandwidth,
+                    (unsigned)p->options.timeout_seconds) < 0)
             goto write_error;
     }
     if (fflush(file) != 0)

@@ -4,14 +4,18 @@
 #include "cert_store.h"
 #include "session_pad.h"
 #include "session_zoom.h"
+#include "session_cursor.h"
+#include "session_keys.h"
+#include "connection_ui.h"
 #include "rdp_pixels.h"
 #include "session_wait.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
-int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
+int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *reason, size_t reason_size)
 {
     (void)cfg;
+    (void)options;
     if (reason && reason_size)
         snprintf(reason, reason_size, "FreeRDP not linked in this build");
     return -1;
@@ -26,6 +30,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #include <freerdp/error.h>
 #include <freerdp/settings.h>
 #include <freerdp/gdi/gdi.h>
+#include <freerdp/graphics.h>
+#include <freerdp/codec/color.h>
 #include <freerdp/update.h>
 #include <freerdp/input.h>
 #include <winpr/synch.h>
@@ -62,6 +68,9 @@ static uint16_t requested_port;
 static PrintConsole trust_console;
 static char cert_failure[100];
 static bool desktop_dirty;
+static SessionCursor system_cursor;
+static int cursor_remote_x=RDP_W/2,cursor_remote_y=RDP_H/2;
+static int remote_w=RDP_W,remote_h=RDP_H;
 
 /* Connect/TLS/NLA runs on a worker. All HID, console and GFX access stays on
  * the foreground thread. The worker exchanges only a fingerprint challenge
@@ -327,6 +336,91 @@ static DWORD deny_unknown_certificate(freerdp *instance, const char *host, UINT1
     return 0;
 }
 
+/* Windows cursor shapes are transmitted as RDP pointer updates. Register
+ * FreeRDP's pointer cache callbacks and decode BGRA32, preserving the server
+ * hotspot and alpha channel instead of substituting a fixed 3DS arrow. */
+typedef struct {
+    rdpPointer pointer; /* must be first for FreeRDP's allocator */
+    BYTE *pixels;
+} Pointer3ds;
+
+static BOOL pointer_new(rdpContext *context,rdpPointer *base)
+{
+    Pointer3ds *p=(Pointer3ds *)base;
+    size_t len;
+    if(!p||!context||!context->gdi)return FALSE;
+    p->pixels=NULL;
+    if(base->width>RDP_CURSOR_MAX||base->height>RDP_CURSOR_MAX ||
+       !base->width||!base->height)return TRUE; /* safe fallback */
+    len=(size_t)base->width*base->height*4;
+    p->pixels=(BYTE *)malloc(len);
+    if(!p->pixels)return FALSE;
+    if(!freerdp_image_copy_from_pointer_data(p->pixels,PIXEL_FORMAT_BGRA32,0,0,0,
+          base->width,base->height,base->xorMaskData,base->lengthXorMask,
+          base->andMaskData,base->lengthAndMask,base->xorBpp,
+          &context->gdi->palette)){
+        free(p->pixels);p->pixels=NULL;return FALSE;
+    }
+    return TRUE;
+}
+static void pointer_free(rdpContext *context,rdpPointer *base)
+{
+    Pointer3ds *p=(Pointer3ds *)base;
+    (void)context;
+    if(p){free(p->pixels);p->pixels=NULL;}
+}
+static BOOL pointer_set(rdpContext *context,rdpPointer *base)
+{
+    Pointer3ds *p=(Pointer3ds *)base;
+    (void)context;
+    if(!p || !p->pixels){
+        system_cursor.visible=false;desktop_dirty=true;return TRUE;
+    }
+    if(!session_cursor_set(&system_cursor,p->pixels,(int)base->width,
+                           (int)base->height,(int)base->xPos,(int)base->yPos))
+        system_cursor.visible=false;
+    desktop_dirty=true;
+    return TRUE;
+}
+static BOOL pointer_null(rdpContext *context)
+{
+    (void)context;
+    system_cursor.visible=false;desktop_dirty=true;return TRUE;
+}
+static BOOL pointer_default(rdpContext *context)
+{
+    uint8_t arrow[16*16*4]={0};
+    static const uint16_t rows[16]={
+        0x0001,0x0003,0x0007,0x000F,0x001F,0x003F,0x007F,0x00FF,
+        0x01FF,0x03FF,0x003F,0x0067,0x00C3,0x0181,0x0000,0x0000
+    };
+    (void)context;
+    /* PointerSystem=DEFAULT requests the ordinary Windows arrow. Render a
+       small local fallback instead of leaving an old text or resize cursor. */
+    for(int y=0;y<16;++y) {
+        for(int x=0;x<16;++x) {
+            if(!(rows[y] & (1u<<x)))continue;
+            const bool outline=(x==0 || x==15 ||
+                !(rows[y]&(1u<<(x+1))) ||
+                (y>0 && !(rows[y-1]&(1u<<x))) ||
+                (y<15 && !(rows[y+1]&(1u<<x))));
+            uint8_t *p=&arrow[((size_t)y*16+x)*4];
+            p[0]=p[1]=p[2]=outline?0:255;
+            p[3]=255;
+        }
+    }
+    (void)session_cursor_set(&system_cursor,arrow,16,16,0,0);
+    desktop_dirty=true;
+    return TRUE;
+}
+static BOOL pointer_position(rdpContext *context,UINT32 x,UINT32 y)
+{
+    (void)context;
+    cursor_remote_x=x<(UINT32)remote_w?(int)x:remote_w-1;
+    cursor_remote_y=y<(UINT32)remote_h?(int)y:remote_h-1;
+    desktop_dirty=true;return TRUE;
+}
+
 static BOOL begin_paint(rdpContext *context)
 {
     if (context && context->gdi && context->gdi->primary &&
@@ -368,7 +462,7 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
     frame=(uint16_t *)gfxGetFramebuffer(GFX_TOP,GFX_LEFT,&fb_width,&fb_height);
     if (!frame || fb_width < RDP_H || fb_height < RDP_W) return FALSE;
 
-    view=session_zoom_view(zoom,pointer_x,pointer_y,RDP_W,RDP_H);
+    view=session_zoom_view(zoom,pointer_x,pointer_y,gdi->width,gdi->height);
     step_x=view.width_q16/RDP_W;
     step_y=view.height_q16/RDP_H;
     /* Cache vertical source row lookup once per frame; on an O3DS this
@@ -389,6 +483,10 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
             frame[(size_t)x*RDP_H+(RDP_H-1-y)]=rdp_bgrx_to_rgb565(src);
         }
     }
+    session_cursor_overlay(frame,RDP_W,RDP_H,&system_cursor,
+                           cursor_remote_x,cursor_remote_y,
+                           view.left_q16,view.top_q16,
+                           view.width_q16,view.height_q16);
     return TRUE;
 }
 
@@ -411,6 +509,14 @@ static BOOL post_connect(freerdp *instance)
     ctx->update->BeginPaint = begin_paint;
     ctx->update->EndPaint = end_paint;
     ctx->update->DesktopResize = desktop_resize;
+    if(ctx->graphics){
+        rdpPointer proto={0};
+        proto.size=sizeof(Pointer3ds);
+        proto.New=pointer_new;proto.Free=pointer_free;
+        proto.Set=pointer_set;proto.SetNull=pointer_null;
+        proto.SetDefault=pointer_default;proto.SetPosition=pointer_position;
+        graphics_register_pointer(ctx->graphics,&proto);
+    }
     return TRUE;
 }
 
@@ -668,7 +774,7 @@ static bool connect_with_ui(freerdp *client, const char *host,
     return connected;
 }
 
-int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
+int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *reason, size_t reason_size)
 {
     freerdp *client = NULL;
     rdpSettings *settings;
@@ -680,9 +786,10 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     bool pad_redraw = true;
     SessionPad pad;
     SessionZoom zoom;
+    RdpUiOptions opts=options?*options:rdp_options_default();
     int result = -1;
 
-    if (!cfg || !reason || !reason_size)
+    if (!rdp_options_valid(&opts) || !cfg || !reason || !reason_size)
         return -1;
     snprintf(reason, reason_size, "FreeRDP startup failed");
     /* The UI ordinarily validates all fields. Enforce bounds here too:
@@ -731,19 +838,23 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     }
     initialized = true;
     settings = client->context->settings;
+    remote_w=opts.display_mode?640:RDP_W;
+    remote_h=opts.display_mode?360:RDP_H;
     if (!freerdp_settings_set_string(settings, FreeRDP_ServerHostname, cfg->host) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, cfg->port) ||
-        !freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, RDP_W) ||
-        !freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, RDP_H) ||
-        !freerdp_settings_set_uint32(settings, FreeRDP_ColorDepth, 32) ||
+        !freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, (UINT32)remote_w) ||
+        !freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, (UINT32)remote_h) ||
+        !freerdp_settings_set_uint32(settings, FreeRDP_ColorDepth, (UINT32)opts.color_depth) ||
         /* Only NLA/CredSSP (including hybrid extended). No legacy RDP
            Security or TLS-without-NLA credential fallback. */
         /* Horizon SOC is IPv4-only and does not support SO_KEEPALIVE;
            FreeRDP otherwise defaults TCP keepalive to enabled. */
         !freerdp_settings_set_uint32(settings, FreeRDP_ForceIPvX, 4) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_TcpConnectTimeout,
-                                     RDP_TCP_CONNECT_TIMEOUT_MS) ||
+                                     (UINT32)opts.timeout_seconds*1000u) ||
         !freerdp_settings_set_bool(settings, FreeRDP_AutoReconnectionEnabled, FALSE) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_DisableWallpaper,
+                                   opts.low_bandwidth!=0) ||
         !freerdp_settings_set_bool(settings, FreeRDP_TcpKeepAlive, FALSE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_ExternalCertificateManagement, TRUE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_IgnoreCertificate, FALSE) ||
@@ -764,6 +875,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
     desktop_dirty = false;
+    session_cursor_reset(&system_cursor);
+    cursor_remote_x=RDP_W/2;cursor_remote_y=RDP_H/2;
     if (!connect_with_ui(client, cfg->host, reason, reason_size)) {
         /* A user cancellation is distinct from an authentication failure.
          * Do not overwrite its reason with a generic FreeRDP error. */
@@ -778,6 +891,11 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     }
     connected = true;
     session_pad_init(&pad);
+    pad.remote_w=remote_w;pad.remote_h=remote_h;
+    pad.pointer_x=remote_w/2;pad.pointer_y=remote_h/2;
+    pad.sensitivity=opts.touch_speed;pad.scroll_amount=opts.scroll_step;
+    pad.reverse_scroll=opts.reverse_scroll!=0;
+    cursor_remote_x=pad.pointer_x;cursor_remote_y=pad.pointer_y;
     session_zoom_init(&zoom);
     snprintf(reason, reason_size, "Session ended");
     result = 0;
@@ -812,6 +930,30 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
             session_pad_update(&pad, false, -1, -1, &action);
         }
         if (action.redraw) pad_redraw = true;
+        /* A is reserved for drag. D-pad nudges the remote pointer and thus
+           pans the magnified viewport. Y always returns to fit view. */
+        if(down & KEY_Y){zoom.target=1.0f;pad_redraw=true;}
+        if(down & KEY_R){
+            float native_zoom=(float)remote_w/(float)RDP_W;
+            float vertical=(float)remote_h/(float)RDP_H;
+            if(vertical>native_zoom)native_zoom=vertical;
+            if(native_zoom<1.0f)native_zoom=1.0f;
+            zoom.target=zoom.target>1.01f?1.0f:native_zoom;
+            pad_redraw=true;
+        }
+        if(input && (held & (KEY_DUP|KEY_DDOWN|KEY_DLEFT|KEY_DRIGHT))){
+            int nx=pad.pointer_x+(((held & KEY_DRIGHT)!=0)?8:0)
+                                -(((held & KEY_DLEFT)!=0)?8:0);
+            int ny=pad.pointer_y+(((held & KEY_DDOWN)!=0)?8:0)
+                                -(((held & KEY_DUP)!=0)?8:0);
+            if(nx<0)nx=0;if(ny<0)ny=0;
+            if(nx>=remote_w)nx=remote_w-1;
+            if(ny>=remote_h)ny=remote_h-1;
+            if(nx!=pad.pointer_x || ny!=pad.pointer_y){
+                pad.pointer_x=nx;pad.pointer_y=ny;
+                action.pointer_moved=true;pad_redraw=true;
+            }
+        }
         if (action.pointer_moved && zoom.visible > 1.001f)
             pad_redraw=true; /* keep viewport tracking the remote cursor */
         if (action.disconnect || (down & KEY_START)) {
@@ -821,7 +963,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 
         /* Software keyboard is transient, not a permanent overlay. It never
          * stores entered text and the pad layout returns after dismissal. */
-        if (down & KEY_X || action.keyboard) {
+        if (down & KEY_X || action.text_input) {
             /* The software keyboard takes over HID until it closes. Release
                held remote buttons first or a drag can remain stuck while
                HID key-up events are consumed by the keyboard applet. */
@@ -842,8 +984,19 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
             pad_redraw = true;
         }
 
+        if (input && action.key) {
+            SessionKeyEvent events[10];
+            const size_t n=session_key_sequence(action.key,action.modifiers,events,10);
+            for(size_t k=0;k<n;++k) {
+                const UINT16 flags=(UINT16)((events[k].extended?KBD_FLAGS_EXTENDED:0) |
+                    (events[k].down?0:KBD_FLAGS_RELEASE));
+                (void)freerdp_input_send_keyboard_event(input,flags,events[k].scan);
+            }
+        }
         if (input) {
             if (action.pointer_moved) {
+                cursor_remote_x=pad.pointer_x;cursor_remote_y=pad.pointer_y;
+                desktop_dirty=true;
                 (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_MOVE,
                          (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
             }
