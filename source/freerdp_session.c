@@ -25,11 +25,12 @@
 
 #ifndef RDP_FULL_CLIENT
 int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
-                   bool cache_password, char *reason, size_t reason_size)
+                   bool cache_password, bool bgrx_gdi, char *reason, size_t reason_size)
 {
     (void)cfg;
     (void)options;
     (void)cache_password;
+    (void)bgrx_gdi;
     if (reason && reason_size)
         snprintf(reason, reason_size, "FreeRDP not linked in this build");
     return -1;
@@ -129,6 +130,8 @@ static char post_connect_failure[100];
  * Reset before each attempt to avoid reporting prior successful codecs. */
 static volatile unsigned recent_codec_stage=0;
 static volatile unsigned recent_tcp_stage=0;
+static bool requested_bgrx_gdi=false;
+static unsigned color_probe_frame=0, color_probe_count=0;
 /* Give hardware tests an actionable stage instead of reporting every
  * authentication, DNS, transport and activation error as "connect failed".
  * Never include the password or FreeRDP's credential buffers. */
@@ -704,23 +707,24 @@ static BOOL end_paint(rdpContext *context)
  * decoder is at fault, not the 3DS framebuffer write path. */
 static void log_desktop_color_probe(const rdpGdi *gdi)
 {
-    static unsigned frame_number, probes;
     unsigned sums[3] = {0,0,0}, peaks[3] = {0,0,0};
     unsigned above[3] = {0,0,0}, whites = 0;
     const unsigned samples = 16u * 12u;
     /* The 16-bit surface has packed RGB565, not B/G/R byte channels.
      * Avoid mislabeling its samples as 32-bit GDI channel statistics. */
-    if (!gdi || gdi->dstFormat != PIXEL_FORMAT_XRGB32 || probes >= 4u)
+    if (!gdi || (gdi->dstFormat != PIXEL_FORMAT_XRGB32 &&
+                 gdi->dstFormat != PIXEL_FORMAT_BGRX32) ||
+        color_probe_count >= 4u)
         return;
     /* Sample after the desktop has had time to paint. A few initial frames
      * may still show a blank login-to-desktop transition. */
-    ++frame_number;
-    if (frame_number != 1u && frame_number != 8u &&
-        frame_number != 32u && frame_number != 96u)
+    ++color_probe_frame;
+    if (color_probe_frame != 1u && color_probe_frame != 8u &&
+        color_probe_frame != 32u && color_probe_frame != 96u)
         return;
     if (!rdp_diag_log_enabled())
         return;
-    ++probes;
+    ++color_probe_count;
     for (unsigned row = 0; row < 12u; ++row) {
         unsigned sy = ((row * 2u + 1u) * (unsigned)gdi->height) / 24u;
         if (sy >= (unsigned)gdi->height) sy = (unsigned)gdi->height - 1u;
@@ -740,12 +744,16 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
     }
     rdp_diag_log_event("gdi-format", (unsigned long)gdi->dstFormat,
                        (unsigned long)gdi->width, (unsigned long)gdi->height);
-    /* Channel order is raw B,G,R for PIXEL_FORMAT_XRGB32, not LCD RGB. */
-    rdp_diag_log_event("gdi-avg-bgr", sums[0]/samples,
-                       sums[1]/samples, sums[2]/samples);
-    rdp_diag_log_event("gdi-max-bgr", peaks[0], peaks[1], peaks[2]);
-    rdp_diag_log_event("gdi-high-bgr", above[0], above[1], above[2]);
-    rdp_diag_log_event("gdi-white-count", whites, samples, probes);
+    /* Log actual raw byte order. Never interpret these sums as LCD RGB
+     * unless the chosen GDI format is known. XRGB32: B,G,R; BGRX32: R,G,B. */
+    const bool rgb=(gdi->dstFormat==PIXEL_FORMAT_BGRX32);
+    rdp_diag_log_event(rgb?"gdi-avg-rgb":"gdi-avg-bgr",
+                       sums[0]/samples,sums[1]/samples,sums[2]/samples);
+    rdp_diag_log_event(rgb?"gdi-max-rgb":"gdi-max-bgr",
+                       peaks[0],peaks[1],peaks[2]);
+    rdp_diag_log_event(rgb?"gdi-high-rgb":"gdi-high-bgr",
+                       above[0],above[1],above[2]);
+    rdp_diag_log_event("gdi-white-count",whites,samples,color_probe_count);
 }
 
 /* Native LCD self-test: known RGB565 swatches are drawn AFTER GDI
@@ -780,7 +788,8 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
 
     if (!context || !(gdi=context->gdi) || !gdi->primary_buffer ||
         gdi->width < RDP_W || gdi->height < RDP_H ||
-        (gdi->dstFormat != PIXEL_FORMAT_XRGB32 && !native565) ||
+        (gdi->dstFormat != PIXEL_FORMAT_XRGB32 &&
+         gdi->dstFormat != PIXEL_FORMAT_BGRX32 && !native565) ||
         gdi->stride < (size_t)gdi->width * (size_t)bytes_per_pixel ||
         gfxGetScreenFormat(GFX_TOP) != GSP_RGB565_OES)
         return FALSE;
@@ -895,7 +904,8 @@ static BOOL post_connect(freerdp *instance)
      * more at 1080p than RGB16, but the O3DS codec allocation guard still
      * prevents the much larger pre-TCP planar buffers. If 32-bit GDI
      * cannot fit, fail with a clear OOM message; never show stale colors. */
-    const UINT32 gdi_format=PIXEL_FORMAT_XRGB32;
+    const UINT32 gdi_format=requested_bgrx_gdi ?
+                              PIXEL_FORMAT_BGRX32 : PIXEL_FORMAT_XRGB32;
     rdp_diag_log_event("gdi-init-format",gdi_format,width,height);
     if (!gdi_init(instance,gdi_format)) {
         rdp_diag_log_event("gdi-init-fail",gdi_format,
@@ -1292,7 +1302,7 @@ static void log_loopback_budget(bool probe_capacity)
 }
 
 int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
-                   bool cache_password, char *reason, size_t reason_size)
+                   bool cache_password, bool bgrx_gdi, char *reason, size_t reason_size)
 {
     freerdp *client = NULL;
     rdpSettings *settings;
@@ -1318,6 +1328,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
     if (rdp_full_session_preflight(cfg, &opts, reason, reason_size))
         return -1;
     snprintf(reason, reason_size, "FreeRDP startup failed");
+    requested_bgrx_gdi=bgrx_gdi;
+    color_probe_frame=0;
+    color_probe_count=0;
     rdp_diag_log_event("rdp-start", 0, 0, 0);
 
     /* Load both trust sources before prompting for credentials. Missing files
@@ -1517,7 +1530,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
     desktop_dirty = false;
-    bool swap_rb = false; /* Start with FreeRDP's declared XRGB32 B,G,R byte order; L+X toggles. */
+    bool swap_rb = bgrx_gdi; /* XRGB32 = B,G,R bytes; BGRX32 = R,G,B; L+X toggles. */
     bool smoothing_enabled = true;
     bool test_pattern = false;
     unsigned blit_samples_remaining=3;
@@ -1873,6 +1886,7 @@ done:
     OPENSSL_cleanse(requested_host, sizeof(requested_host));
     have_manual_pin = false;
     requested_port = 0;
+    requested_bgrx_gdi=false;
     OPENSSL_cleanse(cert_failure, sizeof(cert_failure));
     OPENSSL_cleanse(post_connect_failure, sizeof(post_connect_failure));
     return result;
