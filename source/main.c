@@ -34,14 +34,22 @@ static void draw_status(int network_ready)
     bool valid = connection_ui_ready(&ui,validation,sizeof(validation));
     rdp_display_bind_console(&top, GFX_TOP);
     consoleSelect(&top);
-    printf("\x1b[2J\x1b[H3DS Remote Desktop (O3DS)\n");
-    printf("=========================\n\n");
+    /* The iconic RDC computer/desktop belongs on the top LCD. Keep the
+     * bottom 320x240 touchscreen available for actual form controls. The
+     * character-art is original and does not embed Microsoft's logo. */
+    printf("\x1b[2J\x1b[H");
+    printf("\x1b[1;34m  +------------------+\x1b[0m\n");
+    printf("\x1b[1;34m  |  []   []   []    |\x1b[0m  REMOTE DESKTOP\n");
+    printf("\x1b[1;34m  +------------------+\x1b[0m  CONNECTION\n");
+    printf("        |    |             3DS / O3DS\n");
+    printf("        +----+\n");
+    printf("---------------------------------------------\n");
     printf("Computer: %.38s\n", valid ? ui.current.host : "(not configured)");
-    printf("Port: %u\n", (unsigned)ui.current.port);
-    printf("User: %.30s\n",ui.current.username[0] ? ui.current.username : "(not set)");
-    printf("Domain: %.30s\n\n",ui.current.domain[0] ? ui.current.domain : "(not set)");
-    printf("Status: %.36s\n",status);
-    printf("Detail: %.36s\n\n",detail);
+    printf("User: %.34s\n",ui.current.username[0] ? ui.current.username : "(not set)");
+    printf("Domain: %.30s  Port: %u\n",ui.current.domain[0] ? ui.current.domain : "(none)", (unsigned)ui.current.port);
+    printf("\nSTATUS: %.36s\n",status);
+    printf("%.43s\n",detail);
+    printf("---------------------------------------------\n");
     if (!network_ready) printf("Network initialization failed.\n");
     else if (!valid) printf("Set a valid host before connecting.\n");
 #ifdef RDP_FULL_CLIENT
