@@ -115,7 +115,6 @@ diff --git a/libfreerdp/core/rdp.c b/libfreerdp/core/rdp.c
 @@ -2370,38 +2370,57 @@
  }
  
- WINPR_ATTR_NODISCARD
 +#ifdef __3DS__
 +/* O3DS diagnostic: subtree stages 100-199 describe rdp_new_common(). */
 +static unsigned int o3ds_rdp_init_stage;
@@ -128,6 +127,7 @@ diff --git a/libfreerdp/core/rdp.c b/libfreerdp/core/rdp.c
 +#define O3DS_RDP_STAGE(n) ((void)0)
 +#endif
 +
+ WINPR_ATTR_NODISCARD
  static bool rdp_new_common(rdpRdp* rdp)
  {
  	WINPR_ASSERT(rdp);
@@ -140,7 +140,7 @@ diff --git a/libfreerdp/core/rdp.c b/libfreerdp/core/rdp.c
  
  	if (rdp->io)
  	{
-+	O3DS_RDP_STAGE(102);
++		O3DS_RDP_STAGE(102);
  		if (!transport_set_io_callbacks(rdp->transport, rdp->io))
  			goto fail;
  	}
