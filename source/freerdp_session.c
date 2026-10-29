@@ -303,7 +303,7 @@ static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
 
     snprintf(cert_failure, sizeof(cert_failure), "RDP certificate rejected");
     if (!pem || !length || length > INT_MAX || !host ||
-        strcmp(host, requested_host) != 0 || port != requested_port ||
+        !rdp_cert_host_equal(host, requested_host) || port != requested_port ||
         flags != VERIFY_CERT_FLAG_NONE)
         return 0;
 
