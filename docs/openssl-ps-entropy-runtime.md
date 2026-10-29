@@ -136,3 +136,56 @@ CI verifies compilation, static symbol linkage and `.3dsx` packaging, **not**
 cryptographic correctness, provider initialization or TLS on physical O3DS.
 Keep PR #11 draft until an actual hardware test provides the new stage and
 counter values. No insecure RNG fallback is included.
+
+
+## New O3DS result: OpenSSL core initialization fails before provider load
+
+The latest reported **standalone** diagnostic showed:
+```text
+default provider failed (OpenSSL 0x00000000)
+SSL_CTX_new failed (OpenSSL 0x00000000)
+PS entropy OK/calls: 0/0
+PS nonce OK/calls: 0/0
+SEED-SRC: FAIL / UNAVAILABLE
+```
+The **full RDP client** separately reported `SSL CRYPTO INIT NO PS SEED CALLS`.
+Together these demonstrate that the failure currently happens **before
+OpenSSL reaches our Horizon PS entropy backend**; PS and the nonce capacity
+patch are not the primary active blockers. The direct `PS_GenerateRandomBytes`
+hardware self-test passed previously.
+
+OpenSSL 3.5.9's `OPENSSL_init_crypto` can return 0 from its once-only base
+initialization, startup lock allocation, pthread TLS key initialization,
+atomic state handling, or exit-handler registration, without a populated
+error queue. The 3DS build uses `thread_scheme=pthreads`. To isolate these
+paths, `patches/openssl-3.5.9-3ds-init-diagnostics.patch` now adds a
+read-only `ossl_3ds_crypto_init_stage()` marker (no RNG material). The
+full RDP client displays `OpenSSL core init S<stage>`. Interpret:
+
+| Stage | Failure |
+|---|---|
+| 0 | Not reached by current instrumentation / another uninstrumented path |
+| 1 | Startup mutex allocation/init |
+| 2 | OpenSSL thread destructor TLS key |
+| 3 | OpenSSL configuration TLS key |
+| 4 | Pthread once-only or base initialization |
+| 5 | Post-base initialization atomic load |
+| 6 | Process-exit handler registration |
+| 7 | DSO/no-delete initialization |
+| 8 | Suppressing OpenSSL configuration loading |
+| 9 | Recording initialized option bits |
+
+The updated standalone test also reports `pthread_once`, mutex
+initialization/lock/unlock, TLS-key create/set/get, and pthread read/write
+lock return codes; then runs `OPENSSL_init_crypto(BASE_ONLY)` followed by
+the normal full initialization, showing both stage numbers. This diagnoses
+the platform's pthread support **without disabling threading** or replacing
+entropy with a predictable fallback.
+
+**Do not interpret stage 0 as successful initialization.** If it still
+returns zero, the next step is to add more precise instrumentation inside
+the relevant remaining upstream OpenSSL initialization branch. Running the
+same failing probe repeatedly without further evidence is not useful.
+
+These changes are limited to draft PR #11 until the updated code is tested
+on real original 3DS hardware.
