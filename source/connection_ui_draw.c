@@ -175,7 +175,7 @@ static void setting_row(int row,const char *name,const char *value,int interacti
 }
 static void dropdown_overlay(const ConnectionUI *ui)
 {
-    static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080"};
+    static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080","800 X 480","960 X 540"};
     static const char *depth[]={"16 BIT","32 BIT"};
     static const char *speed[]={"1 X","2 X","3 X"};
     static const char *scroll[]={"1 NOTCH","2 NOTCH","3 NOTCH"};
@@ -184,7 +184,7 @@ static void dropdown_overlay(const ConnectionUI *ui)
     const char *const *items=NULL;
     int count=0;
     switch(ui->choice_menu) {
-    case 1: items=sizes;count=4;break;
+    case 1: items=sizes;count=6;break;
     case 2: items=depth;count=2;break;
     case 3: items=speed;count=3;break;
     case 4: items=scroll;count=3;break;
@@ -195,15 +195,21 @@ static void dropdown_overlay(const ConnectionUI *ui)
     fill(27,49,270,146,C(217,222,229));
     fill(30,52,262,139,WHITE);
     outline(30,52,262,139,BLUE);
-    label(41,63,"SELECT A VALUE",284,NAVY);
-    for(int i=0;i<count;i++) {
-        int y=80+22*i;
-        const bool current=i==ui->choice_highlight;
+    label(41,63,ui->choice_scroll?"UP: MORE  B: CLOSE":"SELECT VALUE  B: CLOSE",284,NAVY);
+    const int first=ui->choice_scroll;
+    const int visible=count-first<5?count-first:5;
+    for(int i=0;i<visible;i++) {
+        const int n=first+i,y=80+22*i;
+        const bool current=n==ui->choice_highlight;
         fill(36,y,251,21,current?HIGHLIGHT:(i&1)?PALE:WHITE);
         outline(36,y,251,21,current?BLUE:C(217,222,229));
-        label(46,y+7,items[i],275,current?BLUE:INK);
+        label(46,y+7,items[n],275,current?BLUE:INK);
     }
-    label(39,174,"TAP OUTSIDE TO CANCEL",286,MUTED);
+    if (count>5) {
+        fill(284,80,3,108,C(220,226,234));
+        const int slider=80+(ui->choice_scroll*108)/(count-4);
+        fill(283,slider,5,18,BLUE);
+    }
 }
 static void main_panel(const ConnectionUI *ui)
 {
@@ -238,8 +244,8 @@ static void main_panel(const ConnectionUI *ui)
         label(13,56,group,301,NAVY);
         switch(ui->tab) {
         case RDP_UI_DISPLAY: {
-            static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080"};
-            setting_row(0,"DESKTOP SIZE",sizes[o->display_mode<4?o->display_mode:0],1);
+            static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080","800 X 480","960 X 540"};
+            setting_row(0,"DESKTOP SIZE",sizes[o->display_mode<6?o->display_mode:0],1);
             snprintf(value,sizeof(value),"%u BIT",(unsigned)o->color_depth);
             setting_row(1,"COLOR DEPTH",value,1);
             setting_row(2,"LOCAL ZOOM","100 - 500%",0);
@@ -376,9 +382,9 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
         label(15,130,"X OR KEYBOARD: TYPE / SHORTCUTS",307,INK);
         label(15,146,"L + CIRCLE ROTATION: SMOOTH ZOOM",307,INK);
         label(15,162,"Y: FIT    R: DETAIL / FIT",307,INK);
-        label(15,178,"L+X: COLOR SWAP  L+Y: SMOOTH",307,INK);
+        label(15,178,"L+X: COLORS  L+Y: SMOOTH",307,INK);
         fill(14,199,292,1,C(224,230,238));
-        label(17,211,"START: EXIT  /  HELP: CLOSE",304,MUTED);
+        label(17,211,"SELECT: FPS  START: EXIT",304,MUTED);
         return;
     }
     if(pad->settings_open){
@@ -420,6 +426,25 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
     label(19,53,line,251,MUTED);
     label(68,120,"TOUCHPAD",205,C(147,155,166));
     label(67,140,"SWIPE TO MOVE",225,C(160,168,178));
+    if(pad->perf_open) {
+        /* Read-only metrics, visually distinct from blue input controls.
+         * Only measured render/wait time and allocated GDI primary size;
+         * do not claim total process RAM or RDP bandwidth. */
+        fill(14,78,243,110,C(246,248,250));
+        outline(14,78,243,110,BORDER);
+        label(23,87,"SESSION PERFORMANCE",248,NAVY);
+        snprintf(line,sizeof(line),"PAINTS/S: %u",pad->perf_fps);
+        label(23,105,line,248,INK);
+        snprintf(line,sizeof(line),"BLIT: %u MS   WAIT: %u MS",
+                 pad->perf_blit_ms,pad->perf_wait_ms);
+        label(23,121,line,248,INK);
+        snprintf(line,sizeof(line),"REMOTE: %d X %d",pad->remote_w,pad->remote_h);
+        label(23,137,line,248,INK);
+        snprintf(line,sizeof(line),"GDI: %u KB  %u BIT",
+                 pad->perf_gdi_kib,pad->perf_gdi_bpp);
+        label(23,153,line,248,INK);
+        label(23,172,"SELECT: HIDE",248,MUTED);
+    }
     if(pad->touching && pad->captured==PAD_AREA)
         outline(8,40,254,166,C(105,145,187));
 
@@ -472,7 +497,8 @@ void connection_ui_draw_status(const char *heading,const char *message,bool retr
         }
     }
     if(retry) {
-        button(10,205,145,"RETRY (A)",1);
+        button(10,205,145,heading && strcmp(heading,"SESSION ENDED")==0 ?
+               "RECONNECT (A)" : "RETRY (A)",1);
         button(165,205,145,"BACK (B)",0);
     } else {
         button(10,205,300,"PLEASE WAIT",0);

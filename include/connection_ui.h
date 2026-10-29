@@ -25,6 +25,7 @@ typedef struct {
     int panel_scroll;   /* General editor page: 0 logon, 1 connection */
     int choice_menu;    /* 0=closed; other IDs are active option dropdowns */
     int choice_highlight; /* D-pad selection within the open dropdown */
+    int choice_scroll;    /* first of up to 5 displayed choices */
     int tab;
     int scroll;         /* saved-connections list first visible item */
     int highlight;      /* selected row in saved connections view */

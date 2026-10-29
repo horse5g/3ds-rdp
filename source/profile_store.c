@@ -22,7 +22,7 @@ RdpUiOptions rdp_options_default(void)
 }
 int rdp_options_valid(const RdpUiOptions *o)
 {
-    return o && o->display_mode<=3 &&
+    return o && o->display_mode<=5 &&
         (o->color_depth==16||o->color_depth==32) &&
         o->touch_speed>=1 && o->touch_speed<=3 &&
         o->scroll_step>=1 && o->scroll_step<=3 &&

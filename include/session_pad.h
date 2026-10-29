@@ -37,6 +37,12 @@ typedef struct {
     bool settings_open;
     bool keyboard_open;
     bool help_open;
+    bool perf_open;             /* SELECT toggles read-only diagnostics */
+    unsigned perf_fps;          /* measured full-screen renders per second */
+    unsigned perf_blit_ms;      /* last top-LCD desktop conversion latency */
+    unsigned perf_wait_ms;      /* last FreeRDP wait duration */
+    unsigned perf_gdi_kib;      /* primary GDI surface size only */
+    unsigned perf_gdi_bpp;      /* 16 or 32 */
     bool fn_page;
     unsigned key_mods;
     bool disconnect_armed;

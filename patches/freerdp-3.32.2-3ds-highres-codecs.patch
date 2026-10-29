@@ -12,7 +12,7 @@ diff --git a/libfreerdp/common/settings.c b/libfreerdp/common/settings.c
 +	 * This is an O3DS resource policy, not a TLS/security fallback.
 +	 * The server may still choose a codec this reduced build cannot
 +	 * render; native hardware testing is required. */
-+	if (settings->DesktopWidth >= 1024 || settings->DesktopHeight >= 600)
++	if (settings->DesktopWidth >= 800 || settings->DesktopHeight >= 480)
 +		flags &= (uint32_t)~(FREERDP_CODEC_PLANAR | FREERDP_CODEC_PROGRESSIVE);
 +#endif
  	/*TODO: check other codecs flags */
