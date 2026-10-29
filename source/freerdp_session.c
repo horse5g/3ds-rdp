@@ -832,13 +832,15 @@ static BOOL post_connect(freerdp *instance)
                  "Server requested unsupported desktop size");
         return FALSE;
     }
-    /* Avoid a full 32-bit primary framebuffer at high resolutions.
-     * FreeRDP natively supports RGB565 GDI; the physical O3DS display is
-     * already 565, so 720p saves ~1.8 MiB, 1080p saves ~4.1 MiB.
-     * Keep the established XRGB32 renderer for working small desktops.
-     * This is independent of the wire's negotiated 16/32-bit color depth. */
-    const bool compact=(width>=800 || height>=480);
-    const UINT32 gdi_format=compact?PIXEL_FORMAT_RGB16:PIXEL_FORMAT_XRGB32;
+    /* Physical O3DS testing isolated a single-color desktop to the
+     * compact RGB16 GDI output path at 720p/1080p. Codec setup and the
+     * Windows/NLA handshake both succeed. Use the more thoroughly tested
+     * XRGB32 GDI primary for all desktop sizes while diagnosing the actual
+     * 16-bit decoder path. This costs ~1.8 MiB more at 720p and ~4.1 MiB
+     * more at 1080p than RGB16, but the O3DS codec allocation guard still
+     * prevents the much larger pre-TCP planar buffers. If 32-bit GDI
+     * cannot fit, fail with a clear OOM message; never show stale colors. */
+    const UINT32 gdi_format=PIXEL_FORMAT_XRGB32;
     rdp_diag_log_event("gdi-init-format",gdi_format,width,height);
     if (!gdi_init(instance,gdi_format)) {
         rdp_diag_log_event("gdi-init-fail",gdi_format,
@@ -1442,7 +1444,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
     desktop_dirty = false;
-    bool swap_rb = true; /* Fix actual O3DS red/blue reversal. */
+    bool swap_rb = false; /* Start with FreeRDP's declared XRGB32 B,G,R byte order; L+X toggles. */
     bool smoothing_enabled = true;
     unsigned blit_samples_remaining=3;
     u64 perf_start_ms=0,perf_last_update=0;
