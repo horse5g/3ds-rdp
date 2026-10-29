@@ -40,7 +40,7 @@ int session_pad_keyboard_key(const SessionPad *pad,int x,int y)
         SK_F1,SK_F2,SK_F3,SK_F4,
         SK_F5,SK_F6,SK_F7,SK_F8,
         SK_F9,SK_F10,SK_F11,SK_F12,
-        SK_CTRL_ALT_END,SK_ALT_TAB,SK_WIN_R,SK_FN
+        SK_CTRL_ALT_END,SK_FN,SK_WIN_R,SK_ALT_TAB
     };
     int col,row;
     if(!pad || !pad->keyboard_open || x<4 || x>=316 || y<40 || y>=232)return 0;
