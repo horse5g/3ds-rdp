@@ -170,6 +170,12 @@ static int parse_line(char *line, int v2, RdpProfileStore *store, char *error, s
             return problem(error, cap, "Saved domain too long");
     }
     if (rdp_config_parse(cfgtext, &config, error, cap)) return -1;
+    /* Upsert is correct for interactive Save/Overwrite, but duplicate names
+       found while *loading* a file indicate corruption. Silently replacing
+       the earlier row would discard connection settings without a warning. */
+    for (size_t j = 0; j < store->count; ++j)
+        if (same_name(store->items[j].name, fields[0]))
+            return problem(error, cap, "Duplicate profile names in SD file");
     {
         int index=rdp_profiles_upsert(store,fields[0],&config,error,cap);
         RdpUiOptions options=rdp_options_default();
