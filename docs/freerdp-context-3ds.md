@@ -312,3 +312,55 @@ MessageQueue_New (its event), 6 channelEvents hash table,
 7 success. The client only writes this to an already
 existing `rdplog.txt` upon C9 failure. No automatic logging,
 file creation, socket-stress test or background timer worker.
+
+### Hardware progress: C12 succeeds, TCP connect error 0x00020006
+
+The next physical O3DS log shows two full, successful context constructions,
+successful OpenSSL readiness, password dialog and FreeRDP settings, and
+`connect-worker-end 00000000 00020006 00000000`. In pinned FreeRDP
+3.32.2 `0x00020006` is `FREERDP_ERROR_CONNECT_FAILED`, a broad
+connection failure that can be set after socket or WinPR wait errors.
+This is **not an authentication, certificate-trust, or TLS-version code**.
+Two `freerdp-context-ok 0000000C 00000011` records confirm C12.
+The worker finished and FreeRDP cleanup returned; the process later logged
+`app-exit` but users reported that the console still appeared stuck while
+exiting.
+
+New `patches/freerdp-3.32.2-3ds-tcp-stage-diag.patch` adds **opt-in,
+numeric only** `tcp-stage` events inside FreeRDP's pinned TCP path.
+Fields: stage in hexadecimal, local errno, and WinPR/WSA/wait status if
+relevant. No hostnames, addresses, passwords or certificate material.
+
+| Stage | TCP operation |
+|---|---|
+| 10/11 | Begin / fail creating temporary WinPR connection event |
+| 12 | WSAEventSelect failed |
+| 13 | Nonblocking connect failed immediately (field c is WSA status) |
+| 14 | WaitForMultipleObjects returned (field c is wait result) |
+| 15 | Clearing WSAEventSelect mode failed |
+| 16 | Resetting socket blocking mode failed |
+| 17 | Low-level TCP helper finished successfully |
+| 18 | SO_ERROR reported a failed connection |
+| 20/21 | Hostname resolution begins/fails |
+| 22 | No usable address for requested IP family |
+| 23/24 | Try to open a native socket / socket creation failed |
+| 25 | TCP helper returned failure |
+| 26/27 | Host-level TCP connection succeeded/failed |
+| 31 | Querying local/remote socket IP failed |
+| 32 | Setting receive buffer failed |
+| 33 | Keepalive socket configuration failed |
+| 34 | Connection was aborted |
+| 35 | Default TCP setup succeeded |
+| 40/41 | Transport-layer TCP setup starts/fails |
+| 42–45 | Transport object/WinPR event setup failed |
+| 46 | Transport layer created successfully |
+
+The original SD log writes `app-exit` **before** `socExit()` and
+`gfxExit()`. Additional markers `app-soc-exit-enter`,
+`app-soc-exit-done`, `app-soc-buffer-free`,
+`app-gfx-exit-enter`, `app-gfx-exit-done` distinguish a SOC or GFX
+teardown hang from a completed return to Homebrew Launcher. A log ending
+before `app-soc-exit-done` points toward `socExit()`; a log ending
+before `app-gfx-exit-done` points toward `gfxExit()`. This build
+**does not** bypass SOC cleanup, disable NLA, or alter certificate rules.
+Hardware behavior remains unverified.
