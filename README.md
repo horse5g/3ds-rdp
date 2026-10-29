@@ -116,6 +116,14 @@ manager (inspect fingerprints and remove saved hosts with confirmation), and
 In-session, use the bottom touchscreen as a relative mouse and scrolling pad,
 **X** or Keyboard to enter ASCII text, and START/Disconnect to end the session.
 Deleted certificates need reapproval; changed certificates are blocked.
+The experimental full client now starts the blocking TLS/NLA connection on
+a separate ARM11 worker while the main thread handles the fingerprint prompt
+and B/START cancellation. The worker is joined before the foreground resumes
+GDI painting and remote input. A separate short-lived network pump attempts
+to maintain RDP updates while the software keyboard is open; its worker is
+joined before text input and painting resume. Cancellation and network
+progress during a suspended 3DS applet are best effort. See
+[connect-thread.md](docs/connect-thread.md) for architecture and limitations.
 This code has **not been hardware tested**.
 Unknown certificates require explicit approval; changed certificates are blocked, and
 passwords are entered at runtime, never loaded from `host.txt`.

@@ -63,6 +63,26 @@ static PrintConsole trust_console;
 static char cert_failure[100];
 static bool desktop_dirty;
 
+/* Connect/TLS/NLA runs on a worker. All HID, console and GFX access stays on
+ * the foreground thread. The worker exchanges only a fingerprint challenge
+ * and decision using libctru synchronization primitives. */
+typedef struct {
+    LightLock lock;
+    LightEvent decision_ready;
+    freerdp *client;
+    bool finished;
+    bool succeeded;
+    bool cancel_requested;
+    bool challenge_pending;
+    bool challenge_answered;
+    int decision;
+    char challenge_host[RDP_HOST_CAP];
+    uint16_t challenge_port;
+    unsigned char challenge_sha256[32];
+} RdpConnectGate;
+
+static RdpConnectGate *connect_gate; /* only one session exists */
+
 /* 0 = optional pin absent, 1 = loaded, -1 = malformed or I/O error */
 static int load_cert_pin(RdpCertPin *pin)
 {
@@ -139,40 +159,67 @@ finish:
 static int ask_unknown_certificate(const char *host, uint16_t port,
                                    const unsigned char sha256[32])
 {
+    RdpConnectGate *gate = connect_gate;
+    int result;
+    if (!gate || !host || strlen(host) >= RDP_HOST_CAP)
+        return 0;
+    LightLock_Lock(&gate->lock);
+    if (gate->cancel_requested || gate->challenge_pending) {
+        LightLock_Unlock(&gate->lock);
+        return 0;
+    }
+    snprintf(gate->challenge_host, sizeof(gate->challenge_host), "%s", host);
+    gate->challenge_port = port;
+    memcpy(gate->challenge_sha256, sha256, 32);
+    gate->challenge_pending = true;
+    gate->challenge_answered = false;
+    LightLock_Unlock(&gate->lock);
+
+    for (;;) {
+        /* Wake periodically so a session abort does not depend on an event
+         * that the foreground might be unable to signal during app exit. */
+        (void)LightEvent_WaitTimeout(&gate->decision_ready, 100000000LL);
+        LightLock_Lock(&gate->lock);
+        if (gate->cancel_requested) {
+            gate->challenge_pending = false;
+            LightLock_Unlock(&gate->lock);
+            return 0;
+        }
+        if (gate->challenge_answered) {
+            result = gate->decision;
+            gate->challenge_answered = false;
+            gate->challenge_pending = false;
+            LightLock_Unlock(&gate->lock);
+            return result;
+        }
+        LightLock_Unlock(&gate->lock);
+    }
+}
+
+/* Certificate UI is strictly a foreground-thread responsibility. */
+static void draw_cert_challenge(const char *host, uint16_t port,
+                                const unsigned char sha256[32])
+{
     static const char hex[] = "0123456789ABCDEF";
     char fingerprint[65];
-    for (size_t i = 0; i < 32; i++) {
-        fingerprint[i * 2] = hex[sha256[i] >> 4];
-        fingerprint[i * 2 + 1] = hex[sha256[i] & 15];
+    for (size_t i = 0; i < 32; ++i) {
+        fingerprint[2*i] = hex[sha256[i] >> 4];
+        fingerprint[2*i+1] = hex[sha256[i] & 15];
     }
     fingerprint[64] = 0;
-    consoleInit(GFX_TOP, &trust_console);
     consoleSelect(&trust_console);
     printf("\x1b[2J\x1b[HUNKNOWN RDP CERTIFICATE\n");
     printf("This server is NOT yet trusted.\n\n");
     printf("Host: %.40s\nPort: %u\n\n", host, (unsigned)port);
-    printf("Leaf SHA-256 (check independently):\n");
-    printf("%.32s\n%s\n\n", fingerprint, fingerprint + 32);
-    printf("First-use trust can allow MITM attacks!\n");
+    printf("Leaf SHA-256 (verify independently):\n");
+    printf("%.32s\n%s\n\n", fingerprint, fingerprint+32);
+    printf("First-use trust can allow MITM!\n");
     printf("Verify this hash on the Windows host.\n\n");
-    printf("B / START: Reject\n");
-    printf("A: Accept for this session ONLY\n");
-    printf("X: Trust and SAVE to SD card\n");
+    printf("B/START: Reject\n");
+    printf("A: Accept for this session\n");
+    printf("X: Accept and save on SD\n");
     gfxFlushBuffers();
     gfxSwapBuffers();
-    gspWaitForVBlank();
-    while (aptMainLoop()) {
-        hidScanInput();
-        u32 keys = hidKeysDown();
-        if (keys & (KEY_B | KEY_START))
-            return 0;
-        if (keys & KEY_A)
-            return 1;
-        if (keys & KEY_X)
-            return 2;
-        gspWaitForVBlank();
-    }
-    return 0;
 }
 
 /* FreeRDP ExternalCertificateManagement callback. Requires a valid name and
@@ -385,24 +432,240 @@ static bool prompt_password(char *password, size_t size)
     return button == SWKBD_BUTTON_CONFIRM;
 }
 
-static void send_text(rdpInput *input)
+/* Only while the main thread is inside Nintendo's modal software keyboard,
+ * one helper may pump FreeRDP network events. No HID or GPU calls occur on
+ * this worker. The main thread never sends remote input until after join. */
+typedef struct {
+    rdpContext *context;
+    LightLock lock;
+    bool stop_requested;
+    bool failed;
+    DWORD failure_code;
+} RdpKeyboardPump;
+
+static void rdp_keyboard_pump_worker(void *arg)
+{
+    RdpKeyboardPump *pump = (RdpKeyboardPump *)arg;
+    while (true) {
+        HANDLE handles[RDP_MAX_EVENTS + 2];
+        DWORD count, wait_status;
+        LightLock_Lock(&pump->lock);
+        const bool stop = pump->stop_requested;
+        LightLock_Unlock(&pump->lock);
+        if (stop)
+            return;
+        if (freerdp_shall_disconnect_context(pump->context))
+            break;
+        count = freerdp_get_event_handles(pump->context, handles, RDP_MAX_EVENTS);
+        if (!count || count > RDP_MAX_EVENTS) {
+            pump->failure_code = count;
+            break;
+        }
+        wait_status = WaitForMultipleObjects(count, handles, FALSE, 20);
+        if (!rdp_wait_result_valid((uint32_t)wait_status, (uint32_t)count)) {
+            pump->failure_code = wait_status;
+            break;
+        }
+        if (!freerdp_check_event_handles(pump->context)) {
+            pump->failure_code = freerdp_get_last_error(pump->context);
+            break;
+        }
+    }
+    LightLock_Lock(&pump->lock);
+    pump->failed = true;
+    LightLock_Unlock(&pump->lock);
+}
+
+/* The software keyboard still owns main-thread HID/GFX; a network-only
+ * worker can process RDP updates without concurrent input. This is best
+ * effort if the 3DS OS suspends all user threads during an applet. */
+static bool send_text(freerdp *client, char *reason, size_t reason_size)
 {
     char text[128] = {0};
     SwkbdState keyboard;
+    SwkbdButton button;
+    RdpKeyboardPump pump = {0};
+    Thread worker;
     size_t i;
+
+    if (!client || !client->context || !client->context->input)
+        return false;
     swkbdInit(&keyboard, SWKBD_TYPE_NORMAL, 2, sizeof(text) - 1);
     swkbdSetHintText(&keyboard, "Remote text (ASCII only)");
-    if (swkbdInputText(&keyboard, text, sizeof(text)) == SWKBD_BUTTON_CONFIRM) {
+    pump.context = client->context;
+    LightLock_Init(&pump.lock);
+    worker = threadCreate(rdp_keyboard_pump_worker, &pump,
+                          64 * 1024, 0x30, -2, false);
+    if (!worker) {
+        snprintf(reason, reason_size, "Cannot start keyboard network worker");
+        OPENSSL_cleanse(&keyboard, sizeof(keyboard));
+        return false;
+    }
+
+    button = swkbdInputText(&keyboard, text, sizeof(text));
+    LightLock_Lock(&pump.lock);
+    pump.stop_requested = true;
+    LightLock_Unlock(&pump.lock);
+    (void)threadJoin(worker, U64_MAX);
+    threadFree(worker);
+
+    if (pump.failed) {
+        snprintf(reason, reason_size, "RDP disconnected during keyboard (0x%08lx)",
+                 (unsigned long)pump.failure_code);
+        OPENSSL_cleanse(&keyboard, sizeof(keyboard));
+        OPENSSL_cleanse(text, sizeof(text));
+        return false;
+    }
+    if (button == SWKBD_BUTTON_CONFIRM) {
         for (i = 0; text[i]; ++i) {
             /* UTF-8 multi-byte input is not supported by this simple path. */
             const unsigned char ch = (unsigned char)text[i];
             if (ch < 0x20 || ch > 0x7e)
                 continue;
-            (void)freerdp_input_send_unicode_keyboard_event(input, 0, ch);
-            (void)freerdp_input_send_unicode_keyboard_event(input, KBD_FLAGS_RELEASE, ch);
+            (void)freerdp_input_send_unicode_keyboard_event(
+                client->context->input, 0, ch);
+            (void)freerdp_input_send_unicode_keyboard_event(
+                client->context->input, KBD_FLAGS_RELEASE, ch);
         }
     }
+    OPENSSL_cleanse(&keyboard, sizeof(keyboard));
     OPENSSL_cleanse(text, sizeof(text));
+    return true;
+}
+
+/* Worker performs only blocking FreeRDP connect and OpenSSL operations.
+ * It never invokes HID, console drawing, or 3DS software keyboard APIs. */
+static void rdp_connect_worker(void *arg)
+{
+    RdpConnectGate *gate = (RdpConnectGate *)arg;
+    LightLock_Lock(&gate->lock);
+    const bool cancelled_before_start = gate->cancel_requested;
+    LightLock_Unlock(&gate->lock);
+    const bool ok = !cancelled_before_start &&
+                    freerdp_connect(gate->client) == TRUE;
+    LightLock_Lock(&gate->lock);
+    gate->succeeded = ok;
+    gate->finished = true;
+    LightLock_Unlock(&gate->lock);
+}
+
+static void connect_screen(const char *host, bool cancelling)
+{
+    consoleSelect(&trust_console);
+    printf("\x1b[2J\x1b[H3DS Remote Desktop\n\n");
+    printf("%.38s\n\n", host);
+    if (cancelling)
+        printf("Cancelling RDP connection...\n");
+    else
+        printf("Connecting (TLS/NLA)...\n\nB/START: Cancel\n");
+    gfxFlushBuffers();
+    gfxSwapBuffers();
+}
+
+/* On success the joined worker hands its connected FreeRDP context to the
+ * foreground's existing single-threaded event pump. No concurrent GDI or
+ * mouse-input access occurs after the connect thread has been joined.
+ * A cancellation that is stuck in a platform socket cannot safely be freed
+ * under a running worker: report progress and keep waiting for abort to exit. */
+static bool connect_with_ui(freerdp *client, const char *host,
+                            char *reason, size_t reason_size)
+{
+    RdpConnectGate gate = {0};
+    Thread worker;
+    bool cancelling = false, challenge_visible = false;
+    bool started = false, connected = false;
+    LightLock_Init(&gate.lock);
+    LightEvent_Init(&gate.decision_ready, RESET_ONESHOT);
+    gate.client = client;
+    connect_gate = &gate;
+    consoleInit(GFX_TOP, &trust_console);
+    connect_screen(host, false);
+
+    worker = threadCreate(rdp_connect_worker, &gate, 96 * 1024, 0x30, -2, false);
+    if (!worker) {
+        snprintf(reason, reason_size, "Could not start ARM11 RDP connection worker");
+        connect_gate = NULL;
+        return false;
+    }
+    started = true;
+    while (started) {
+        bool done, pending;
+        char pending_host[RDP_HOST_CAP];
+        uint16_t pending_port = 0;
+        unsigned char pending_sha[32];
+        bool active = aptMainLoop();
+        u32 down = 0;
+
+        LightLock_Lock(&gate.lock);
+        done = gate.finished;
+        pending = gate.challenge_pending && !gate.challenge_answered;
+        if (pending) {
+            memcpy(pending_host, gate.challenge_host, sizeof(pending_host));
+            pending_port = gate.challenge_port;
+            memcpy(pending_sha, gate.challenge_sha256, sizeof(pending_sha));
+        }
+        LightLock_Unlock(&gate.lock);
+        if (done)
+            break;
+        if (active) {
+            hidScanInput();
+            down = hidKeysDown();
+        }
+        if ((!active || (down & (KEY_B | KEY_START))) && !pending &&
+            !cancelling) {
+            cancelling = true;
+            LightLock_Lock(&gate.lock);
+            gate.cancel_requested = true;
+            LightLock_Unlock(&gate.lock);
+            LightEvent_Signal(&gate.decision_ready);
+            (void)freerdp_abort_connect_context(client->context);
+            if (active)
+                connect_screen(host, true);
+        } else if (pending && !cancelling) {
+            if (!challenge_visible && active) {
+                draw_cert_challenge(pending_host, pending_port, pending_sha);
+                challenge_visible = true;
+            }
+            if (!active || (down & (KEY_B | KEY_START))) {
+                /* Reject only the new certificate; B/START during its
+                 * prompt does not automatically close the app. */
+                LightLock_Lock(&gate.lock);
+                gate.decision = 0;
+                gate.challenge_answered = true;
+                LightLock_Unlock(&gate.lock);
+                LightEvent_Signal(&gate.decision_ready);
+                challenge_visible = false;
+            } else if (down & (KEY_A | KEY_X)) {
+                LightLock_Lock(&gate.lock);
+                gate.decision = (down & KEY_X) ? 2 : 1;
+                gate.challenge_answered = true;
+                LightLock_Unlock(&gate.lock);
+                LightEvent_Signal(&gate.decision_ready);
+                challenge_visible = false;
+            }
+        }
+        if (active)
+            gspWaitForVBlank();
+        else
+            svcSleepThread(16000000LL);
+    }
+    /* Only join after worker has published completion, then it is safe to
+     * destroy the gate and use the FreeRDP context on this main thread. */
+    (void)threadJoin(worker, U64_MAX);
+    threadFree(worker);
+    LightLock_Lock(&gate.lock);
+    const bool established = gate.succeeded;
+    connected = established && !gate.cancel_requested;
+    LightLock_Unlock(&gate.lock);
+    connect_gate = NULL;
+    /* Cancellation can race with the final NLA response. If the worker
+     * connected just as B was pressed, explicitly close that live session:
+     * the caller's unsuccessful-connect cleanup won't disconnect it. */
+    if (established && !connected)
+        (void)freerdp_disconnect(client);
+    if (!connected && cancelling)
+        snprintf(reason, reason_size, "RDP connection cancelled");
+    return connected;
 }
 
 int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
@@ -501,7 +764,11 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
     desktop_dirty = false;
-    if (!freerdp_connect(client)) {
+    if (!connect_with_ui(client, cfg->host, reason, reason_size)) {
+        /* A user cancellation is distinct from an authentication failure.
+         * Do not overwrite its reason with a generic FreeRDP error. */
+        if (strcmp(reason, "RDP connection cancelled") == 0)
+            goto done;
         if (cert_failure[0])
             snprintf(reason, reason_size, "%.90s", cert_failure);
         else
@@ -568,7 +835,10 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
                         (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
                 right_down = false;
             }
-            if (input) send_text(input);
+            if (input && !send_text(client, reason, reason_size)) {
+                result = -1;
+                break;
+            }
             pad_redraw = true;
         }
 
