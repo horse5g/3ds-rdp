@@ -51,3 +51,29 @@ Then try full RDP again and send the exact new error text.
 If the PS test passes and OpenSSL still fails, the error queue reason
 helps pinpoint whether the RNG provider, seed pool, or a different
 OpenSSL initialization path is failing.
+
+## Follow-up on physical O3DS: ERR code zero
+
+The next test returned `OPENSSL RAND FAILED CODE 0X00000000`, after the
+direct PS test passed. **This proves the PS service is accessible for the
+direct test, not that OpenSSL's provider obtained entropy successfully.**
+OpenSSL 3.5's `RAND_bytes_ex()` can return zero without populating its
+error queue when the global RNG data or public DRBG is unavailable. During
+primary initialization, the seed-source failure's error may also be consumed
+by `ERR_pop_to_mark()`, leaving no error to display.
+
+The updated FreeRDP startup now explicitly:
+1. loads the built-in `default` provider (no-module cross-build),
+2. fetches `CTR-DRBG` from it,
+3. checks that `RAND_get0_primary(NULL)` returns a ready generator,
+4. checks that `RAND_get0_public(NULL)` returns a ready generator,
+5. calls `RAND_bytes()` only after the previous steps pass.
+
+When a stage fails, its name is shown **even when the error code is zero**.
+The provider is kept loaded until the session and FreeRDP cleanup finish.
+No bypass, alternative DRBG, static seed, or replacement RNG is used.
+
+The separate `openssl-rng-smoke.3dsx` probe is updated to show the same
+provider, primary, and public stages. If the standalone probe fails at
+the same stage, the problem belongs to the embedded OpenSSL port, not
+FreeRDP's network or Windows authentication.
