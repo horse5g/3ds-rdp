@@ -1,124 +1,46 @@
 diff --git a/libfreerdp/core/timer.c b/libfreerdp/core/timer.c
 --- a/libfreerdp/core/timer.c
 +++ b/libfreerdp/core/timer.c
-@@ -27,6 +27,64 @@
+@@ -27,7 +27,33 @@
  #include "utils.h"
  #include "timer.h"
  
+-#if !defined(EMSCRIPTEN)
++/* O3DS diagnostic: keep timer constructor stage after a failed cleanup.
++ * The base O3DS client has no users of the optional timer callback API.
++ * Until WinPR's SOC socket-backed wait loop is robust, don't start a timer
++ * worker that can block FreeRDP context destruction indefinitely. */
 +#ifdef __3DS__
-+#include <3ds/svc.h>
-+#include <3ds/thread.h>
-+#include "rdp_pthread_tsd.h"
-+
-+/* O3DS: keep native timer diagnostic state after context cleanup. */
 +static unsigned int o3ds_timer_init_stage;
-+static unsigned int o3ds_timer_priority;
-+static unsigned int o3ds_timer_threads_used;
-+static unsigned int o3ds_timer_threads_max;
-+static unsigned int o3ds_timer_stack_alloc_ok;
-+unsigned int freerdp_3ds_timer_init_stage(void) { return o3ds_timer_init_stage; }
++unsigned int freerdp_3ds_timer_init_stage(void)
++{
++    return o3ds_timer_init_stage;
++}
++/* Retain ABI used by opt-in app diagnostics (not a failing T5 anymore). */
 +void freerdp_3ds_timer_thread_diag(unsigned int* priority,
 +                                  unsigned int* threads_used,
 +                                  unsigned int* threads_max,
 +                                  unsigned int* stack_alloc_ok)
 +{
-+    if (priority) *priority = o3ds_timer_priority;
-+    if (threads_used) *threads_used = o3ds_timer_threads_used;
-+    if (threads_max) *threads_max = o3ds_timer_threads_max;
-+    if (stack_alloc_ok) *stack_alloc_ok = o3ds_timer_stack_alloc_ok;
++    if (priority) *priority = 0;
++    if (threads_used) *threads_used = 0xFFFFu;
++    if (threads_max) *threads_max = 0xFFFFu;
++    if (stack_alloc_ok) *stack_alloc_ok = 0;
 +}
-+#define O3DS_TIMER_STAGE(value) (o3ds_timer_init_stage = (value))
-+#define O3DS_TIMER_STACK_SIZE (64u * 1024u)
-+
-+/* Give the UI/connect thread scheduling precedence over the timer worker.
-+ * Horizon priorities have inverse ordering: larger = lower priority. */
-+static s32 o3ds_timer_thread_priority(void)
-+{
-+    s32 prio = 0x30;
-+    if (R_FAILED(svcGetThreadPriority(&prio, CUR_THREAD_HANDLE)))
-+        prio = 0x30;
-+    if (prio < 0x18) prio = 0x18;
-+    return prio < 0x3F ? prio + 1 : 0x3F;
-+}
-+
-+/* Only on native thread creation failure; advisory heap check is not
-+ * proof that the thread's actual stack and TLS allocations can succeed. */
-+static void o3ds_timer_record_thread_failure(void)
-+{
-+    Handle limit = 0;
-+    ResourceLimitType kind = RESLIMIT_THREAD;
-+    s64 used = -1, max = -1;
-+    if (R_SUCCEEDED(svcGetResourceLimit(&limit, CUR_PROCESS_HANDLE))) {
-+        (void)svcGetResourceLimitCurrentValues(&used, limit, &kind, 1);
-+        (void)svcGetResourceLimitLimitValues(&max, limit, &kind, 1);
-+        svcCloseHandle(limit);
-+    }
-+    o3ds_timer_threads_used = used < 0 ? 0xFFFFu : (unsigned int)used;
-+    o3ds_timer_threads_max = max < 0 ? 0xFFFFu : (unsigned int)max;
-+    void* probe = malloc(O3DS_TIMER_STACK_SIZE + 4096u);
-+    o3ds_timer_stack_alloc_ok = probe != NULL;
-+    free(probe);
-+}
++#define O3DS_TIMER_STAGE(n) (o3ds_timer_init_stage = (n))
 +#else
-+#define O3DS_TIMER_STAGE(value) ((void)0)
++#define O3DS_TIMER_STAGE(n) ((void)0)
 +#endif
 +
- #if !defined(EMSCRIPTEN)
++#if !defined(EMSCRIPTEN) && !defined(__3DS__)
  #define FREERDP_TIMER_SUPPORTED
  #endif
-@@ -47,7 +105,11 @@
- {
- 	rdpRdp* rdp;
- 	wArrayList* entries;
-+#ifdef __3DS__
-+	Thread thread;
-+#else
- 	HANDLE thread;
-+#endif
- 	HANDLE event;
- 	HANDLE mainevent;
- 	size_t maxIdx;
-@@ -229,6 +291,15 @@
- }
- #endif
- 
-+#if defined(__3DS__) && defined(FREERDP_TIMER_SUPPORTED)
-+static void o3ds_timer_entry(void* arg)
-+{
-+    /* FreeRDP's timer loop still runs; only the WinPR thread wrapper changes. */
-+    (void)timer_thread(arg);
-+    rdp_3ds_tsd_cleanup_current_thread();
-+}
-+#endif
-+
- void freerdp_timer_free(FreeRDPTimer* timer)
- {
- 	if (!timer)
-@@ -240,8 +311,13 @@
- 
- 	if (timer->thread)
- 	{
-+#ifdef __3DS__
-+        (void)threadJoin(timer->thread, U64_MAX);
-+        threadFree(timer->thread);
-+#else
- 		(void)WaitForSingleObject(timer->thread, INFINITE);
- 		CloseHandle(timer->thread);
-+#endif
- 	}
- 	if (timer->mainevent)
- 		CloseHandle(timer->mainevent);
-@@ -267,11 +343,19 @@
+ #define TAG FREERDP_TAG("timer")
+@@ -267,11 +293,13 @@
  FreeRDPTimer* freerdp_timer_new(rdpRdp* rdp)
  {
  	WINPR_ASSERT(rdp);
 +	O3DS_TIMER_STAGE(1);
-+#ifdef __3DS__
-+    o3ds_timer_priority = 0;
-+    o3ds_timer_threads_used = 0xFFFFu;
-+    o3ds_timer_threads_max = 0xFFFFu;
-+    o3ds_timer_stack_alloc_ok = 0;
-+#endif
  	FreeRDPTimer* timer = calloc(1, sizeof(FreeRDPTimer));
  	if (!timer)
  		return nullptr;
@@ -128,37 +50,35 @@ diff --git a/libfreerdp/core/timer.c b/libfreerdp/core/timer.c
  	timer->entries = ArrayList_New(TRUE);
  	if (!timer->entries)
  		goto fail;
-@@ -283,20 +367,33 @@
+@@ -283,10 +311,13 @@
  		obj->fnObjectFree = free;
  	}
  
-+	O3DS_TIMER_STAGE(3);
++#if !defined(__3DS__)
  	timer->event = CreateEventA(nullptr, TRUE, FALSE, nullptr);
  	if (!timer->event)
  		goto fail;
++#endif
  
-+	O3DS_TIMER_STAGE(4);
++	O3DS_TIMER_STAGE(4); /* one event for compatibility with event-handle list */
  	timer->mainevent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
  	if (!timer->mainevent)
  		goto fail;
- 
- #if defined(FREERDP_TIMER_SUPPORTED)
- 	timer->running = true;
-+    O3DS_TIMER_STAGE(5);
-+#ifdef __3DS__
-+    const s32 prio = o3ds_timer_thread_priority();
-+    o3ds_timer_priority = (unsigned int)prio;
-+    timer->thread = threadCreate(o3ds_timer_entry, timer, O3DS_TIMER_STACK_SIZE,
-+                                 prio, -2, false);
-+    if (!timer->thread)
-+        o3ds_timer_record_thread_failure();
-+#else
- 	timer->thread = CreateThread(nullptr, 0, timer_thread, timer, 0, nullptr);
-+#endif
+@@ -297,6 +328,7 @@
  	if (!timer->thread)
  		goto fail;
  #endif
-+	O3DS_TIMER_STAGE(6);
++	O3DS_TIMER_STAGE(6); /* no background worker or unbounded join on 3DS */
  	return timer;
  
  fail:
+@@ -340,7 +372,8 @@
+ 	(void)ResetEvent(timer->mainevent);
+ 	uint64_t now = winpr_GetTickCount64NS();
+ 	bool rc = ArrayList_ForEach(timer->entries, runExpiredTimerOnMainloop, &now);
+-	(void)SetEvent(timer->event); // Trigger a wakeup of timer thread to reschedule
++	if (timer->event)
++		(void)SetEvent(timer->event); // Trigger worker on platforms with one
+ 	ArrayList_Unlock(timer->entries);
+ 	return rc;
+ }
