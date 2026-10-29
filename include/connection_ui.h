@@ -17,6 +17,7 @@ typedef enum {
 typedef struct {
     RdpProfileStore store;
     RdpConfig current;
+    RdpUiOptions options;
     char name[RDP_PROFILE_NAME_CAP];
     char message[80];
     int selected;       /* -1 = unsaved connection */
