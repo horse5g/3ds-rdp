@@ -74,6 +74,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q '3DS has no AF_UNIX' "$src/winpr/include/winpr/winsock.h"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-network-headers.patch"
   fi
+  if ! grep -q '3DS homebrew has no guaranteed POSIX device hostname' "$src/winpr/libwinpr/sysinfo/sysinfo.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-client-hostname.patch"
+  fi
   if ! grep -q 'libctru socket handles are signed ints' "$src/winpr/include/winpr/winsock.h"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-socket-types.patch"
   fi
