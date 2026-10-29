@@ -105,6 +105,31 @@ and only supports NTLM-compatible authentication. A server requiring
 Kerberos-only domain sign-on will not work without additional porting.
 Neither NLA nor hostname/certificate verification is disabled.
 
+### Additional context allocation trap: WinPR workstation name
+
+FreeRDP 3.32.2 calls `settings_init_computer_name()` during
+`freerdp_settings_new()` (before `freerdp_context_new()` succeeds).
+That function invokes WinPR `GetComputerNameExA(ComputerNameNetBIOS)`,
+which calls `gethostname()`. A 3DS does not have a guaranteed POSIX
+hostname, so the original context allocation can still fail **even after
+setting HOME**.
+
+A narrowly scoped `__3DS__` WinPR source patch supplies the harmless
+client workstation label `NINTENDO3DS` when `gethostname()` fails or
+returns empty. Valid hostnames are preserved. This string is a protocol
+client label **only**, not a Windows username, certificate identity,
+TLS peer validation or Unix user identity. Other platforms are unchanged.
+
+### Case-insensitive DNS certificate endpoint lookup
+
+DNS hostnames are ASCII case-insensitive but certificate pins previously
+used exact `strcmp()`; `OfficeHost` and `officehost` could be treated
+as distinct endpoints even at the same TCP port. Matching is now limited
+to ASCII letter-case folding for the **full hostname plus port**; suffixes,
+trailing dots and wildcard forms are **not** allowed to match. SHA-256
+fingerprints still have to match exactly. Duplicates with different
+case are rejected during pool parsing, including changed fingerprints.
+
 ## Validation and constraints
 
 - Portable tests: desktop resize limit and duplicate profile rejection.
