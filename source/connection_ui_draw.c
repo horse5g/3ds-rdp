@@ -184,7 +184,7 @@ static void dropdown_overlay(const ConnectionUI *ui)
     const char *const *items=NULL;
     int count=0;
     switch(ui->choice_menu) {
-    case 1: items=sizes;count=4;break;
+    case 1: items=sizes;count=6;break;
     case 2: items=depth;count=2;break;
     case 3: items=speed;count=3;break;
     case 4: items=scroll;count=3;break;
@@ -195,15 +195,21 @@ static void dropdown_overlay(const ConnectionUI *ui)
     fill(27,49,270,146,C(217,222,229));
     fill(30,52,262,139,WHITE);
     outline(30,52,262,139,BLUE);
-    label(41,63,"SELECT A VALUE",284,NAVY);
-    for(int i=0;i<count;i++) {
-        int y=80+22*i;
-        const bool current=i==ui->choice_highlight;
+    label(41,63,ui->choice_scroll?"UP: MORE  B: CLOSE":"SELECT VALUE  B: CLOSE",284,NAVY);
+    const int first=ui->choice_scroll;
+    const int visible=count-first<5?count-first:5;
+    for(int i=0;i<visible;i++) {
+        const int n=first+i,y=80+22*i;
+        const bool current=n==ui->choice_highlight;
         fill(36,y,251,21,current?HIGHLIGHT:(i&1)?PALE:WHITE);
         outline(36,y,251,21,current?BLUE:C(217,222,229));
-        label(46,y+7,items[i],275,current?BLUE:INK);
+        label(46,y+7,items[n],275,current?BLUE:INK);
     }
-    label(39,174,"TAP OUTSIDE TO CANCEL",286,MUTED);
+    if (count>5) {
+        fill(284,80,3,108,C(220,226,234));
+        const int slider=80+(ui->choice_scroll*108)/(count-4);
+        fill(283,slider,5,18,BLUE);
+    }
 }
 static void main_panel(const ConnectionUI *ui)
 {
@@ -238,7 +244,7 @@ static void main_panel(const ConnectionUI *ui)
         label(13,56,group,301,NAVY);
         switch(ui->tab) {
         case RDP_UI_DISPLAY: {
-            static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080"};
+            static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080","800 X 480","960 X 540"};
             setting_row(0,"DESKTOP SIZE",sizes[o->display_mode<6?o->display_mode:0],1);
             snprintf(value,sizeof(value),"%u BIT",(unsigned)o->color_depth);
             setting_row(1,"COLOR DEPTH",value,1);
