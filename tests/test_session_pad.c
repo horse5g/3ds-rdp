@@ -29,7 +29,8 @@ int main(void)
     session_pad_init(&pad);
     assert(pad.pointer_x == 200 && pad.pointer_y == 120);
     assert(pad.sensitivity == 2 && pad.scroll_amount == 1);
-    assert(session_pad_hit(&pad,300,15) == PAD_KEYBOARD);
+    assert(session_pad_hit(&pad,200,15) == PAD_KEYBOARD);
+    assert(session_pad_hit(&pad,280,15) == PAD_HELP);
     assert(session_pad_hit(&pad,300,60) == PAD_SCROLL_UP);
     assert(session_pad_hit(&pad,300,100) == PAD_SCROLL_STRIP);
     assert(session_pad_hit(&pad,300,220) == PAD_SCROLL_DOWN);
@@ -90,7 +91,12 @@ int main(void)
     a=tap(&pad,270,210);
     assert(a.wheel_notches == 2);
 
-    a=tap(&pad,240,15);
+    a=tap(&pad,280,15);
+    assert(a.redraw && pad.help_open);
+    assert(session_pad_hit(&pad,100,100) == PAD_NONE);
+    a=tap(&pad,280,15);
+    assert(a.redraw && !pad.help_open);
+    a=tap(&pad,200,15);
     assert(a.keyboard && a.redraw);
     a=tap(&pad,50,15);
     assert(!a.disconnect && pad.disconnect_armed);
