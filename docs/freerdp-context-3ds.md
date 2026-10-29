@@ -259,3 +259,56 @@ build also **disables the post-failure socket capacity stress test**.
 Only passive counters and checkpoints are recorded. Avoid using the
 previous build again; the new behavior remains unverified on physical
 O3DS until the user runs the latest green CI artifact.
+
+### Physical O3DS C9 failure, lazy WinPR events (October 29, 2026)
+
+Following the timerless recovery build, two hardware attempts reached
+`C9 R0 T0`, returned cleanly to the menu, and logged a failed socket
+pair, stage 1, errno 19 (`ENODEV`):
+
+```text
+core-context-step 00000008 00000000 00070000
+core-context-step 00000051 00000000 00080000
+core-context-step 0000005A 00000013 00080001
+core-socket-last 00000001 00000013 00000000
+core-context-step 0000005C 00000000 00080001
+core-context-step 0000005D 00000000 00080001
+core-context-step 0000005B 00000000 00080001
+freerdp-context-fail 00000009 00000000 0000000B
+```
+
+These `core-context-step` numbers are in **hex**: `08` is
+before the C8 channel-error event, `51`=81 is C8 success,
+`5A`=90 is failure cleanup start, `5C`=92 and `5D`=93
+bracket `rdp_free()`, and `5B`=91 confirms completed
+failed-context cleanup.
+
+Pinned FreeRDP 3.32.2 `freerdp_channels_new()` creates a
+`MessageQueue_New()`, whose constructor calls `CreateEvent()`.
+A failure at C9 immediately after successful C8 and a failing
+`loopback_pair_open()` strongly implicates another event socket-pair
+allocation. The 3DS libctru `socket()` wrapper can return ENODEV
+if its `soc:` device is missing; an error can also be stale
+depending on the failed internal path. Thus **do not assert
+a specific socket limit from this errno alone**.
+
+Recovery experiment `patches/freerdp-3.32.2-3ds-lazy-events.patch`:
+under `__3DS__` only, ordinary WinPR events allocate
+their TCP loopback pair **only when a WinPR wait first needs their
+FD**, instead of at `CreateEvent()`. Pre-materialization
+SetEvent/ResetEvent state is maintained under a per-event LightLock;
+an initially signaled event will materialize as signaled.
+Attached external FD events are untouched. Non-3DS builds
+retain upstream eager event behavior. This saves sockets for
+unused constructor and channel-message events, but the
+waited-on events can still exhaust sockets: hardware testing
+must verify progress and failure handling. No TLS/NLA/cert
+policy is weakened.
+
+A second diagnostic `freerdp-channels-stage` identifies the
+substep within C9: 1 global table init, 2 allocation,
+3 global hash table check, 4 critical section, 5
+MessageQueue_New (its event), 6 channelEvents hash table,
+7 success. The client only writes this to an already
+existing `rdplog.txt` upon C9 failure. No automatic logging,
+file creation, socket-stress test or background timer worker.
