@@ -160,6 +160,9 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'O3DS diagnostic: preserve the last context construction stage' "$src/libfreerdp/core/freerdp.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-context-stages.patch"
   fi
+  if ! grep -q 'O3DS diagnostic: last channel-construction step survives cleanup' "$src/libfreerdp/core/client.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-channels-stages.patch"
+  fi
   # A context may fail at the channel-error event and then hang in
   # partial cleanup. Persist low-level numeric breadcrumbs *before* free.
   if ! grep -q 'O3DS_CTX_CHECKPOINT(80, errno)' "$src/libfreerdp/core/freerdp.c"; then
