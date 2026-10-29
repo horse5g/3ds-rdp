@@ -1,0 +1,27 @@
+diff --git a/winpr/libwinpr/sysinfo/sysinfo.c b/winpr/libwinpr/sysinfo/sysinfo.c
+--- a/winpr/libwinpr/sysinfo/sysinfo.c
++++ b/winpr/libwinpr/sysinfo/sysinfo.c
+@@ -477,12 +477,20 @@
+ 		SetLastError(ERROR_BAD_ARGUMENTS);
+ 		return FALSE;
+ 	}
+ 
+-	char hostname[256 + 1] = WINPR_C_ARRAY_INIT;
+-	if (gethostname(hostname, ARRAYSIZE(hostname) - 1) == -1)
+-		return FALSE;
++	char hostname[256 + 1] = WINPR_C_ARRAY_INIT;
++#if defined(__3DS__)
++	/* 3DS homebrew has no guaranteed POSIX device hostname. This is only
++	 * the optional client workstation label in RDP, not an authentication
++	 * identity or TLS certificate name. Retain a valid hostname if present. */
++	if (gethostname(hostname, ARRAYSIZE(hostname) - 1) != 0 || !hostname[0])
++		memcpy(hostname, "NINTENDO3DS", sizeof("NINTENDO3DS"));
++#else
++	if (gethostname(hostname, ARRAYSIZE(hostname) - 1) == -1)
++		return FALSE;
++#endif
+ 
+ 	size_t length = strnlen(hostname, MAX_COMPUTERNAME_LENGTH);
+ 	const char* dot = strchr(hostname, '.');
+ 	if (dot)
+ 	{
