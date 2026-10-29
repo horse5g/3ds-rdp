@@ -189,3 +189,57 @@ same failing probe repeatedly without further evidence is not useful.
 
 These changes are limited to draft PR #11 until the updated code is tested
 on real original 3DS hardware.
+
+## Hardware follow-up: Stage 2 is ENOSYS in newlib pthread TSD
+
+Corrected O3DS hardware smoke reports:
+```text
+pthread once 0,0 calls 1
+mutex init/lock/unlock 0/0/0
+TLS key/create/set/get 88/-1/0
+crypto BASE 0 stage 2
+crypto FULL 0 stage 2
+PS entropy OK/calls 0/0
+PS nonce OK/calls 0/0
+```
+The full client independently reports `OPENSSL CORE INIT S2 0x00000000`.
+On this devkitARM/newlib target, errno 88 is `ENOSYS`: thread-specific
+key creation is not implemented by the linked newlib pthread stub.
+OpenSSL's `ossl_init_thread()` needs a destructor-bearing pthread key;
+its absence blocks base initialization before provider or PS entropy.
+
+### MIT-compatible implementation under test
+
+`rust3ds/pthread-3ds` is **MIT OR Apache-2.0**, but its Rust crate explicitly
+targets Rust std rather than standalone C clients. We chose its permitted
+MIT licensing and per-thread storage design as a reference, and wrote a
+self-contained C bridge in `source/rdp_pthread_tsd.c`. It uses libctru
+LightLock, GCC `__thread` storage, generation-stamped pthread keys, and
+POSIX-style four-pass destructor cleanup. It supplies only
+`pthread_key_create/delete/getspecific/setspecific` and deliberately leaves
+mutexes, rwlocks and once-only state with the existing platform library.
+
+**Important:** This C adapter is experimental and does not magically hook
+all libctru thread-exit paths. Application-controlled RDP connect and
+keyboard networking workers call `OPENSSL_thread_stop()` and
+`rdp_3ds_tsd_cleanup_current_thread()` before returning. New app-managed
+threads using OpenSSL must do the same; third-party threads not managed
+by this application need an independent lifecycle audit. The C code does
+not use Rust, require a Rust compiler, disable OpenSSL threads, or change
+RNG/trust policy. The MIT-compatible implementation is not an assertion of
+hardware correctness.
+
+The dedicated smoke tool now tests **real worker thread isolation** and
+destructor invocation (expected 2 calls), in addition to OpenSSL BASE/FULL,
+SEED-SRC, DRBG and PS counters. This is a security-sensitive boundary:
+a failed TSD test MUST fail the smoke summary even if a later OpenSSL call
+appears to succeed. Strict CI checks that the compiled .elf contains the
+strong pthread key implementation and separately publishes only the .3dsx
+as a runnable artifact.
+
+**Next physical O3DS test:** Run the newly uploaded standalone
+`openssl-rng-smoke.3dsx`; report `TLS key/create/set/get`,
+`TSD threads key/set/worker/main`, `TSD destructor calls`,
+`crypto BASE/FULL`, and SEED-SRC / PS counters. Do not assume the
+built-in `__thread` data is correctly thread-isolated on this device
+until hardware confirms it. Keep draft PR #11 unmerged until TLS/NLA works.
