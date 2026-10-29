@@ -43,7 +43,7 @@ mkdir -p "$frbuild"
   -I"$sslbuild/include" -I"$sslsrc/include" \
   -specs=3dsx.specs -Wl,--gc-sections \
   -Wl,-Map,"$out.map" \
-  "$root/tests/freerdp-arm11-link.c" \
+  "$root/tests/freerdp-arm11-link.c" "$root/source/rdp_pthread_tsd.c" \
   -L"$DEVKITPRO/libctru/lib" -L"$DEVKITPRO/portlibs/3ds/lib" \
   -Wl,--start-group \
     "$freerdp_archive" "$winpr_archive" \
