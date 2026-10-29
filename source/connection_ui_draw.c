@@ -175,7 +175,7 @@ static void setting_row(int row,const char *name,const char *value,int interacti
 }
 static void dropdown_overlay(const ConnectionUI *ui)
 {
-    static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080"};
+    static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080","800 X 480","960 X 540"};
     static const char *depth[]={"16 BIT","32 BIT"};
     static const char *speed[]={"1 X","2 X","3 X"};
     static const char *scroll[]={"1 NOTCH","2 NOTCH","3 NOTCH"};
@@ -239,7 +239,7 @@ static void main_panel(const ConnectionUI *ui)
         switch(ui->tab) {
         case RDP_UI_DISPLAY: {
             static const char *sizes[]={"400 X 240","640 X 360","1280 X 720","1920 X 1080"};
-            setting_row(0,"DESKTOP SIZE",sizes[o->display_mode<4?o->display_mode:0],1);
+            setting_row(0,"DESKTOP SIZE",sizes[o->display_mode<6?o->display_mode:0],1);
             snprintf(value,sizeof(value),"%u BIT",(unsigned)o->color_depth);
             setting_row(1,"COLOR DEPTH",value,1);
             setting_row(2,"LOCAL ZOOM","100 - 500%",0);
