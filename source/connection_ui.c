@@ -1,4 +1,5 @@
 #include "connection_ui.h"
+#include "display_buffers.h"
 #include <3ds.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -90,6 +91,7 @@ static bool edit_field(ConnectionUI *ui, int field)
     swkbdSetHintText(&keyboard, hint);
     swkbdSetInitialText(&keyboard, buffer);
     button = swkbdInputText(&keyboard, buffer, sizeof(buffer));
+    rdp_display_restore_after_keyboard();
     if (button != SWKBD_BUTTON_CONFIRM) return false;
     if (field == F_PORT) {
         char *end = NULL;
