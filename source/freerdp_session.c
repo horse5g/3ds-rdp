@@ -690,7 +690,8 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
 }
 
 static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
-                               int pointer_x, int pointer_y)
+                               int pointer_x, int pointer_y,
+                               bool swap_rb, bool smoothing_enabled)
 {
     rdpGdi *gdi;
     u16 fb_width=0, fb_height=0;
@@ -699,6 +700,7 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
     int x,y;
     int sample_y[RDP_H];
     int32_t step_x,step_y;
+    const bool valid_zoom=(zoom!=NULL);
 
     if (!context || !(gdi=context->gdi) || !gdi->primary_buffer ||
         gdi->width < RDP_W || gdi->height < RDP_H ||
@@ -714,6 +716,13 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
     view=session_zoom_view(zoom,pointer_x,pointer_y,gdi->width,gdi->height);
     step_x=view.width_q16/RDP_W;
     step_y=view.height_q16/RDP_H;
+    /* Four-tap spatial averaging only when substantially reducing both
+     * dimensions. At 1:1/detail zoom we keep exact, sharp source pixels.
+     * Fixed-point offsets avoid float arithmetic in the 96k-pixel loop. */
+    const bool box4=valid_zoom && smoothing_enabled &&
+         step_x >= 2*65536 && step_y >= 2*65536;
+    const int off_x=box4 ? (step_x >> 2) : 0;
+    const int off_y=box4 ? (step_y >> 2) : 0;
     /* Cache vertical source row lookup once per frame; on an O3DS this
        avoids 400x repeating the expensive crop and bound arithmetic. */
     for (y=0;y<RDP_H;++y) {
@@ -729,7 +738,22 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
         for (y=0;y<RDP_H;++y) {
             const u8 *src=gdi->primary_buffer+
                      (size_t)sample_y[y]*gdi->stride+(size_t)sx*4;
-            frame[(size_t)x*RDP_H+(RDP_H-1-y)]=rdp_bgrx_to_rgb565(src);
+            if (box4) {
+                int xlo=sx-off_x, xhi=sx+off_x;
+                int ylo=sample_y[y]-off_y, yhi=sample_y[y]+off_y;
+                if (xlo<0)xlo=0;
+                if (xhi>=gdi->width)xhi=gdi->width-1;
+                if (ylo<0)ylo=0;
+                if (yhi>=gdi->height)yhi=gdi->height-1;
+                const u8 *a=gdi->primary_buffer+(size_t)ylo*gdi->stride+(size_t)xlo*4;
+                const u8 *b=gdi->primary_buffer+(size_t)ylo*gdi->stride+(size_t)xhi*4;
+                const u8 *c=gdi->primary_buffer+(size_t)yhi*gdi->stride+(size_t)xlo*4;
+                const u8 *d=gdi->primary_buffer+(size_t)yhi*gdi->stride+(size_t)xhi*4;
+                frame[(size_t)x*RDP_H+(RDP_H-1-y)] =
+                    rdp_desktop_box4_to_rgb565(a,b,c,d,swap_rb);
+            } else
+                frame[(size_t)x*RDP_H+(RDP_H-1-y)] =
+                    rdp_desktop_to_rgb565(src,swap_rb);
         }
     }
     log_desktop_color_probe(gdi);
@@ -1339,10 +1363,17 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     }
     OPENSSL_cleanse(password, sizeof(password));
     rdp_diag_log_event("rdp-settings-ok", 1, 0, 0);
+    rdp_diag_log_event("rdp-codec-mask",
+                        freerdp_settings_get_codecs_flags(settings),
+                        (unsigned long)remote_w, (unsigned long)remote_h);
 
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
     desktop_dirty = false;
+    bool swap_rb = true; /* Fix actual O3DS red/blue reversal. */
+    bool smoothing_enabled = true;
+    rdp_diag_log_event("display-colors", (unsigned long)swap_rb,
+                       (unsigned long)smoothing_enabled, 0);
     session_cursor_reset(&system_cursor);
     cursor_remote_x=RDP_W/2;cursor_remote_y=RDP_H/2;
     if (!connect_with_ui(client, cfg->host, reason, reason_size)) {
@@ -1405,7 +1436,19 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         if (action.redraw) pad_redraw = true;
         /* A is reserved for drag. D-pad nudges the remote pointer and thus
            pans the magnified viewport. Y always returns to fit view. */
-        if(down & KEY_Y){zoom.target=1.0f;pad_redraw=true;}
+        if ((down & KEY_Y) && (held & KEY_L)) {
+            smoothing_enabled=!smoothing_enabled;
+            rdp_diag_log_event("display-smoothing", smoothing_enabled, 0, 0);
+            desktop_dirty=true;pad_redraw=true;
+        } else if(down & KEY_Y) {
+            zoom.target=1.0f;pad_redraw=true;
+        }
+        if ((down & KEY_X) && (held & KEY_L)) {
+            swap_rb=!swap_rb;
+            rdp_diag_log_event("display-colors", swap_rb,
+                               smoothing_enabled, 0);
+            desktop_dirty=true;pad_redraw=true;
+        }
         if(down & KEY_R){
             float native_zoom=(float)remote_w/(float)RDP_W;
             float vertical=(float)remote_h/(float)RDP_H;
@@ -1436,7 +1479,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
 
         /* Software keyboard is transient, not a permanent overlay. It never
          * stores entered text and the pad layout returns after dismissal. */
-        if (down & KEY_X || action.text_input) {
+        if (((down & KEY_X) && !(held & KEY_L)) || action.text_input) {
             /* The software keyboard takes over HID until it closes. Release
                held remote buttons first or a drag can remain stuck while
                HID key-up events are consumed by the keyboard applet. */
@@ -1551,7 +1594,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             /* gfxSwapBuffers swaps BOTH screens. Always redraw the current
              * GDI desktop into the new top backbuffer when the bottom pad
              * changes, otherwise the previous top console can reappear. */
-            if (!copy_desktop_frame(client->context,&zoom,pad.pointer_x,pad.pointer_y)) {
+            if (!copy_desktop_frame(client->context,&zoom,pad.pointer_x,pad.pointer_y,
+                                    swap_rb,smoothing_enabled)) {
                 snprintf(reason, reason_size, "Invalid GDI or top-screen framebuffer");
                 result = -1;
                 break;
