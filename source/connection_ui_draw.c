@@ -346,3 +346,41 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
     outline(137,214,129,24,BORDER);
     label(174,223,"RIGHT",260,INK);
 }
+
+ 
+void connection_ui_draw_status(const char *heading,const char *message,bool retry)
+{
+    u16 w=0,h=0;
+    fb=(uint16_t*)gfxGetFramebuffer(GFX_BOTTOM,GFX_LEFT,&w,&h);
+    if(!fb)return;
+    fill(0,0,320,240,BG);topbar();
+    fill(10,40,300,136,WHITE);outline(10,40,300,136,BORDER);
+    label(20,55,heading?heading:"RDP STATUS",307,BLUE);
+    label(20,93,message?message:"",306,INK);
+    if(retry) {
+        button(10,205,145,"RETRY (A)",1);
+        button(165,205,145,"BACK (B)",0);
+    } else {
+        button(10,205,300,"PLEASE WAIT",0);
+    }
+}
+void connection_ui_draw_cert_manager(const char *title,const char *info,
+                                      const char *notice,int confirmation)
+{
+    u16 w=0,h=0;
+    fb=(uint16_t*)gfxGetFramebuffer(GFX_BOTTOM,GFX_LEFT,&w,&h);
+    if(!fb)return;
+    fill(0,0,320,240,BG);topbar();
+    fill(8,38,304,154,WHITE);outline(8,38,304,154,BORDER);
+    label(16,51,title?title:"TRUSTED CERTIFICATES",308,BLUE);
+    label(16,91,info?info:"",306,INK);
+    label(16,157,notice?notice:"",304,MUTED);
+    if(confirmation){
+        button(8,206,146,"REMOVE (A)",1);
+        button(164,206,148,"CANCEL (B)",0);
+    }else {
+        button(8,206,98,"VIEW (A)",1);
+        button(111,206,98,"DELETE (X)",0);
+        button(214,206,98,"BACK (B)",0);
+    }
+}
