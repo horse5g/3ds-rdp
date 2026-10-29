@@ -62,6 +62,11 @@ if [[ "$src" == "$root/external/openssl" ]]; then
   if ! grep -q 'Horizon entropy provider for OpenSSL' "$src/providers/implementations/rands/seeding/rand_unix.c"; then
     patch -d "$src" -p1 < "$root/patches/openssl-3.5.9-3ds-ps-entropy.patch"
   fi
+  # The DRBG calls nonce acquisition before appending an 8-byte salt on ARM11.
+  # Reserve space before collecting PS nonce bytes, or initialization can fail.
+  if ! grep -q 'Horizon PS nonce pool: reserve DRBG-specific salt space first' "$src/crypto/rand/prov_seed.c"; then
+    patch -d "$src" -p1 < "$root/patches/openssl-3.5.9-3ds-nonce-salt.patch"
+  fi
 elif [[ ! -f "$src/Configurations/15-3ds.conf" ]]; then
   echo "Custom OPENSSL_SOURCE requires its own 3ds-armv6k target config" >&2
   exit 2
