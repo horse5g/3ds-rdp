@@ -51,6 +51,27 @@ int main(void)
         assert(rdp_desktop_native565_box4(white,white,white,white,1)==0xFFFF);
         assert(rdp_desktop_native565_box4(blue,blue,blue,blue,0)==0xF800);
     }
-    puts("RDP RGB565 conversion, native16, channel reversal and box downscale passed");
+    {
+        /* FreeRDP XRGB32's little-endian bytes are B,G,R,X, whereas
+         * FreeRDP BGRX32's bytes are R,G,B,X. The correct local blitter
+         * must produce identical RGB565 output for either. */
+        const uint8_t xrgb_red[4]={0,0,255,0};
+        const uint8_t bgrx_red[4]={255,0,0,0};
+        const uint8_t xrgb_blue[4]={255,0,0,0};
+        const uint8_t bgrx_blue[4]={0,0,255,0};
+        const uint8_t xrgb_test[4]={0x20,0x50,0xD0,0};
+        const uint8_t bgrx_test[4]={0xD0,0x50,0x20,0};
+        assert(rdp_desktop_to_rgb565(xrgb_red,0)==0xF800);
+        assert(rdp_desktop_to_rgb565(bgrx_red,1)==0xF800);
+        assert(rdp_desktop_to_rgb565(xrgb_blue,0)==0x001F);
+        assert(rdp_desktop_to_rgb565(bgrx_blue,1)==0x001F);
+        assert(rdp_desktop_to_rgb565(xrgb_test,0)==
+               rdp_desktop_to_rgb565(bgrx_test,1));
+        assert(rdp_desktop_box4_to_rgb565(xrgb_test,xrgb_test,
+                                           xrgb_test,xrgb_test,0)==
+               rdp_desktop_box4_to_rgb565(bgrx_test,bgrx_test,
+                                           bgrx_test,bgrx_test,1));
+    }
+    puts("RDP RGB565 conversion, GDI XRGB/BGRX selection, channel reversal and box downscale passed");
     return 0;
 }
