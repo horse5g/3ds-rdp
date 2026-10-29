@@ -243,3 +243,22 @@ as a runnable artifact.
 `crypto BASE/FULL`, and SEED-SRC / PS counters. Do not assume the
 built-in `__thread` data is correctly thread-isolated on this device
 until hardware confirms it. Keep draft PR #11 unmerged until TLS/NLA works.
+
+### Static-link conflict and GNU ld wrapping
+
+The first combined CI link showed that devkitARM's
+`libsysbase.a(libsysbase_libsysbase_a-pthread.o)` itself defines
+`pthread_key_create`; defining a replacement under the same name fails
+with a multiple-definition linker error. The original newlib key function
+still returned ENOSYS on the observed O3DS hardware.
+
+To preserve the other platform pthread symbols without duplicate
+definitions, the 3DS-specific C bridge now exports
+`__wrap_pthread_key_create`, `__wrap_pthread_key_delete`,
+`__wrap_pthread_getspecific` and `__wrap_pthread_setspecific`.
+All OpenSSL smoke and full-app static links use matching GNU ld
+`--wrap=pthread_...` flags. This intercepts unresolved external
+references during static linking; it is not interposition for internal
+calls within the same libsysbase object. CI must confirm the wrapper
+symbols in linked ELFs. We still require actual device testing before
+considering the per-thread semantics validated.
