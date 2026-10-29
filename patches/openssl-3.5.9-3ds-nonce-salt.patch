@@ -1,0 +1,28 @@
+diff --git a/crypto/rand/prov_seed.c b/crypto/rand/prov_seed.c
+--- a/crypto/rand/prov_seed.c
++++ b/crypto/rand/prov_seed.c
+@@ -86,10 +86,19 @@
+     }
+ 
+-    if (!ossl_pool_add_nonce_data(pool))
+-        goto err;
+-
+-    if (salt != NULL && !ossl_rand_pool_add(pool, salt, salt_len, 0))
+-        goto err;
++#if defined(__3DS__)
++    /* Horizon PS nonce pool: reserve DRBG-specific salt space first.
++     * Filling the pool before adding salt can overflow max_len. */
++    if (salt != NULL && !ossl_rand_pool_add(pool, salt, salt_len, 0))
++        goto err;
++    if (!ossl_pool_add_nonce_data(pool))
++        goto err;
++#else
++    if (!ossl_pool_add_nonce_data(pool))
++        goto err;
++
++    if (salt != NULL && !ossl_rand_pool_add(pool, salt, salt_len, 0))
++        goto err;
++#endif
+     ret = ossl_rand_pool_length(pool);
+     *pout = ossl_rand_pool_detach(pool);
+ err:
