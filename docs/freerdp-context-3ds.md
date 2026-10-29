@@ -364,3 +364,62 @@ before `app-soc-exit-done` points toward `socExit()`; a log ending
 before `app-gfx-exit-done` points toward `gfxExit()`. This build
 **does not** bypass SOC cleanup, disable NLA, or alter certificate rules.
 Hardware behavior remains unverified.
+
+### Hardware log 4: connected TCP, SO_RCVBUF failure and confirmed SOC exit hang
+
+The newest O3DS log shows three consecutive full FreeRDP attempts reaching
+the same numeric TCP trace (another was a password-dialog cancellation):
+
+```text
+connect-main-soc   00000004
+connect-worker-soc 00000004
+tcp-stage 00000028 00000058 00000000 # 40: transport start
+tcp-stage 00000014 00000058 00000000 # 20: DNS begin
+tcp-stage 00000017 00000058 00000000 # 23: open native socket
+tcp-stage 0000000A 00000058 00000000 # 10: create temporary event
+tcp-stage 0000000E 00000016 00000000 # 14: wait returned WAIT_OBJECT_0
+tcp-stage 00000011 00000016 00000000 # 17: TCP helper succeeded
+tcp-stage 0000001A 00000016 00000000 # 26: host TCP succeeded
+tcp-stage 00000020 00000058 00000000 # 32: growing SO_RCVBUF failed
+tcp-stage 00000029 00000058 00000000 # 41: transport setup aborted
+connect-worker-end 00000000 00020006 00000000
+```
+
+The SOC devoptab is visible from main and worker (`FindDevice("soc:")=4`).
+Although `errno=0x58` at the `SO_RCVBUF` failure might be target-specific,
+stage 32 proves the exact failing API call in pinned FreeRDP 3.32.2:
+after `getsockopt(SO_RCVBUF)` succeeds and reports less than 32 KiB,
+`setsockopt(SO_RCVBUF, 32768)` fails. The kernel TCP socket already
+connected; this was **not** a remote host refusal or certificate issue.
+
+**Recovery experiment:** `freerdp-3.32.2-3ds-soc-rcvbuf.patch` retains
+a strictly positive, successfully queried original SOC receive buffer if
+attempting to enlarge to 32 KiB fails. Numeric `tcp-stage 38` records
+the existing buffer value before the enlargement attempt, and 36 records
+the fallback and value if needed. Every other platform still fails
+closed with the unmodified upstream behavior. This does **not** claim
+the smaller buffer has passed actual RDP traffic stress testing. Note
+that these trace stage values are logged as 8-digit hexadecimal:
+`00000020` means stage 32 in decimal, etc.
+
+**Confirmed exit hang:** two independent process runs reached
+`app-exit`, then `app-soc-exit-enter 1`, and never produced
+`app-soc-exit-done`, proving `socExit()` never returned on the
+tested O3DS after FreeRDP use. The process had already completed
+FreeRDP context cleanup, so this is separate from the former
+timer-worker deadlock.
+
+**Scoped exit workaround:** after at least one full FreeRDP attempt,
+skip the blocking SOCU_Shutdown call, mark
+`app-soc-exit-deferred`, do not free the memory buffer that is still
+backing the SOC shared memory handle, then run `gfxExit()` and return.
+Normal probe-only runs still call `socExit()` and free their buffer.
+The operating system's process teardown is expected to close the
+remaining SOC handles and reclaim memory; this is experimental and
+should be monitored for Homebrew Launcher return / subsequent apps.
+This workaround intentionally avoids terminating active threads or
+closing the underlying service handle while it may be in use.
+
+These changes are on the experimental branch/draft PR only, and
+require on-device confirmation; the old log cannot prove the
+workaround succeeds.
