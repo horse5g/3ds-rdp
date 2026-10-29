@@ -550,6 +550,7 @@ static bool prompt_password(char *password, size_t size)
     swkbdSetHintText(&keyboard, "RDP password (not saved)");
     swkbdSetPasswordMode(&keyboard, SWKBD_PASSWORD_HIDE);
     button = swkbdInputText(&keyboard, password, size);
+    rdp_display_restore_after_keyboard();
     OPENSSL_cleanse(&keyboard, sizeof(keyboard));
     return button == SWKBD_BUTTON_CONFIRM;
 }
@@ -625,6 +626,7 @@ static bool send_text(freerdp *client, char *reason, size_t reason_size)
     }
 
     button = swkbdInputText(&keyboard, text, sizeof(text));
+    rdp_display_restore_after_keyboard();
     LightLock_Lock(&pump.lock);
     pump.stop_requested = true;
     LightLock_Unlock(&pump.lock);
