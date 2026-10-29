@@ -1232,8 +1232,16 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
                  "FreeRDP context has no client settings");
         goto done;
     }
-    remote_w=opts.display_mode?640:RDP_W;
-    remote_h=opts.display_mode?360:RDP_H;
+    {
+        unsigned wanted_w = 0, wanted_h = 0;
+        if (!rdp_desktop_mode_size(opts.display_mode, &wanted_w, &wanted_h)) {
+            snprintf(reason, reason_size, "Invalid remote display resolution");
+            goto done;
+        }
+        remote_w=(int)wanted_w;
+        remote_h=(int)wanted_h;
+        rdp_diag_log_event("rdp-requested-size", wanted_w, wanted_h, 0);
+    }
     /* Do WinPR/client-context allocation before opening the modal password
        keyboard. On an O3DS allocation failure, users can diagnose the
        failure immediately instead of repeatedly entering a secret. */
