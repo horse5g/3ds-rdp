@@ -76,7 +76,7 @@ static void tsd_probe_worker(void *userdata)
     rdp_3ds_tsd_cleanup_current_thread();
 }
 
-static void check_tsd_threads(void)
+static bool check_tsd_threads(void)
 {
     pthread_key_t key;
     TsdProbe probe = {0};
@@ -98,9 +98,11 @@ static void check_tsd_threads(void)
         rdp_3ds_tsd_cleanup_current_thread();
         pthread_key_delete(key);
     }
-    printf("TSD threads key/set/worker/main %d/%d/%d/%d\\n",
+    printf("TSD threads key/set/worker/main %d/%d/%d/%d\n",
            created, main_set, worker_ok, main_intact);
-    printf("TSD destructor calls %u (expected 2)\\n", tsd_destructors);
+    printf("TSD destructor calls %u (expected 2)\n", tsd_destructors);
+    return created == 0 && main_set && worker_ok && main_intact &&
+           tsd_destructors == 2;
 }
 
 static void show_error(const char *what)
@@ -119,6 +121,7 @@ int main(void)
     EVP_RAND_CTX *seed_test = NULL;
     bool seed_ok = false;
     bool random_ok = false;
+    bool tsd_ok = false;
     bool ssl_ok = false;
 
     gfxInitDefault();
@@ -127,7 +130,7 @@ int main(void)
     printf("===============================\n\n");
 
     check_pthreads();
-    check_tsd_threads();
+    tsd_ok = check_tsd_threads();
     /* Separate OpenSSL's base once-only initialization from later steps.
        A failure of base init often has no usable ERR queue. */
     /* OpenSSL 3.5.9 reserves 0x00040000 for BASE_ONLY internally, but
@@ -215,7 +218,7 @@ int main(void)
            diag.last_entropy_request, diag.last_nonce_capacity);
     printf("SEED-SRC: %s\n", seed_ok ? "PASS" : "FAIL / UNAVAILABLE");
     puts("");
-    printf("Summary: %s\n", random_ok && ssl_ok ? "PASS" : "FAIL");
+    printf("Summary: %s\n", random_ok && ssl_ok && tsd_ok ? "PASS" : "FAIL");
     puts("No network, trust-store, or NLA test.");
     if (default_provider) OSSL_PROVIDER_unload(default_provider);
     puts("START: Exit");
@@ -229,5 +232,5 @@ int main(void)
         gspWaitForVBlank();
     }
     gfxExit();
-    return random_ok && ssl_ok ? 0 : 1;
+    return random_ok && ssl_ok && tsd_ok ? 0 : 1;
 }
