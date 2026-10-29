@@ -590,3 +590,27 @@ Use the experimental branch build (not main) and test in this order:
 Text with an empty Notepad window focused, including "Hello123!";
 (3) 720p/16-bit and its `rdp-codec-stage`, then 1080p if stable;
 (4) 720p smoothing on/off with L+Y while in Fit view.
+
+### Experimental native RGB565 GDI for 720p and 1080p
+
+To remove a second large memory cost on O3DS after codec creation,
+`post_connect()` now selects FreeRDP's supported
+`PIXEL_FORMAT_RGB16` for requested >=1024x600, while the known-working
+400x240 and 640x360 profiles remain on the original
+`PIXEL_FORMAT_XRGB32`. Native 16-bit GDI is independent of the
+remote `FreeRDP_ColorDepth` negotiation and reduces the primary
+desktop surface from ~3.69 MB to ~1.84 MB at 720p, or ~8.29 MB
+to ~4.15 MB at 1080p. It is NOT a promise that the full decoder,
+cache, network, OpenSSL and application fit in the available O3DS heap.
+
+The top blitter checks the actual GDI format and stride, reads a
+little-endian 16-bit RGB565 pixel directly when appropriate, and
+supports the same reversible red/blue comparison and four-tap
+anti-aliasing in either GDI format. It precomputes horizontal bounds
+per column and vertical bounds per scanline to avoid redundant
+clamps on each of 96,000 output pixels. Native 16-bit mode is logged
+by `gdi-init-format` and `gdi-init-ok` (stride,height), or
+`gdi-init-fail` with errno; 32-bit `gdi-avg-bgr` statistics are
+intentionally not emitted for packed 16-bit frames. The design
+is covered by endian, red/blue, averaged color and white portable
+tests. Actual client performance/appearance require an O3DS test.
