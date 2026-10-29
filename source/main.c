@@ -86,7 +86,7 @@ static void full_session(const ConnectionUI *state)
         connection_ui_draw_status("CONNECTING TO REMOTE DESKTOP",
                                   "SIGN IN AND VERIFY CERTIFICATE",false);
         gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
-        result=freerdp_3ds_run(&state->current,message,sizeof(message));
+        result=freerdp_3ds_run(&state->current,&state->options,message,sizeof(message));
         if(result!=0){
             connection_ui_draw_status("CONNECTION FAILED",message,true);
             gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
