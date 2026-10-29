@@ -29,6 +29,7 @@ typedef enum {
 
 typedef struct {
     int pointer_x, pointer_y;
+    int remote_w, remote_h;
     int sensitivity;          /* 1, 2, 3 desktop pixels per touch pixel */
     int scroll_amount;        /* 1, 2, 3 wheel notches per button press */
     bool reverse_scroll;
