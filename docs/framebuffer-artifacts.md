@@ -44,3 +44,29 @@ only while touching, or appears only after the software keyboard. A photograph
 of **both screens** is useful if artifacts persist.
 
 **CI is a cross-build check, not a physical O3DS display validation.**
+
+## WinPR HOME bootstrap (separate runtime issue)
+
+Observed when attempting the full client:
+```
+[com.winpr.path.shell] [GetKnownPath]: Path KNOWN_PATH_HOME is nullptr
+Connection failed: FreeRDP context allocation failed
+```
+
+In FreeRDP 3.32.2, client settings initialization requires
+`GetKnownPath(KNOWN_PATH_HOME)` to return a real path. On non-Windows
+platforms, WinPR reads `HOME` from the process environment; Horizon does
+not automatically provide a POSIX login/home environment.
+
+The fix creates `sdmc:/3ds/3ds-rdp` and private subdirectories
+(`.config`, `.cache`, `.local/share`, `tmp`) then exports `HOME`,
+`XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `TMPDIR`, and
+`XDG_RUNTIME_DIR` before `freerdp_new` / `freerdp_context_new`.
+It explicitly verifies that WinPR can resolve HOME and XDG_CONFIG_HOME,
+and reports clear SD path/permission errors instead of continuing with
+null settings paths.
+
+Portable CI tests create a temporary home and verify all XDG directories,
+exports and repeat initialization. FreeRDP/OpenSSL cross-build tests compile
+the integration; **real O3DS validation remains necessary**. The app does
+not store passwords in this directory or bypass RDP certificates.
