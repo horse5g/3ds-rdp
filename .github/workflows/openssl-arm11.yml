@@ -47,7 +47,7 @@ jobs:
           bash scripts/link-openssl-3ds.sh runtime
           test -s build/openssl-3ds/openssl-rng-smoke.3dsx
           # Check strong pthread implementation symbols in the final ELF.
-          "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only build/openssl-3ds/openssl-rng-smoke.elf | grep -E ' [Tt] pthread_key_create$'
+          "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only build/openssl-3ds/openssl-rng-smoke.elf | grep -E ' [Tt] __wrap_pthread_key_create$'
           "$DEVKITARM/bin/arm-none-eabi-nm" --defined-only build/openssl-3ds/openssl-rng-smoke.elf | grep -E ' [Tt] rdp_3ds_tsd_cleanup_current_thread$'
       - name: Upload standalone O3DS RNG diagnostic
         uses: actions/upload-artifact@v4
