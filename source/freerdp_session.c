@@ -917,8 +917,10 @@ static bool send_text(freerdp *client, char *reason, size_t reason_size)
         return false;
     }
 
+    rdp_diag_log_event("keyboard-applet-open", 0, 0, 0);
     button = swkbdInputText(&keyboard, text, sizeof(text));
     rdp_display_restore_after_keyboard();
+    rdp_diag_log_event("keyboard-applet-result", (unsigned long)button, 0, 0);
     LightLock_Lock(&pump.lock);
     pump.stop_requested = true;
     LightLock_Unlock(&pump.lock);
@@ -933,15 +935,36 @@ static bool send_text(freerdp *client, char *reason, size_t reason_size)
         return false;
     }
     if (button == SWKBD_BUTTON_CONFIRM) {
-        for (i = 0; text[i]; ++i) {
-            /* UTF-8 multi-byte input is not supported by this simple path. */
-            const unsigned char ch = (unsigned char)text[i];
-            if (ch < 0x20 || ch > 0x7e)
+        unsigned sent=0, skipped=0, failures=0;
+        for (i=0; text[i]; ++i) {
+            uint8_t scan=0, shift=0;
+            /* Use the same RDP Set-1 keyboard events as the successful
+             * virtual-key panel. Unicode keyboard events were not reaching
+             * the Windows desktop in the physical O3DS test. This fallback
+             * assumes a US keyboard layout; no Unicode/IME support yet. */
+            if (!session_ascii_scan((unsigned char)text[i], &scan, &shift)) {
+                ++skipped;
                 continue;
-            (void)freerdp_input_send_unicode_keyboard_event(
-                client->context->input, 0, ch);
-            (void)freerdp_input_send_unicode_keyboard_event(
-                client->context->input, KBD_FLAGS_RELEASE, ch);
+            }
+            BOOL ok=TRUE;
+            if (shift) ok &= freerdp_input_send_keyboard_event(
+                client->context->input,0,0x2A);
+            ok &= freerdp_input_send_keyboard_event(
+                client->context->input,0,scan);
+            ok &= freerdp_input_send_keyboard_event(
+                client->context->input,KBD_FLAGS_RELEASE,scan);
+            if (shift) ok &= freerdp_input_send_keyboard_event(
+                client->context->input,KBD_FLAGS_RELEASE,0x2A);
+            if (ok) ++sent;
+            else ++failures;
+        }
+        rdp_diag_log_event("keyboard-ascii-result",sent,skipped,failures);
+        if (failures) {
+            snprintf(reason,reason_size,
+                     "Remote keyboard send failed (%u characters)", failures);
+            OPENSSL_cleanse(&keyboard,sizeof(keyboard));
+            OPENSSL_cleanse(text,sizeof(text));
+            return false;
         }
     }
     OPENSSL_cleanse(&keyboard, sizeof(keyboard));
