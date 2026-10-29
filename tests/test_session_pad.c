@@ -191,9 +191,13 @@ int main(void)
     touch(&pad,20,65);
     for(i=1;i<=5;++i) {
         a=touch(&pad,20+i,65);
-        if (i<5) assert(!a.pointer_moved);
+        if (i<3) assert(!a.pointer_moved);
+        if (i==3) assert(a.pointer_moved);
     }
-    assert(a.pointer_moved && pad.pointer_x==201);
+    assert(pad.pointer_x==201);
+    /* Reverse direction must be symmetric and free of residual drift. */
+    for(i=4;i>=0;--i) touch(&pad,20+i,65);
+    assert(pad.pointer_x==200);
     lift(&pad);
     session_pad_set_zoom(&pad,0.0f);
     assert(session_pad_nudge(&pad,true)==8);
