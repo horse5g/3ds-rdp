@@ -31,10 +31,13 @@ The opt-in full client now:
 - FreeRDP's connection callback, internal buffers and GDI initialization
   are cross-thread in this build; this is compiled by CI, **not** proven
   safe with real RDP servers on original 3DS hardware.
-- Opening the **in-session** software keyboard still blocks the foreground
-  FreeRDP event loop. Maintaining the network pump during an applet is a
-  separate milestone and must be synchronized against concurrent GDI,
-  certificate verification, input and disconnection.
+- The **in-session** software keyboard now starts a short-lived network-only
+  worker. During `swkbdInputText`, it waits on WinPR events, processes FreeRDP
+  updates and detects disconnects, but never touches HID, gfx or remote input.
+  The foreground joins this worker before sending the entered Unicode text
+  or rendering a framebuffer. This is not guaranteed to keep networking
+  active if Horizon suspends all application threads during the applet.
+  Both FreeRDP thread handoffs and OS applet scheduling need hardware tests.
 - Don't assume this makes keyboard applets or asynchronous network processing
   functional during HOME menu suspension. Applet and thread scheduling
   require physical hardware tests.
