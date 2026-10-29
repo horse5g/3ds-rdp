@@ -88,3 +88,39 @@ This is a diagnostic, not a runtime fix. Once the precise stage is
 known, inspect that constructor and its WinPR/libctru dependencies,
 then retest. Do not mask failures by disabling NLA, encryption, certificate
 checks or threaded operation.
+
+## Opt-in SD diagnostic log
+
+Logging is **disabled by default**. To opt in, create an **existing,
+writable file** `sdmc:/3ds/3ds-rdp/rdplog.txt` (for example, an empty text
+file) **before launching the client**. The file's presence is the enable
+switch and the same file receives diagnostic output. The app will never
+create `rdplog.txt` when it is missing.
+
+On startup after initializing the SD home, the app checks for the existing
+file in `rb+` mode. It then appends single-line event records
+`#sequence event HEX_A HEX_B HEX_C`; all writes are immediately flushed
+so a crash still leaves the most recent completed checkpoint. This is a
+bounded opt-in facility: once the file reaches approximately 128 KiB,
+new records stop. To start clean, empty the file on your computer and
+relaunch. Do **not** delete it if you wish to keep logging enabled.
+
+The event log covers app startup/exit, connection attempts, WinPR
+environment checks, OpenSSL DRBG/provider readiness, `freerdp_new`,
+retained context failure C/R stage, numeric `errno` and WinPR
+`GetLastError`, password dialog begin/cancel **without reading
+password text**, network-worker start/finish, connection error code,
+disconnect, and cleanup. The three numeric fields depend on the event
+and are non-sensitive diagnostic statuses, stage numbers, and error codes.
+There is no freeform dump of WinPR/FreeRDP logger text.
+
+For example, a record named `freerdp-context-fail` has arguments
+`C-stage, R-stage, errno` in hexadecimal; the subsequent
+`freerdp-context-winpr` records WinPR's last-error value.
+
+No password, username, domain, hostname/IP, certificate, certificate
+fingerprint, or raw entropy is intentionally written. The file is still
+a local diagnostic artifact: review it before sharing. Logging adds
+SD I/O on recorded checkpoints, so remove or rename `rdplog.txt`
+and relaunch to disable it. The main session remains safe to start
+without the file.
