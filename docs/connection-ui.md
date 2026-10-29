@@ -134,3 +134,73 @@ The **normal probe-only build does not enter this mode**; it continues to
 use the launcher to test X.224 security negotiation. Full session rendering,
 network waits, authentication and pad input still need physical O3DS
 validation. No changes were made to certificate validation.
+
+
+## UI completion preview: experimental branch
+
+The follow-on `feat/rdp-ui-completion` branch extends six UI areas.
+It is deliberately isolated from `main` until full FreeRDP builds and
+hardware input tests are verified.
+
+### Keyboard
+
+Tap **Keyboard** on the session touchpad for a 4x4 on-screen Windows key
+panel. Esc, Tab, Enter, Backspace, Delete, arrows, Ctrl/Alt/Shift/Win
+(sticky modifiers) and a second **F1-F12** page are available. The function
+page also provides Ctrl+Alt+End, Alt+Tab, and Win+R shortcuts. Press **X**
+or **Text** for stock 3DS text entry; this still sends ASCII characters
+only and is not a complete IME. Key press/release scancodes are generated
+as balanced sequences, with tests for shortcut order and modifier release.
+
+### Native remote cursor
+
+FreeRDP 3.32.2 pointer callbacks decode the **Windows server-provided
+BGRA cursor bitmap** including hotspot/alpha, then composite it on the
+upper 3DS RGB565 screen. The cursor and remote viewport share zoom and
+position coordinates. A hidden pointer stays hidden; unsupported large
+cursor shapes fail safely rather than risking unbounded allocation.
+Hardware validation is needed for non-standard monochrome/XOR cursors.
+
+### Display and input settings
+
+General profiles now use `3DSRDP2` rows with seven appended, validated
+options. Old `3DSRDP1` files are imported with safe defaults, then
+upgraded on their next explicit save. Backups and fail-closed writes are
+unchanged. The tabs now provide:
+
+- **Display:** 400x240 or experimental 640x360 remote desktop, 16/32-bit
+  negotiated color depth; **L+Circle Pad** changes local zoom.
+- **Local:** touch sensitivity, button wheel step and reversed scrolling,
+  restored at session start. X opens text entry.
+- **Experience:** optional wallpaper disabling for lower bandwidth,
+  with network compression still negotiated by FreeRDP.
+- **Advanced:** connect timeout 8/12/20 seconds; NLA and certificate
+  validation remain mandatory, never user-disableable.
+
+While connected **Y** resets zoom to Fit; **R** toggles 1:1 versus Fit
+where the remote desktop is larger than the top screen; the D-pad nudges
+the pointer to pan a magnified viewport. These settings do not increase
+the top screen's physical 400x240 pixels.
+
+### Connection and certificates
+
+A graphical **Connecting** screen precedes the experimental FreeRDP
+login/certificate callbacks, followed by explicit graphical **Retry**
+and **Back** actions on failure. There is **no working cancel during the
+synchronous TCP/TLS handshake yet**. Retry is not automatic.
+
+The Trusted Certificates manager keeps the full SHA-256 fingerprint
+visible on the top screen and adds graphical bottom-screen controls,
+touch selection for View/Delete/Back, and explicit removal confirmation.
+It still uses an on-screen console list; a fully graphical, scrollable
+list is a later polish milestone. Certificate trust decisions retain
+their strict validation requirements and are never silently accepted.
+
+### Verification limits
+
+Host tests and successful ARM11 compilation provide build confidence,
+not proof of correct interaction with Windows or native O3DS hardware.
+The FreeRDP full-client build may be unavailable on a standard O3DS
+probe-only build. Keep the new branch in draft until CI validates the
+combined port and manual physical tests can verify pointer formats,
+touch hitboxes, input behavior, larger desktop memory and performance.
