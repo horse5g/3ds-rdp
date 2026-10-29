@@ -54,10 +54,12 @@ PadRegion session_pad_hit(const SessionPad *pad, int x, int y)
         y < 0 || y >= RDP_PAD_SCREEN_H)
         return PAD_NONE;
     if (y < 32) {
-        if (x < 108) return PAD_DISCONNECT;
-        if (x < 212) return PAD_SETTINGS;
-        return PAD_KEYBOARD;
+        if (x < 80) return PAD_DISCONNECT;
+        if (x < 160) return PAD_SETTINGS;
+        if (x < 240) return PAD_KEYBOARD;
+        return PAD_HELP;
     }
+    if (pad->help_open) return PAD_NONE;
     if (pad->keyboard_open) return session_pad_keyboard_key(pad,x,y) ? PAD_AREA : PAD_NONE;
     if (pad->settings_open) {
         if (x >= 12 && x < 308) {
@@ -173,6 +175,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                 case PAD_RIGHT_BUTTON: out->right_click = true; break;
                 case PAD_KEYBOARD:
                     pad->keyboard_open = !pad->keyboard_open;
+                    pad->help_open = false;
                     if(pad->keyboard_open)pad->settings_open=false;
                     else {pad->fn_page=false;pad->key_mods=0;}
                     out->keyboard = true;
@@ -181,11 +184,21 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                     break;
                 case PAD_SETTINGS:
                     pad->settings_open = !pad->settings_open;
+                    pad->help_open = false;
                     pad->keyboard_open=false;
                     pad->fn_page=false;
                     pad->key_mods=0;
                     pad->disconnect_armed = false;
                     out->redraw = true;
+                    break;
+                case PAD_HELP:
+                    pad->help_open = !pad->help_open;
+                    pad->settings_open=false;
+                    pad->keyboard_open=false;
+                    pad->fn_page=false;
+                    pad->key_mods=0;
+                    pad->disconnect_armed=false;
+                    out->redraw=true;
                     break;
                 case PAD_DISCONNECT:
                     if (pad->disconnect_armed) out->disconnect = true;
