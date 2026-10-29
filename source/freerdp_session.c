@@ -40,6 +40,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
 #include <freerdp/input.h>
 #include <winpr/synch.h>
 #include <winpr/path.h>
+#include <winpr/sysinfo.h>
 #include <openssl/crypto.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
@@ -925,6 +926,21 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         if (!ok) {
             snprintf(reason, reason_size,
                      "WinPR cannot resolve HOME/XDG paths on SD");
+            goto done;
+        }
+    }
+
+    /* FreeRDP settings_new() calls GetComputerNameExA before a client
+       context exists. 3DS has no guaranteed gethostname(), so verify our
+       narrowly scoped WinPR client-label fallback is active first. */
+    {
+        CHAR client_name[MAX_COMPUTERNAME_LENGTH+1]={0};
+        DWORD client_name_size=(DWORD)sizeof(client_name);
+        if (!GetComputerNameExA(ComputerNameNetBIOS,
+                                client_name,&client_name_size) ||
+            !client_name[0]) {
+            snprintf(reason,reason_size,
+                     "WinPR cannot get 3DS client hostname");
             goto done;
         }
     }
