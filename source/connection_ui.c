@@ -183,7 +183,7 @@ static int option_menu_for_row(const ConnectionUI *ui, int row)
     case RDP_UI_DISPLAY: return row == 0 ? 1 : row == 1 ? 2 : 0;
     case RDP_UI_LOCAL: return row + 3;
     case RDP_UI_EXPERIENCE: return row == 0 ? 6 : 0;
-    case RDP_UI_ADVANCED: return row == 0 ? 7 : 0;
+    case RDP_UI_ADVANCED: return row == 0 ? 7 : row == 2 ? 8 : 0;
     default: return 0;
     }
 }
@@ -191,7 +191,7 @@ static int choice_count(int menu)
 {
     switch (menu) {
     case 1: return 6;
-    case 2: case 5: case 6: return 2;
+    case 2: case 5: case 6: case 8: return 2;
     case 3: case 4: case 7: return 3;
     default: return 0;
     }
@@ -208,10 +208,14 @@ static void choose_option(ConnectionUI *ui, int choice)
     case 5: o->reverse_scroll=(uint8_t)choice; break;
     case 6: o->low_bandwidth=(uint8_t)choice; break;
     case 7: o->timeout_seconds=(uint8_t)(choice==0?8:choice==1?12:20); break;
+    case 8: ui->cache_password_for_run=(choice!=0);break;
     }
+    const bool session_only=ui->choice_menu==8;
     ui->choice_menu=0;
-    ui->dirty=true;
-    tell(ui,"Option updated - Save to keep");
+    if(!session_only)ui->dirty=true;
+    tell(ui,session_only?
+         "Password cache is RAM-only, cleared on exit":
+         "Option updated - Save to keep");
 }
 static void saved_view(ConnectionUI *ui)
 {
@@ -285,6 +289,7 @@ static void open_option(ConnectionUI *ui, int row)
             case 6: ui->choice_highlight=ui->options.low_bandwidth; break;
             case 7: ui->choice_highlight=ui->options.timeout_seconds==8?0:
                                          ui->options.timeout_seconds==12?1:2; break;
+            case 8: ui->choice_highlight=ui->cache_password_for_run?1:0; break;
             default: ui->choice_highlight=0;
         }
         if (ui->choice_highlight<0 || ui->choice_highlight>=choice_count(menu))
