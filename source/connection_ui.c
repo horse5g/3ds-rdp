@@ -397,12 +397,14 @@ void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
         /* Modal list: no background controls can be activated through it. */
         const int visible=choice_count(ui->choice_menu)<5?
                           choice_count(ui->choice_menu):5;
-        if(x>=30 && x<292 && y>=80 && y<80+22*visible)
-            choose_option(ui,ui->choice_scroll+(y-80)/22);
-        else if(x>=30 && x<292 && y>=52 && y<80 &&
-                ui->choice_scroll>0) {
-            --ui->choice_scroll;
+        if(x>=280 && x<299 && y>=80 && y<190 &&
+           choice_count(ui->choice_menu)>5) {
+            if(y<135 && ui->choice_scroll>0) --ui->choice_scroll;
+            if(y>=135 && ui->choice_scroll+5<choice_count(ui->choice_menu))
+                ++ui->choice_scroll;
             ui->choice_highlight=ui->choice_scroll;
+        } else if(x>=30 && x<280 && y>=80 && y<80+22*visible) {
+            choose_option(ui,ui->choice_scroll+(y-80)/22);
         } else ui->choice_menu=0;
         return;
     }
