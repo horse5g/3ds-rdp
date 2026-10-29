@@ -996,6 +996,22 @@ static bool connect_with_ui(freerdp *client, const char *host,
     return connected;
 }
 
+/* Called from FreeRDP construction/cleanup through a weak, O3DS-only
+ * hook. Log just stage, numeric errno, and socket event counters; do not
+ * inspect remote hosts, credentials, certificate or other sensitive data. */
+void freerdp_3ds_context_checkpoint(unsigned int stage, unsigned long error_value)
+{
+    LoopbackPairStats stats = {0};
+    if (!rdp_diag_log_enabled())
+        return;
+    loopback_pair_get_stats(&stats);
+    rdp_diag_log_event("core-context-step", stage, error_value,
+                       ((stats.opened & 0xFFFFUL) << 16) |
+                       (stats.failed & 0xFFFFUL));
+    rdp_diag_log_event("core-socket-last", stats.last_stage,
+                       (unsigned long)stats.last_errno, 0);
+}
+
 /* Count the SOC loopback socket events separately from general errno.
  * The extra capacity probe runs only on context failure AND when logging is
  * explicitly enabled with a pre-existing rdplog.txt. It runs after FreeRDP
