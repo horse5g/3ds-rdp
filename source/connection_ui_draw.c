@@ -268,8 +268,25 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
     outline(109,2,101,28,BORDER);
     label(119,13,pad->settings_open ? "BACK TO PAD" : "SETTINGS",208,WHITE);
     fill(213,2,105,28,BLUE);
-    label(222,13,"KEYBOARD",316,WHITE);
+    label(222,13,pad->keyboard_open ? "CLOSE KEYS" : "KEYBOARD",316,WHITE);
 
+    if (pad->keyboard_open) {
+        int row,col;
+        fill(0,36,320,204,BG);
+        for(row=0;row<4;++row) for(col=0;col<4;++col) {
+            int x=4+col*78,y=40+row*48;
+            int key=session_pad_keyboard_key(pad,x+20,y+20);
+            const char *name=session_key_label(key);
+            bool selected = (key==SK_CTRL && (pad->key_mods&SK_MOD_CTRL)) ||
+                (key==SK_ALT && (pad->key_mods&SK_MOD_ALT)) ||
+                (key==SK_SHIFT && (pad->key_mods&SK_MOD_SHIFT)) ||
+                (key==SK_WIN && (pad->key_mods&SK_MOD_WIN));
+            fill(x,y,74,44,selected?BLUE:WHITE);
+            outline(x,y,74,44,selected?NAVY:BORDER);
+            label(x+6,y+19,name,x+73,selected?WHITE:INK);
+        }
+        return;
+    }
     if (pad->settings_open) {
         fill(6,37,308,195,WHITE);
         outline(6,37,308,195,BORDER);
