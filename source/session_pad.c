@@ -51,8 +51,12 @@ static int axis_motion(int delta,int sensitivity,int size,int screen,
     const int64_t q16=(int64_t)delta*sensitivity*size*65536*256 /
                       ((int64_t)screen*zoom_q8);
     const int64_t total=q16 + *fraction;
-    const int motion=(int)(total/65536);
-    *fraction=(int)(total%65536);
+    /* Round to the nearest native desktop pixel, keeping the signed
+     * residual. Truncating instead loses 1/65536 each time when zoom
+     * ratios (e.g. 1/5) are not exactly representable in Q16. */
+    const int64_t rounded=total+(total>0?32768:(total<0?-32768:0));
+    const int motion=(int)(rounded/65536);
+    *fraction=(int)(total-(int64_t)motion*65536);
     return motion;
 }
 

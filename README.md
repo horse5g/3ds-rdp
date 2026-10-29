@@ -50,7 +50,7 @@ The native UI borrows the **layout and interaction conventions** of Windows Remo
 | Session-only pad options | **Settings** (speed, wheel step, reverse direction) |
 | Show controls | **Help** |
 
-The touchscreen and on-screen keyboard are experimental. Keyboard Unicode/IME support is incomplete; the in-session speed and wheel adjustments are currently **session-only**. Display scaling is software-based; 1080p may exhaust memory or cause very low frame rates on the original 3DS.
+The touchscreen and on-screen keyboard are experimental. Relative pointer movement and D-pad nudges now scale with **remote resolution and the current zoom**: moving around a 720p or 1080p desktop in fit view no longer requires proportionally more swipes, while magnified detail mode slows movement for precision. The same touch sensitivity setting retains its 400×240 behavior. Keyboard Unicode/IME support is incomplete; the in-session speed and wheel adjustments are currently **session-only**. Display scaling is software-based; 1080p may exhaust memory or cause very low frame rates on the original 3DS.
 
 ## Install and connect
 
