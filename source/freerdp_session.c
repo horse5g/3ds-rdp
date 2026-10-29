@@ -74,6 +74,48 @@ static uint16_t requested_port;
 static PrintConsole trust_console;
 static char cert_failure[100];
 static char post_connect_failure[100];
+/* Give hardware tests an actionable stage instead of reporting every
+ * authentication, DNS, transport and activation error as "connect failed".
+ * Never include the password or FreeRDP's credential buffers. */
+static const char *connection_failure_hint(UINT error)
+{
+    switch (error) {
+        case FREERDP_ERROR_DNS_ERROR:
+        case FREERDP_ERROR_DNS_NAME_NOT_FOUND:
+            return "RDP DNS lookup failed (try IPv4)";
+        case FREERDP_ERROR_CONNECT_FAILED:
+        case FREERDP_ERROR_CONNECT_TRANSPORT_FAILED:
+            return "RDP TCP failed (check IP/port)";
+        case FREERDP_ERROR_SECURITY_NEGO_CONNECT_FAILED:
+            return "RDP NLA security negotiation failed";
+        case FREERDP_ERROR_TLS_CONNECT_FAILED:
+            return "RDP TLS handshake failed";
+        case FREERDP_ERROR_CONNECT_LOGON_FAILURE:
+        case FREERDP_ERROR_CONNECT_WRONG_PASSWORD:
+        case FREERDP_ERROR_CONNECT_NO_OR_MISSING_CREDENTIALS:
+        case FREERDP_ERROR_AUTHENTICATION_FAILED:
+            return "RDP NLA username/password rejected";
+        case FREERDP_ERROR_CONNECT_KDC_UNREACHABLE:
+            return "Kerberos unavailable; NTLMv2 required";
+        case FREERDP_ERROR_CONNECT_ACCOUNT_LOCKED_OUT:
+        case FREERDP_ERROR_CONNECT_ACCOUNT_DISABLED:
+        case FREERDP_ERROR_CONNECT_ACCESS_DENIED:
+        case FREERDP_ERROR_CONNECT_LOGON_TYPE_NOT_GRANTED:
+            return "Windows denied this RDP account";
+        case FREERDP_ERROR_CONNECT_PASSWORD_EXPIRED:
+        case FREERDP_ERROR_CONNECT_PASSWORD_MUST_CHANGE:
+            return "Windows password expired/must change";
+        case FREERDP_ERROR_CONNECT_ACTIVATION_TIMEOUT:
+            return "RDP desktop activation timed out";
+        case FREERDP_ERROR_POST_CONNECT_FAILED:
+            return "FreeRDP PostConnect graphics failed";
+        case FREERDP_ERROR_CONNECT_CANCELLED:
+            return "RDP connection cancelled";
+        default:
+            return "RDP connection failed (see code)";
+    }
+}
+
 static bool desktop_dirty;
 static SessionCursor system_cursor;
 static int cursor_remote_x=RDP_W/2,cursor_remote_y=RDP_H/2;
@@ -976,9 +1018,11 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             snprintf(reason, reason_size, "%.90s", cert_failure);
         else if (post_connect_failure[0])
             snprintf(reason, reason_size, "%.90s", post_connect_failure);
-        else
-            snprintf(reason, reason_size, "RDP connect failed (0x%08lx)",
-                     (unsigned long)freerdp_get_last_error(client->context));
+        else {
+            const UINT code=freerdp_get_last_error(client->context);
+            snprintf(reason,reason_size,"%.65s (0x%08lx)",
+                     connection_failure_hint(code),(unsigned long)code);
+        }
         goto done;
     }
     connected = true;
