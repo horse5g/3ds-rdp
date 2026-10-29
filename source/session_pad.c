@@ -18,6 +18,8 @@ void session_pad_init(SessionPad *pad)
 {
     if (!pad) return;
     memset(pad, 0, sizeof(*pad));
+    pad->remote_w=RDP_PAD_REMOTE_W;
+    pad->remote_h=RDP_PAD_REMOTE_H;
     pad->pointer_x = RDP_PAD_REMOTE_W / 2;
     pad->pointer_y = RDP_PAD_REMOTE_H / 2;
     pad->sensitivity = 2;
@@ -120,9 +122,9 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
             session_pad_hit(pad, x, y) == PAD_AREA &&
             (dx || dy)) {
             int nx = clamp(pad->pointer_x + dx * pad->sensitivity,
-                           0, RDP_PAD_REMOTE_W - 1);
+                           0, pad->remote_w - 1);
             int ny = clamp(pad->pointer_y + dy * pad->sensitivity,
-                           0, RDP_PAD_REMOTE_H - 1);
+                           0, pad->remote_h - 1);
             out->pointer_moved = nx != pad->pointer_x || ny != pad->pointer_y;
             pad->pointer_x = nx;
             pad->pointer_y = ny;
