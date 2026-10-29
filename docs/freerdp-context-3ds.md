@@ -203,3 +203,59 @@ The opt-in switch remains the **pre-existing writable**
 diagnostic writes if that file is absent at startup. These are
 **experimental** changes; CI success does not confirm physical-device
 operation, and the branch is not merged to main.
+
+### Physical O3DS hang after CreateEvent failed (October 29, 2026)
+
+The new user log has two later boots that end after `freerdp-new`.
+It contains no `freerdp-context-fail`, `freerdp-context-ok`,
+`password-dialog-start`, or worker/network-stage entry on those boots.
+The visible FreeRDP message "CreateEvent failed!" is emitted in
+`freerdp_context_new_ex()` when the channel-error event cannot be
+allocated (C8), after `rdp_new()` succeeds. FreeRDP immediately
+calls `freerdp_context_free()`, which first calls `rdp_free()`,
+which first destroys the FreeRDP timer. The previous O3DS native timer
+patch used an **unbounded `threadJoin(..., U64_MAX)`**. If a worker
+blocks in a WinPR wait and the SOC event wakeup fails, cleanup can hang
+indefinitely. This is a strong explanation for the observed lockup,
+but the log alone cannot prove where cleanup stopped.
+
+**Recovery build behavior:** On __3DS__ only, the optional FreeRDP
+timer callback API is marked unsupported, as it is on Emscripten.
+The base 3DS client has no callers that register these callbacks
+(advanced video channels/X11/Wayland are not linked into this app).
+The FreeRDP timer object still allocates its synchronized entries and
+one mainloop event handle for the core event loop, but it skips its
+unused worker-wakeup event and does **not** launch a background worker.
+This removes an unbounded join and one loopback socket pair. On every
+other platform, the pinned upstream timer continues unchanged.
+Optional timer add returns 0 (explicitly unsupported), rather than
+discarding callbacks silently. The timer's T marker reaches T6
+without a thread.
+
+A separate O3DS-only weak hook checkpoints context construction and
+teardown into `rdplog.txt` **only when the file already exists**.
+`core-context-step` arguments: stage, numeric errno/detail, and
+`(successful_loopback_pairs << 16) | failed_loopback_pairs`.
+`core-socket-last` arguments: most recent loopback failure stage,
+errno, 0. Checkpoints:
+
+| Stage | Checkpoint |
+|---|---|
+| 8 | About to allocate channel-error event |
+| 80 | Channel-error CreateEvent failed (numeric errno) |
+| 81 | Channel-error event created |
+| 90 | About to free failed context |
+| 92 | Before `rdp_free()` (which destroys the timer first) |
+| 93 | After `rdp_free()` |
+| 91 | After complete context free |
+
+If a subsequent `rdplog.txt` ends at `92`, the hang is inside
+`rdp_free()`; if `90` appears without `92`, it is before it.
+If `80` appears, its errno and socket-count metrics can distinguish
+event socket exhaustion from other event allocation errors.
+
+Because the prior test made the system unresponsive, this recovery
+build also **disables the post-failure socket capacity stress test**.
+Only passive counters and checkpoints are recorded. Avoid using the
+previous build again; the new behavior remains unverified on physical
+O3DS until the user runs the latest green CI artifact.
