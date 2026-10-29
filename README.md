@@ -10,7 +10,7 @@ A standalone **Microsoft Remote Desktop Protocol (RDP) client** for the original
 - Negotiate NLA/CredSSP, authenticate over TLS, and render an RDP desktop on the **upper 400×240 display**.
 - Display a server-provided mouse cursor, with a fallback software-drawn cursor.
 - Use the **lower 320×240 touchscreen as a relative laptop-style touchpad**, with tap-to-click, drag, right click, wheel controls and a software keyboard.
-- Select a remote desktop size of **400×240**, **640×360**, **1280×720** or **1920×1080**. The entire desktop is scaled into the upper 3DS screen; local zoom and cursor-centered panning expose details. **1280×720 and 1920×1080 remain experimental on O3DS.**
+- Select a remote desktop size of **400×240**, **640×360**, **800×480**, **960×540**, **1280×720** or **1920×1080**. The entire desktop is scaled into the upper 3DS screen; local zoom and cursor-centered panning expose details. **800×480 and higher modes remain experimental on O3DS.**
 - Create and save up to **12 named connection profiles** (host, username, domain, port and display/input preferences, never passwords).
 - Inspect and manage **host:port-bound SHA-256 certificate fingerprints**, with visible confirmation on first use or when the certificate name does not match.
 - Run targeted native SOC/entropy/event and FreeRDP diagnostics.
@@ -49,8 +49,16 @@ The native UI borrows the **layout and interaction conventions** of Windows Remo
 | Disconnect | **START** or two taps on **Disconnect** |
 | Session-only pad options | **Settings** (speed, wheel step, reverse direction) |
 | Show controls | **Help** |
+| Show/hide performance metrics | Physical **SELECT** during an RDP session |
 
 The touchscreen and on-screen keyboard are experimental. Relative pointer movement and D-pad nudges now scale with **remote resolution and the current zoom**: moving around a 720p or 1080p desktop in fit view no longer requires proportionally more swipes, while magnified detail mode slows movement for precision. The same touch sensitivity setting retains its 400×240 behavior. Keyboard Unicode/IME support is incomplete; the in-session speed and wheel adjustments are currently **session-only**. Display scaling is software-based; 1080p may exhaust memory or cause very low frame rates on the original 3DS.
+
+
+### Reconnect and performance panel
+
+After a session disconnects, the client now offers **A: Reconnect** or **B: Back**. A reconnect creates an entirely new FreeRDP context and again asks for the password; certificates are verified on every attempt. No automatic reconnect occurs after authentication or certificate failures. The existing O3DS SOC shutdown workaround remains in place at app exit. Because previous hardware tests focused on a single connection, repeating sessions is **experimental** until confirmed on the console.
+
+During a session, press **SELECT** to toggle an optional read-only performance panel on the bottom screen. It reports measured **paints/second** (actual frame submissions, not guaranteed server FPS), the latest full-desktop blit time in milliseconds, time spent in the WinPR network-event wait, remote dimensions, and **primary GDI framebuffer memory** in KiB. The latter is not total RAM or VRAM usage. To minimize extra work, the panel refreshes at most once per second on a quiet desktop. It does not log hostnames, session pixels, or credentials.
 
 ## Install and connect
 
@@ -130,7 +138,7 @@ CI results and the full executable artifact appear under [GitHub Actions](https:
 ## Known issues and current roadmap
 
 - **Color rendering:** a physical O3DS test found red and blue reversed (yellow becomes cyan). A targeted, runtime-toggleable desktop conversion correction has been added; confirm colors with L+X on hardware. The local cursor is unchanged.
-- **O3DS performance:** a hardware log showed 720p/1080p connections failing before TCP with no error code, consistent with large planar codec buffers. The O3DS build skips those optional buffers at higher resolutions and now uses **FreeRDP's native RGB565 GDI primary surface** for 720p/1080p, halving that surface's memory use versus 32-bit output (about 1.84 MB at 720p, 4.15 MB at 1080p). This 16-bit local surface is separate from the negotiated 16-/32-bit network setting and still requires physical testing. An optional four-tap downscaler trades additional pixel reads for less aliasing; 1080p may remain impractical.
+- **O3DS performance:** intermediate 800×480 (2× the top screen in both dimensions) and 960×540 are now available without changing existing profile IDs. A hardware log showed 720p/1080p connections failing before TCP with no error code, consistent with large planar codec buffers. The O3DS build skips those optional buffers at higher resolutions and now uses **FreeRDP's native RGB565 GDI primary surface** for 720p/1080p, halving that surface's memory use versus 32-bit output (about 1.84 MB at 720p, 4.15 MB at 1080p). This 16-bit local surface is separate from the negotiated 16-/32-bit network setting and still requires physical testing. An optional four-tap downscaler trades additional pixel reads for less aliasing; 1080p may remain impractical.
 - **Network transport:** direct IPv4 TCP only; no RDP gateway, UDP multitransport or clipboard redirection in the current O3DS build.
 - **Input:** software keyboard text previously failed; new US-layout ASCII scan-code injection uses the same input path as the built-in virtual keys. Unicode/IME and other keyboard layouts are not supported. The fix and additional keyboard diagnostic counts need on-device testing.
 - **Shutdown:** after full FreeRDP use, an O3DS-specific workaround defers a blocking SOC shutdown to process teardown. It has restored normal exit in physical testing but needs broader verification.
