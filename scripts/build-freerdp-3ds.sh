@@ -160,6 +160,11 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'O3DS diagnostic: preserve the last context construction stage' "$src/libfreerdp/core/freerdp.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-context-stages.patch"
   fi
+  # Use a native libctru worker for the FreeRDP timer; unlike WinPR's
+  # CreateThread -> pthread_create path, libctru threadCreate works on O3DS.
+  if ! grep -q "O3DS: keep native timer diagnostic state" "$src/libfreerdp/core/timer.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-native-core-timer.patch"
+  fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
 fi
