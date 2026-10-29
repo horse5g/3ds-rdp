@@ -246,6 +246,8 @@ typedef struct {
     bool cancel_requested;
     bool challenge_pending;
     bool challenge_answered;
+    bool challenge_name_mismatch;
+    bool challenge_name_is_ip;
     int decision;
     char challenge_host[RDP_HOST_CAP];
     uint16_t challenge_port;
@@ -328,7 +330,8 @@ finish:
 /* No automatic first-use trust: the user must see the complete SHA-256 and
  * expressly choose a single session or append to the trusted endpoint pool. */
 static int ask_unknown_certificate(const char *host, uint16_t port,
-                                   const unsigned char sha256[32])
+                                   const unsigned char sha256[32],
+                                   bool name_mismatch, bool name_is_ip)
 {
     RdpConnectGate *gate = connect_gate;
     int result;
@@ -342,6 +345,8 @@ static int ask_unknown_certificate(const char *host, uint16_t port,
     snprintf(gate->challenge_host, sizeof(gate->challenge_host), "%s", host);
     gate->challenge_port = port;
     memcpy(gate->challenge_sha256, sha256, 32);
+    gate->challenge_name_mismatch = name_mismatch;
+    gate->challenge_name_is_ip = name_is_ip;
     gate->challenge_pending = true;
     gate->challenge_answered = false;
     LightLock_Unlock(&gate->lock);
@@ -369,7 +374,8 @@ static int ask_unknown_certificate(const char *host, uint16_t port,
 
 /* Certificate UI is strictly a foreground-thread responsibility. */
 static void draw_cert_challenge(const char *host, uint16_t port,
-                                const unsigned char sha256[32])
+                                const unsigned char sha256[32],
+                                bool name_mismatch, bool name_is_ip)
 {
     static const char hex[] = "0123456789ABCDEF";
     char fingerprint[65];
@@ -380,27 +386,38 @@ static void draw_cert_challenge(const char *host, uint16_t port,
     fingerprint[64] = 0;
     rdp_display_bind_console(&trust_console, GFX_TOP);
     consoleSelect(&trust_console);
-    printf("\x1b[2J\x1b[HUNKNOWN RDP CERTIFICATE\n");
-    printf("This server is NOT yet trusted.\n\n");
+    if (name_mismatch) {
+        printf("\x1b[2J\x1b[HCERTIFICATE NAME MISMATCH!\n");
+        printf("Cert does NOT identify this %s.\n\n",
+               name_is_ip ? "IP address" : "DNS hostname");
+    } else {
+        printf("\x1b[2J\x1b[HUNKNOWN RDP CERTIFICATE\n");
+        printf("This server is NOT yet trusted.\n\n");
+    }
     printf("Host: %.40s\nPort: %u\n\n", host, (unsigned)port);
     printf("Leaf SHA-256 (verify independently):\n");
     printf("%.32s\n%s\n\n", fingerprint, fingerprint+32);
-    printf("First-use trust can allow MITM!\n");
-    printf("Verify this hash on the Windows host.\n\n");
+    if (name_mismatch)
+        printf("Accepting overrides the name check!\n");
+    printf("A false cert could enable MITM.\n");
+    printf("Verify the SHA-256 independently.\n\n");
     printf("B/START: Reject\n");
     printf("A: Accept for this session\n");
     printf("X: Accept and save on SD\n");
     /* gfxSwapBuffers presents BOTH LCDs. Draw the lower buffer too, so it
        cannot alternate between a current and an old/uninitialized image. */
-    connection_ui_draw_status("UNKNOWN RDP CERTIFICATE",
-                              "VERIFY FINGERPRINT ON TOP",false);
+    connection_ui_draw_status(name_mismatch ? "CERT NAME MISMATCH" : "UNKNOWN RDP CERTIFICATE",
+                              "VERIFY SHA256 ON TOP",false);
     gfxFlushBuffers();
     gfxSwapBuffers();
 }
 
-/* FreeRDP ExternalCertificateManagement callback. Requires a valid name and
- * date BEFORE any pool decision, then enforces a manual pin when configured.
- * For unknown endpoints only, permit an explicit, visible trust decision.
+/* FreeRDP ExternalCertificateManagement callback. Requires a valid date
+ * and certificate parse before any pool decision, and always enforces any
+ * existing leaf-certificate pin. A name mismatch is NEVER accepted merely
+ * because certificate management is enabled: it requires the user to
+ * explicitly verify the fingerprint and accept a visible warning (or
+ * a previously saved, unmodified, host:port-scoped certificate pin).
  * Returning 2 accepts just this session in FreeRDP's certificate code. */
 static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
                             const char *host, UINT16 port, DWORD flags)
@@ -411,6 +428,8 @@ static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
     unsigned int digest_length = 0;
     struct in_addr ipv4;
     time_t now;
+    int name_status;
+    bool is_ip, name_mismatch;
     int result = 0;
     (void)instance;
 
@@ -437,16 +456,21 @@ static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
         snprintf(cert_failure, sizeof(cert_failure), "RDP certificate expired/not yet valid");
         goto finish;
     }
-    if (inet_pton(AF_INET, host, &ipv4) == 1) {
-        if (X509_check_ip_asc(cert, host, 0) != 1) {
-            snprintf(cert_failure, sizeof(cert_failure), "RDP certificate IP name mismatch");
-            goto finish;
-        }
-    } else if (X509_check_host(cert, host, 0,
-                               X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS, NULL) != 1) {
-        snprintf(cert_failure, sizeof(cert_failure), "RDP certificate DNS name mismatch");
+    is_ip = inet_pton(AF_INET, host, &ipv4) == 1;
+    name_status = is_ip
+        ? X509_check_ip_asc(cert, host, 0)
+        : X509_check_host(cert, host, 0,
+                          X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS, NULL);
+    if (name_status < 0) {
+        snprintf(cert_failure, sizeof(cert_failure),
+                 "RDP certificate name check failed");
+        rdp_diag_log_event("cert-name-invalid", (unsigned long)is_ip, 0, 0);
         goto finish;
     }
+    name_mismatch = name_status != 1;
+    rdp_diag_log_event("cert-name-check",
+                       (unsigned long)(is_ip ? 1 : 2),
+                       (unsigned long)(!name_mismatch), 0);
 
     if (X509_digest(cert, EVP_sha256(), digest, &digest_length) != 1 ||
         digest_length != 32)
@@ -467,9 +491,19 @@ static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
         if (known > 0) {
             result = 2;
         } else {
-            const int approval = ask_unknown_certificate(host, port, digest);
+            /* Even a mismatched name can only be approved through the
+             * visible full-SHA256 challenge. No silent bypass or CA-only
+             * approval of mismatched identities is possible. */
+            const int approval = ask_unknown_certificate(host, port, digest,
+                                                          name_mismatch, is_ip);
+            rdp_diag_log_event("cert-approval", (unsigned long)approval,
+                               (unsigned long)name_mismatch, (unsigned long)is_ip);
             if (approval == 0) {
-                snprintf(cert_failure, sizeof(cert_failure), "Unknown RDP certificate rejected");
+                snprintf(cert_failure, sizeof(cert_failure),
+                         name_mismatch
+                            ? (is_ip ? "RDP cert IP mismatch; rejected"
+                                     : "RDP cert DNS mismatch; rejected")
+                            : "Unknown RDP certificate rejected");
                 goto finish;
             }
             if (approval == 2) {
@@ -928,6 +962,8 @@ static bool connect_with_ui(freerdp *client, const char *host,
         char pending_host[RDP_HOST_CAP];
         uint16_t pending_port = 0;
         unsigned char pending_sha[32];
+        bool pending_name_mismatch = false;
+        bool pending_name_is_ip = false;
         bool active = aptMainLoop();
         u32 down = 0;
 
@@ -938,6 +974,8 @@ static bool connect_with_ui(freerdp *client, const char *host,
             memcpy(pending_host, gate.challenge_host, sizeof(pending_host));
             pending_port = gate.challenge_port;
             memcpy(pending_sha, gate.challenge_sha256, sizeof(pending_sha));
+            pending_name_mismatch = gate.challenge_name_mismatch;
+            pending_name_is_ip = gate.challenge_name_is_ip;
         }
         LightLock_Unlock(&gate.lock);
         if (done)
@@ -958,7 +996,8 @@ static bool connect_with_ui(freerdp *client, const char *host,
                 connect_screen(host, true);
         } else if (pending && !cancelling) {
             if (!challenge_visible && active) {
-                draw_cert_challenge(pending_host, pending_port, pending_sha);
+                draw_cert_challenge(pending_host, pending_port, pending_sha,
+                                    pending_name_mismatch, pending_name_is_ip);
                 challenge_visible = true;
             }
             if (!active || (down & (KEY_B | KEY_START))) {
