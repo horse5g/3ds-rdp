@@ -944,12 +944,6 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         }
     }
 
-    /* Password is prompted for at runtime; never accepted from host.txt. */
-    if (!prompt_password(password, sizeof(password))) {
-        snprintf(reason, reason_size, "Password input cancelled");
-        goto done;
-    }
-
     client = freerdp_new();
     if (!client) {
         snprintf(reason, reason_size, "freerdp_new failed");
@@ -960,7 +954,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     client->PostConnect = post_connect;
     client->PostDisconnect = post_disconnect;
     if (!freerdp_context_new(client)) {
-        snprintf(reason, reason_size, "FreeRDP context allocation failed");
+        snprintf(reason, reason_size,
+                 "FreeRDP context init failed (WinPR/heap)");
         goto done;
     }
     initialized = true;
@@ -972,6 +967,13 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     }
     remote_w=opts.display_mode?640:RDP_W;
     remote_h=opts.display_mode?360:RDP_H;
+    /* Do WinPR/client-context allocation before opening the modal password
+       keyboard. On an O3DS allocation failure, users can diagnose the
+       failure immediately instead of repeatedly entering a secret. */
+    if (!prompt_password(password, sizeof(password))) {
+        snprintf(reason, reason_size, "Password input cancelled");
+        goto done;
+    }
     if (!freerdp_settings_set_string(settings, FreeRDP_ServerHostname, cfg->host) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, cfg->port) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, (UINT32)remote_w) ||
