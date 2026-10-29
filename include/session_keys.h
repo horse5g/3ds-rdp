@@ -18,4 +18,7 @@ typedef struct { uint8_t scan; uint8_t extended; uint8_t down; } SessionKeyEvent
 size_t session_key_sequence(int key, unsigned modifiers,
                             SessionKeyEvent *out, size_t capacity);
 const char *session_key_label(int key);
+/* US-QWERTY layout: map ASCII to Set-1 scan code + optional Shift.
+ * Non-ASCII Unicode/IME requires a negotiated Unicode-input path. */
+int session_ascii_scan(unsigned char ch, uint8_t *scan, uint8_t *shift);
 #endif
