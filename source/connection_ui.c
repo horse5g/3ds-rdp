@@ -202,7 +202,7 @@ static void cycle_option(ConnectionUI *ui,int row)
         return;
     switch(ui->tab){
       case RDP_UI_DISPLAY:
-        if(row==0)o->display_mode^=1u;
+        if(row==0)o->display_mode=(uint8_t)((o->display_mode+1u)%4u);
         if(row==1)o->color_depth=(uint8_t)(o->color_depth==32?16:32);
         break;
       case RDP_UI_LOCAL:
