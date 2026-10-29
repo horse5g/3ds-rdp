@@ -22,7 +22,7 @@ int main(void)
      * User observed blue->red/yellow->cyan with the old path. Verify both
      * reversible screen modes before trusting on-device display. */
     {
-        const uint8_t blue[4]={255,0,0,0}, red[4]={0,0,255,0};
+        const uint8_t blue[4]={0,0,255,0}, red[4]={255,0,0,0};
         const uint8_t yellow[4]={255,255,0,0};
         assert(rdp_desktop_to_rgb565(blue,1)==0x001F);
         assert(rdp_desktop_to_rgb565(red,1)==0xF800);
