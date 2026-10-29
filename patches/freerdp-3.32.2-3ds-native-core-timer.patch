@@ -6,7 +6,7 @@ diff --git a/libfreerdp/core/timer.c b/libfreerdp/core/timer.c
  #include "timer.h"
  
 +#ifdef __3DS__
-+#include <3ds.h>
++#include <3ds/thread.h>
 +#include "rdp_pthread_tsd.h"
 +/* O3DS: keep native timer diagnostic state after freerdp_context_new()
 + * destroys partially constructed objects. */
