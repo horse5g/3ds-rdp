@@ -1,0 +1,63 @@
+diff --git a/libfreerdp/core/freerdp.c b/libfreerdp/core/freerdp.c
+--- a/libfreerdp/core/freerdp.c
++++ b/libfreerdp/core/freerdp.c
+@@ -868,6 +868,15 @@
+ }
+ 
+ #ifdef __3DS__
++#include <errno.h>
++/* Optional hook is absent in standalone FreeRDP feasibility tests. */
++extern void freerdp_3ds_context_checkpoint(unsigned int stage,
++                                            unsigned long detail)
++    __attribute__((weak));
++#define O3DS_CTX_CHECKPOINT(n, value) do { \
++    if (freerdp_3ds_context_checkpoint) \
++        freerdp_3ds_context_checkpoint((n), (unsigned long)(value)); \
++} while (0)
+ /* O3DS diagnostic: preserve the last context construction stage after cleanup. */
+ static unsigned int o3ds_ctx_init_stage;
+ unsigned int freerdp_3ds_context_init_stage(void)
+@@ -877,6 +886,7 @@
+ #define O3DS_CTX_STAGE(n) (o3ds_ctx_init_stage = (n))
+ #else
+ #define O3DS_CTX_STAGE(n) ((void)0)
++#define O3DS_CTX_CHECKPOINT(n, value) ((void)0)
+ #endif
+ 
+ BOOL freerdp_context_new_ex(freerdp* instance, rdpSettings* settings)
+@@ -952,12 +962,15 @@
+ 	}
+ 
+ 	O3DS_CTX_STAGE(8);
++	O3DS_CTX_CHECKPOINT(8, 0); /* about to request channel-error event */
+ 	if (!(context->channelErrorEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr)))
+ 	{
++		O3DS_CTX_CHECKPOINT(80, errno); /* checkpoint BEFORE cleanup */
+ 		WLog_Print(context->log, WLOG_ERROR, "CreateEvent failed!");
+ 		goto fail;
+ 	}
+ 
++	O3DS_CTX_CHECKPOINT(81, 0); /* channel-error event allocated */
+ 	update_register_client_callbacks(rdp->update);
+ 
+ 	O3DS_CTX_STAGE(9);
+@@ -986,7 +999,9 @@
+ 	return TRUE;
+ 
+ fail:
++	O3DS_CTX_CHECKPOINT(90, errno); /* before partial context free */
+ 	freerdp_context_free(instance);
++	O3DS_CTX_CHECKPOINT(91, 0); /* after partial context free */
+ 	return FALSE;
+ }
+ 
+@@ -1022,7 +1037,9 @@
+ 	ctx = instance->context;
+ 
+ 	IFCALL(instance->ContextFree, instance, ctx);
++	O3DS_CTX_CHECKPOINT(92, 0); /* entering rdp_free/timer cleanup */
+ 	rdp_free(ctx->rdp);
++	O3DS_CTX_CHECKPOINT(93, 0); /* rdp_free completed */
+ 	ctx->rdp = nullptr;
+ 	ctx->settings = nullptr; /* owned by rdpRdp */
+ 
