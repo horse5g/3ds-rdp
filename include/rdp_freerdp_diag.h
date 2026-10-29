@@ -6,6 +6,7 @@ extern "C" {
 #endif
 unsigned int freerdp_3ds_context_init_stage(void);
 unsigned int freerdp_3ds_rdp_init_stage(void);
+unsigned int freerdp_3ds_timer_init_stage(void);
 #ifdef __cplusplus
 }
 #endif
