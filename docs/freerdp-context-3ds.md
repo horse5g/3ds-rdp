@@ -521,3 +521,72 @@ The `rdp_desktop_size_allowed` guard still rejects server-initiated
 resizes not matching one of the four exact, user-requested profiles.
 Unexpected sizes cannot cause arbitrary GDI allocation. Portable
 tests now cover all four modes, full-HD zoom and profile persistence.
+
+### Physical O3DS log 6: color inversion, pre-TCP high-resolution OOM and keyboard text
+
+The user physically reports: successful 400x240 and 640x360 RDP
+sessions show **blue as red**, **red as blue**, **yellow as cyan**,
+and generally yellow/red-tinted output. The cursor/UI overlays are
+independently rendered. The GDI sample at 400x240 (frame 32) had
+byte0 average 0, byte1 ~51, byte2 ~126, and similarly at 640x360
+byte0=0, byte1~53, byte2~102. Despite the earlier BGRX assumption,
+the observed red/blue mapping is consistent with treating actual
+source byte0 as red and byte2 as blue in the top-screen blitter.
+The native 3DS `GSP_RGB565_OES` output convention is unchanged.
+The new blitter defaults to the empirically corrected channel order;
+**L+X** during a session toggles corrected vs original conversion
+without modifying FreeRDP decoding or the local cursor. The
+`display-colors` opt-in log gives the chosen numeric mode; this
+still requires physical LCD verification.
+
+For high resolution, `rdplog(6).txt` includes repeated
+`rdp-requested-size` of 1280x720 (0x500 / 0x2d0) and 1920x1080
+(0x780 / 0x438) with `connect-worker-end 0 0` and **no**
+`tcp-stage` checkpoint, even with 16-bit negotiated color depth.
+Both smaller modes proceed to TCP/NLA, often successfully. The
+pinned FreeRDP 3.32.2 `rdp_client_connect()` runs
+`rdp_client_reset_codecs()` **before** TCP. Its planar
+`freerdp_bitmap_planar_context_reset` allocates 4+6+4+4 =
+**18 bytes per remote pixel** (about 16.6 MiB for 720p and
+37.3 MiB for 1080p), BEFORE the GDI primary framebuffer.
+It returns `FALSE` without setting a FreeRDP last-error code
+when these large allocations fail. This is a concrete, plausible
+cause of the exact observed zero-error pre-TCP failures.
+
+To address this, `freerdp-3.32.2-3ds-highres-codecs.patch`
+changes O3DS's `freerdp_settings_get_codecs_flags` for requested
+width >= 1024 or height >= 600: disables PLANAR and PROGRESSIVE
+decoder contexts, retaining other codecs (including ordinary bitmap
+interleaved, NSCodec and RFX where available). **This is a
+compatibility/resource experiment**; server graphics decoding may
+require further work even if TCP/NLA now succeeds. A separate
+`rdp-codec-stage` numeric checkpoint reports:
+1 enter, 2 codec object allocation failed, 3 codec prepare begins,
+4 prepare failed, 5 prepare finished, with effective codec flags
+and packed remote dimensions. `rdp-codec-mask` logs flags
+before invoking FreeRDP. Nothing relaxes TLS, NLA, or trust policy.
+
+Software keyboard `Text` submitted ASCII Unicode events which the
+user reports are not received remotely. New routine maps printable
+ASCII to US-QWERTY Set-1 scan codes, including balanced Shift for
+capitals/punctuation, and sends through the same FreeRDP keyboard
+event path as virtual keys. `keyboard-applet-result` and
+`keyboard-ascii-result` log only button result, sent/skipped/error
+counts, **not the typed text**. This is **not** generic Unicode/IME
+or arbitrary keyboard-layout support and requires testing on Windows.
+
+For heavy downscaling, the renderer can now average a 2x2 grid of
+source pixels per target LCD pixel when sampling >=2x in both
+directions, which can reduce jagged edges/aliasing at 720p or 1080p.
+At near-native zoom it reverts to nearest-source-pixel display so
+text stays sharp. **L+Y** toggles the experimental smoothing and
+`display-smoothing` logs the mode. It is 4 source reads per LCD
+pixel; hardware frame-rate effect is unmeasured and this is *not*
+a full-resolution area filter, GPU shader or guaranteed image-quality
+improvement.
+
+Use the experimental branch build (not main) and test in this order:
+(1) 400x240 color, toggling L+X to compare; (2) virtual keyboard
+Text with an empty Notepad window focused, including "Hello123!";
+(3) 720p/16-bit and its `rdp-codec-stage`, then 1080p if stable;
+(4) 720p smoothing on/off with L+Y while in Fit view.
