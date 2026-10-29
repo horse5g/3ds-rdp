@@ -71,6 +71,7 @@ static char requested_host[RDP_HOST_CAP];
 static uint16_t requested_port;
 static PrintConsole trust_console;
 static char cert_failure[100];
+static char post_connect_failure[100];
 static bool desktop_dirty;
 static SessionCursor system_cursor;
 static int cursor_remote_x=RDP_W/2,cursor_remote_y=RDP_H/2;
@@ -517,11 +518,28 @@ static BOOL desktop_resize(rdpContext *context)
 static BOOL post_connect(freerdp *instance)
 {
     rdpContext *ctx;
-    if (!instance || !gdi_init(instance, PIXEL_FORMAT_XRGB32))
+    UINT32 width, height;
+    snprintf(post_connect_failure, sizeof(post_connect_failure),
+             "RDP desktop setup failed");
+    if (!instance || !(ctx=instance->context) ||
+        !ctx->settings || !ctx->update)
         return FALSE;
-    ctx = instance->context;
-    if (!ctx || !ctx->update)
+    width=freerdp_settings_get_uint32(ctx->settings, FreeRDP_DesktopWidth);
+    height=freerdp_settings_get_uint32(ctx->settings, FreeRDP_DesktopHeight);
+    /* This is BEFORE gdi_init(), when the initial GDI framebuffer is
+       allocated. A server's negotiated size must not exhaust O3DS memory. */
+    if (!rdp_desktop_size_allowed(width,height,
+                                  (unsigned)remote_w,(unsigned)remote_h)) {
+        snprintf(post_connect_failure,sizeof(post_connect_failure),
+                 "Server requested unsupported desktop size");
         return FALSE;
+    }
+    if (!gdi_init(instance, PIXEL_FORMAT_XRGB32)) {
+        snprintf(post_connect_failure,sizeof(post_connect_failure),
+                 "RDP graphics allocation failed (O3DS memory)");
+        return FALSE;
+    }
+    post_connect_failure[0]=0;
     ctx->update->BeginPaint = begin_paint;
     ctx->update->EndPaint = end_paint;
     ctx->update->DesktopResize = desktop_resize;
@@ -841,6 +859,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     memset(&active_pin, 0, sizeof(active_pin));
     memset(&active_pool, 0, sizeof(active_pool));
     cert_failure[0] = '\0';
+    post_connect_failure[0] = '\0';
     memset(requested_host, 0, sizeof(requested_host));
     memcpy(requested_host, cfg->host, strlen(cfg->host) + 1);
     requested_port = cfg->port;
@@ -937,9 +956,11 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             goto done;
         if (cert_failure[0])
             snprintf(reason, reason_size, "%.90s", cert_failure);
+        else if (post_connect_failure[0])
+            snprintf(reason, reason_size, "%.90s", post_connect_failure);
         else
-        snprintf(reason, reason_size, "RDP connect failed (0x%08lx)",
-                 (unsigned long)freerdp_get_last_error(client->context));
+            snprintf(reason, reason_size, "RDP connect failed (0x%08lx)",
+                     (unsigned long)freerdp_get_last_error(client->context));
         goto done;
     }
     connected = true;
@@ -1188,6 +1209,7 @@ done:
     have_manual_pin = false;
     requested_port = 0;
     OPENSSL_cleanse(cert_failure, sizeof(cert_failure));
+    OPENSSL_cleanse(post_connect_failure, sizeof(post_connect_failure));
     return result;
 }
 #endif
