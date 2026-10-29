@@ -36,6 +36,15 @@ static void check_pthreads(void)
     int rc_set = rc_key == 0 ? pthread_setspecific(key, (void *)0x1) : -1;
     int rc_get = rc_set == 0 && pthread_getspecific(key) == (void *)0x1;
     if (rc_key == 0) pthread_key_delete(key);
+    pthread_rwlock_t rwlock;
+    int rc_rw_init = pthread_rwlock_init(&rwlock, NULL);
+    int rc_rw_read = rc_rw_init == 0 ? pthread_rwlock_rdlock(&rwlock) : -1;
+    int rc_rw_unlock = rc_rw_read == 0 ? pthread_rwlock_unlock(&rwlock) : -1;
+    int rc_rw_write = rc_rw_unlock == 0 ? pthread_rwlock_wrlock(&rwlock) : -1;
+    if (rc_rw_write == 0) pthread_rwlock_unlock(&rwlock);
+    if (rc_rw_init == 0) pthread_rwlock_destroy(&rwlock);
+    printf("rwlock i/r/u/w %d/%d/%d/%d\n",
+           rc_rw_init, rc_rw_read, rc_rw_unlock, rc_rw_write);
     printf("pthread once %d,%d calls %u\n", rc_once, rc_once_again, once_count);
     printf("mutex init/lock/unlock %d/%d/%d\n", rc_mutex, rc_lock, rc_unlock);
     printf("TLS key/create/set/get %d/%d/%d\n", rc_key, rc_set, rc_get);
