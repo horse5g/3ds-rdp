@@ -1,7 +1,7 @@
 diff --git a/libfreerdp/common/settings.c b/libfreerdp/common/settings.c
 --- a/libfreerdp/common/settings.c
 +++ b/libfreerdp/common/settings.c
-@@ -2022,6 +2022,17 @@ UINT32 freerdp_settings_get_codecs_flags(const rdpSettings* settings)
+@@ -2024,5 +2024,16 @@ UINT32 freerdp_settings_get_codecs_flags(const rdpSettings* settings)
  		flags &= (uint32_t)~FREERDP_CODEC_NSCODEC;
  	}
 +#ifdef __3DS__
@@ -21,7 +21,7 @@ diff --git a/libfreerdp/common/settings.c b/libfreerdp/common/settings.c
 diff --git a/libfreerdp/core/connection.c b/libfreerdp/core/connection.c
 --- a/libfreerdp/core/connection.c
 +++ b/libfreerdp/core/connection.c
-@@ -197,6 +197,15 @@
+@@ -197,6 +197,16 @@
  
  static BOOL rdp_set_state(rdpRdp* rdp, CONNECTION_STATE state);
  
@@ -38,7 +38,7 @@ diff --git a/libfreerdp/core/connection.c b/libfreerdp/core/connection.c
  static BOOL rdp_client_reset_codecs(rdpContext* context)
  {
  	rdpSettings* settings = nullptr;
-@@ -209,17 +218,29 @@ static BOOL rdp_client_reset_codecs(rdpContext* context)
+@@ -209,15 +219,25 @@ static BOOL rdp_client_reset_codecs(rdpContext* context)
  	if (!freerdp_settings_get_bool(settings, FreeRDP_DeactivateClientDecoding))
  	{
  		const UINT32 flags = freerdp_settings_get_uint32(settings, FreeRDP_ThreadingFlags);
