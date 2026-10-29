@@ -25,7 +25,11 @@ int main(void)
     assert(pin.port == 3389);
     assert(pin.sha256[0] == 0x01 && pin.sha256[31] == 0xef);
     assert(rdp_cert_pin_matches(&pin, "rdp.example.test", 3389));
-    assert(!rdp_cert_pin_matches(&pin, "RDp.example.test", 3389));
+    assert(rdp_cert_pin_matches(&pin, "RDp.example.test", 3389));
+    assert(rdp_cert_host_equal("MiXeD.example.test","mixed.EXAMPLE.TEST"));
+    assert(!rdp_cert_host_equal("rdp.example.test","rdp.example.test.evil"));
+    assert(!rdp_cert_host_equal("rdp.example.test.","rdp.example.test"));
+    assert(!rdp_cert_host_equal(NULL,"rdp.example.test"));
     assert(!rdp_cert_pin_matches(&pin, "rdp.example.test", 3390));
     assert(!rdp_cert_pin_matches(&pin, "rdp.evil.test", 3389));
     rejects("host=rdp.example.test\nport=3389\n");
