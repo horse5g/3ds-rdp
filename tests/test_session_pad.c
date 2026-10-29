@@ -112,6 +112,7 @@ int main(void)
     assert(a.redraw && !pad.fn_page);
     assert(session_pad_keyboard_key(&pad,6,45)==SK_ESC);
     /* Sticky modifier state must not survive closing the keyboard. */
+    pad.settings_open=false; /* start from a visible keyboard, not a prior toolbar state */
     pad.keyboard_open=true;
     pad.fn_page=false;
     a=tap(&pad, 40, 108); /* row 2, col 1: Ctrl */
