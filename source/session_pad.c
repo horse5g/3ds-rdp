@@ -3,6 +3,7 @@
 #include <string.h>
 
 #define SCROLL_PX_PER_NOTCH 14
+
 #define TAP_MAX_FRAMES 18
 #define TAP_MOVEMENT 6
 
@@ -23,6 +24,28 @@ void session_pad_init(SessionPad *pad)
     pad->scroll_amount = 1;
 }
 
+/* Four-column touch panel. The final row supplies shortcuts and a text
+ * entry button. The key grid uses the same hitboxes as the drawn controls. */
+int session_pad_keyboard_key(const SessionPad *pad,int x,int y)
+{
+    static const int base[16]={
+        SK_ESC,SK_TAB,SK_ENTER,SK_BACKSPACE,
+        SK_CTRL,SK_ALT,SK_SHIFT,SK_WIN,
+        SK_LEFT,SK_UP,SK_DOWN,SK_RIGHT,
+        SK_DELETE,SK_FN,SK_TEXT,SK_CLOSE
+    };
+    static const int fn[16]={
+        SK_F1,SK_F2,SK_F3,SK_F4,
+        SK_F5,SK_F6,SK_F7,SK_F8,
+        SK_F9,SK_F10,SK_F11,SK_F12,
+        SK_CTRL_ALT_END,SK_ALT_TAB,SK_WIN_R,SK_CLOSE
+    };
+    int col,row;
+    if(!pad || !pad->keyboard_open || x<4 || x>=316 || y<40 || y>=232)return 0;
+    col=(x-4)/78;row=(y-40)/48;
+    if(col>=4||row>=4)return 0;
+    return pad->fn_page?fn[row*4+col]:base[row*4+col];
+}
 PadRegion session_pad_hit(const SessionPad *pad, int x, int y)
 {
     if (!pad || x < 0 || x >= RDP_PAD_SCREEN_W ||
@@ -33,6 +56,7 @@ PadRegion session_pad_hit(const SessionPad *pad, int x, int y)
         if (x < 212) return PAD_SETTINGS;
         return PAD_KEYBOARD;
     }
+    if (pad->keyboard_open) return session_pad_keyboard_key(pad,x,y) ? PAD_AREA : PAD_NONE;
     if (pad->settings_open) {
         if (x >= 12 && x < 308) {
             if (y >= 56 && y < 104) return PAD_SPEED;
@@ -92,7 +116,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
             (y - pad->start_y) * (y - pad->start_y) >=
             TAP_MOVEMENT * TAP_MOVEMENT)
             pad->moved = true;
-        if (pad->captured == PAD_AREA &&
+        if (!pad->keyboard_open && pad->captured == PAD_AREA &&
             session_pad_hit(pad, x, y) == PAD_AREA &&
             (dx || dy)) {
             int nx = clamp(pad->pointer_x + dx * pad->sensitivity,
@@ -117,10 +141,19 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
     if (!held && pad->touching) {
         PadRegion pressed = pad->captured;
         bool release_inside = same_release_region(pad, pad->touch_x, pad->touch_y);
+        int key = pad->keyboard_open ? session_pad_keyboard_key(pad,pad->start_x,pad->start_y) : 0;
         pad->touching = false;
         pad->captured = PAD_NONE;
         pad->scroll_remainder = 0;
-        if (pressed == PAD_AREA && !pad->moved &&
+        if (pad->keyboard_open && key && !pad->moved && release_inside) {
+            if(key==SK_CLOSE){pad->keyboard_open=false;pad->fn_page=false;out->redraw=true;}
+            else if(key==SK_FN){pad->fn_page=true;out->redraw=true;}
+            else if(key==SK_TEXT){out->text_input=true;out->redraw=true;}
+            else if(key==SK_CTRL||key==SK_ALT||key==SK_SHIFT||key==SK_WIN){
+                unsigned bit=1u<<(key-SK_CTRL);
+                pad->key_mods^=bit;out->redraw=true;
+            } else {out->key=key;out->modifiers=pad->key_mods;out->redraw=true;}
+        } else if (pressed == PAD_AREA && !pad->keyboard_open && !pad->moved &&
             pad->hold_frames <= TAP_MAX_FRAMES && release_inside) {
             out->left_click = true;
         } else if (release_inside && !pad->moved) {
@@ -136,6 +169,8 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                 case PAD_LEFT_BUTTON: out->left_click = true; break;
                 case PAD_RIGHT_BUTTON: out->right_click = true; break;
                 case PAD_KEYBOARD:
+                    pad->keyboard_open = !pad->keyboard_open;
+                    if(!pad->keyboard_open)pad->fn_page=false;
                     out->keyboard = true;
                     pad->disconnect_armed = false;
                     out->redraw = true;
