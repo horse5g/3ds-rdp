@@ -1,0 +1,90 @@
+# Original 3DS FreeRDP context initialization tracing
+
+## Physical-device result (29 October 2026)
+
+The O3DS OpenSSL smoke test now **passes** after the MIT-compatible pthread
+thread-specific storage bridge. The full FreeRDP/OpenSSL `.3dsx` advances to
+`FreeRDP context init failed (WinPR/heap)`, before the password dialog.
+
+This message is a generic app-side error, not evidence of a specific
+WinPR heap allocation failure. FreeRDP 3.32.2's
+`freerdp_context_new_ex()` frees partially constructed context before
+returning `FALSE`, obscuring which dependency failed.
+
+## O3DS-only context markers
+
+`patches/freerdp-3.32.2-3ds-context-stages.patch` adds two small
+read-only diagnostic functions to the pinned FreeRDP sources. These
+report only stage numbers, never credentials, memory contents, certificates,
+random bytes or hostnames:
+
+- `freerdp_3ds_context_init_stage()` (C): outer context creation.
+- `freerdp_3ds_rdp_init_stage()` (R): nested `rdp_new()` and
+  `rdp_new_common()` initialization.
+
+They retain the last attempted operation after FreeRDP's failure cleanup.
+The app displays `FreeRDP ctx C# R#`, with `R0` when the failing
+outer stage did not enter `rdp_new()`.
+
+### Context stage C
+
+| C | Stage being attempted |
+|---|---|
+| 1 | Context allocation |
+| 2 | WinPR logger |
+| 3 | Metrics |
+| 4 | `rdp_new` subtree; read R |
+| 5 | PubSub event bus |
+| 6 | Graphics |
+| 7 | Error description buffer |
+| 8 | WinPR channel-error event |
+| 9 | Channel manager |
+| 10 | Stream dump |
+| 11 | Common access-token callback |
+| 12 | Optional client `ContextNew` callback |
+
+### RDP stage R (when C4)
+
+| R | Stage being attempted |
+|---|---|
+| 1 | RDP object allocation |
+| 2 | RDP logger |
+| 3 | Log context |
+| 4 | Initial client settings creation |
+| 5 | Clone and remote/backup settings |
+| 6 | Entering nested RDP dependency constructors |
+| 7 | Transport callback retrieval and I/O allocation |
+| 8 | Input |
+| 9 | Update |
+| 10 | Redirection |
+| 11 | Autodetection |
+| 12 | Heartbeat |
+| 13 | Multitransport object |
+| 14 | Bulk/compression |
+| 15 | PubSub event bus |
+| 16 | WinPR abort event |
+| 17 | RDP timer |
+| 101 | Nested transport object |
+| 102 | Applying transport I/O callbacks (if used) |
+| 103 | AAD adapter |
+| 104 | Negotiation |
+| 105 | MCS |
+| 106 | Licensing |
+| 107 | Fastpath |
+
+Stages are reported *at call entry*, not only upon failure.
+If a construction call returns false, the marker remains on its stage.
+The RDP marker is relevant only when outer stage is C4; when outer
+stage is greater than 4, it may reflect successful earlier construction.
+
+## Next hardware test
+
+Build the full client from the new integrated FreeRDP/OpenSSL workflow
+and copy **only** `3ds-rdp-full.3dsx` to the SD card.
+Try the same connection profile and report the exact `C# R#` message.
+Do not merge draft PR #11 until a real connection succeeds.
+
+This is a diagnostic, not a runtime fix. Once the precise stage is
+known, inspect that constructor and its WinPR/libctru dependencies,
+then retest. Do not mask failures by disabling NLA, encryption, certificate
+checks or threaded operation.
