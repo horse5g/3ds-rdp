@@ -474,3 +474,50 @@ the mismatch entirely and is preferable to an exception.
 the fingerprint against the Windows machine could permit a
 man-in-the-middle. This experiment must be tested on O3DS;
 it does not confirm NLA, RDP graphics, input or audio.
+
+### First successful live RDP desktop: higher resolutions and red/yellow tint
+
+Physical O3DS test now achieves a fully connected Windows RDP session
+with certificate approval and normal homebrew exit. The user reports
+that the decoded desktop is red/yellow tinted with no whites, while
+the locally drawn (fake) cursor renders white normally. This
+is important evidence: the top-screen RGB565 path is *capable*
+of showing white; the bug likely occurs before or while converting
+FreeRDP's GDI primary framebuffer, not from a permanently broken LCD
+format. However, no pixel sample from hardware has yet proven where.
+
+Existing `rdp_bgrx_to_rgb565` assumes GDI was initialized as
+`PIXEL_FORMAT_XRGB32`, hence little-endian B,G,R,X bytes. That
+conversion formula is mathematically correct and covered by portable
+tests, including white, red, green and blue. Blindly swapping RGB
+channels cannot explain missing whites. For the next physical test,
+opt-in `rdplog.txt` captures **aggregate** statistics from a 16x12
+spatial sample of the GDI source: `gdi-format` (pixel-format enum,
+width, height), `gdi-avg-bgr`, `gdi-max-bgr`,
+`gdi-high-bgr` (per-channel count >= 192), and
+`gdi-white-count` (count of sampled near-white pixels, sample count
+and probe index). It logs at most four painted frames per process,
+not screenshot content, individual pixels, screen text or
+credentials. If blue is absent in the GDI samples, investigation
+belongs in FreeRDP color decoding, codecs, or received depth;
+if GDI samples include all channels and whites but the LCD does not,
+the RGB565 output path must be revisited.
+
+Selectable **remote** desktop sizes now include legacy 400x240 and
+640x360 plus 1280x720 and 1920x1080. Existing `3DSRDP2` saved
+profile format is unchanged: the existing numeric display_mode
+field may now hold 0 through 3; previous 0/1 saves still parse.
+The top LCD remains physically 400x240 and software scales the
+full remote desktop to it by default. L+Circle Pad increases
+cursor-centered local viewport magnification up to 500%; R
+toggles approximate native-detail zoom, and Y resets to whole
+desktop. Up to 1920x1080 requires at least 8,294,400 bytes for
+the main 32-bit GDI primary surface **plus** caches, codecs
+and other application memory. On O3DS, 1080p is an experiment
+that may fail allocation or run too slowly; 720p should be the
+first hardware trial. Do not claim 1080p achieved until measured.
+
+The `rdp_desktop_size_allowed` guard still rejects server-initiated
+resizes not matching one of the four exact, user-requested profiles.
+Unexpected sizes cannot cause arbitrary GDI allocation. Portable
+tests now cover all four modes, full-HD zoom and profile persistence.
