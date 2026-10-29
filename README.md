@@ -2,7 +2,7 @@
 
 A standalone **Microsoft Remote Desktop Protocol (RDP) client** for the original Nintendo 3DS/2DS, using **FreeRDP 3.32.2**, **OpenSSL 3.5.9**, devkitARM and libctru. It connects directly to a Windows RDP server over Wi-Fi; no intermediary PC or remote-desktop gateway is required.
 
-> **Status — experimental but working on physical O3DS.** An actual Windows RDP session has connected successfully, including TLS, NLA/CredSSP and the interactive desktop. Certificate approval and returning to the Homebrew Launcher have also been tested. Graphics currently have a **red/yellow color tint** on hardware; this is under investigation. Higher-resolution desktop modes compile, but have not yet been verified for O3DS performance or available memory. This is not a polished, stable release.
+> **Status — experimental but working on physical O3DS.** An actual Windows RDP session has connected successfully, including TLS, NLA/CredSSP and the interactive desktop. Certificate approval and returning to the Homebrew Launcher have also been tested. A hardware-observed **red/blue channel reversal** has a new test fix, but the updated colors have not yet been verified on O3DS. Higher-resolution desktop modes compile, but have not yet been verified for O3DS performance or available memory. This is not a polished, stable release.
 
 ## What it can do
 
@@ -42,6 +42,8 @@ The native UI borrows the **layout and interaction conventions** of Windows Remo
 | Wheel | Right-side scroll strip or Up/Down buttons |
 | Keyboard / text | Toolbar **Keyboard** or physical **X**; built-in virtual keys and 3DS text entry |
 | Smooth zoom in/out | Hold **L** and rotate the Circle Pad clockwise/counterclockwise |
+| Compare source color-channel mapping | **L + X** toggles corrected/old red-blue output for diagnosis |
+| Compare high-resolution downscaling | **L + Y** toggles four-tap smoothing when heavily zoomed out |
 | Fit entire desktop | Physical **Y** |
 | Toggle fit / close-up | Physical **R** |
 | Disconnect | **START** or two taps on **Disconnect** |
@@ -127,10 +129,10 @@ CI results and the full executable artifact appear under [GitHub Actions](https:
 
 ## Known issues and current roadmap
 
-- **Color rendering:** the Windows desktop is reported as tinted red/yellow with missing whites while the local cursor looks normal. An opt-in aggregate GDI B/G/R diagnostic is included for pinpointing the framebuffer stage; a fix is pending hardware measurements.
-- **O3DS performance:** 720p and especially 1080p are experimental; large GDI buffers, codecs and scaling can exceed memory or processing limits.
+- **Color rendering:** a physical O3DS test found red and blue reversed (yellow becomes cyan). A targeted, runtime-toggleable desktop conversion correction has been added; confirm colors with L+X on hardware. The local cursor is unchanged.
+- **O3DS performance:** an O3DS log showed 720p/1080p connections failing before TCP with no error code, consistent with FreeRDP's large 18-bytes-per-pixel planar codec allocation. A 3DS-only large-desktop codec memory policy and extra diagnostic stages have been added, but both high-resolution modes still need hardware re-testing. An optional four-tap downscaler improves spatial sampling at roughly four times the pixel-fetch cost. 1080p may remain impractical.
 - **Network transport:** direct IPv4 TCP only; no RDP gateway, UDP multitransport or clipboard redirection in the current O3DS build.
-- **Input:** some keyboard characters, layouts, Windows shortcuts and cursor types need hardware testing.
+- **Input:** software keyboard text previously failed; new US-layout ASCII scan-code injection uses the same input path as the built-in virtual keys. Unicode/IME and other keyboard layouts are not supported. The fix and additional keyboard diagnostic counts need on-device testing.
 - **Shutdown:** after full FreeRDP use, an O3DS-specific workaround defers a blocking SOC shutdown to process teardown. It has restored normal exit in physical testing but needs broader verification.
 
 Next priorities: resolve GDI color decoding, validate frame rate and memory at higher resolutions, refine trackpad and focus behavior on hardware, and improve keyboard/input coverage.
