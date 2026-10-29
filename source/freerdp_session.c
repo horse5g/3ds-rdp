@@ -836,6 +836,8 @@ static BOOL post_connect(freerdp *instance)
     const UINT32 gdi_format=compact?PIXEL_FORMAT_RGB16:PIXEL_FORMAT_XRGB32;
     rdp_diag_log_event("gdi-init-format",gdi_format,width,height);
     if (!gdi_init(instance,gdi_format)) {
+        rdp_diag_log_event("gdi-init-fail",gdi_format,
+                           (unsigned long)errno,0);
         snprintf(post_connect_failure,sizeof(post_connect_failure),
                  "RDP graphics allocation failed (O3DS memory)");
         return FALSE;
