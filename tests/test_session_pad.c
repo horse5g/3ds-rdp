@@ -145,6 +145,61 @@ int main(void)
     a=touch(&pad,10,40);
     assert(a.pointer_moved && pad.pointer_x==0 && pad.pointer_y==0);
     lift(&pad);
-    puts("RDP session touchpad input tests passed");
+    /* At 720p/1080p a given touch swipe should travel the same amount
+     * of VISIBLE LCD space as at 400x240, including after cursor zoom.
+     * Earlier fixed-pixel movement felt extremely slow on large desktops. */
+    session_pad_init(&pad);
+    pad.remote_w=1280;pad.remote_h=720;
+    pad.pointer_x=640;pad.pointer_y=360;
+    session_pad_set_zoom(&pad,1.0f);
+    touch(&pad,40,70);
+    a=touch(&pad,50,80);
+    assert(a.pointer_moved && pad.pointer_x==704 && pad.pointer_y==420);
+    lift(&pad);
+    assert(session_pad_nudge(&pad,true)==26);
+    assert(session_pad_nudge(&pad,false)==24);
+    session_pad_set_zoom(&pad,4.0f);
+    assert(session_pad_nudge(&pad,true)==6);
+    assert(session_pad_nudge(&pad,false)==6);
+    touch(&pad,40,70);
+    a=touch(&pad,50,80);
+    assert(a.pointer_moved && pad.pointer_x==720 && pad.pointer_y==435);
+    lift(&pad);
+
+    session_pad_init(&pad);
+    pad.remote_w=1920;pad.remote_h=1080;
+    pad.pointer_x=960;pad.pointer_y=540;
+    session_pad_set_zoom(&pad,1.0f);
+    touch(&pad,40,70);
+    a=touch(&pad,50,80);
+    assert(a.pointer_moved && pad.pointer_x==1056 && pad.pointer_y==630);
+    lift(&pad);
+    assert(session_pad_nudge(&pad,true)==38);
+    assert(session_pad_nudge(&pad,false)==36);
+    session_pad_set_zoom(&pad,5.0f);
+    touch(&pad,40,70);
+    a=touch(&pad,50,80);
+    assert(a.pointer_moved && pad.pointer_x==1075 && pad.pointer_y==648);
+    lift(&pad);
+
+    /* Fractional relative motion must accumulate in detail view instead
+     * of rounding each small swipe down to zero. */
+    session_pad_init(&pad);
+    pad.sensitivity=1;
+    session_pad_set_zoom(&pad,5.0f);
+    pad.pointer_x=200;
+    touch(&pad,20,65);
+    for(i=1;i<=5;++i) {
+        a=touch(&pad,20+i,65);
+        if (i<5) assert(!a.pointer_moved);
+    }
+    assert(a.pointer_moved && pad.pointer_x==201);
+    lift(&pad);
+    session_pad_set_zoom(&pad,0.0f);
+    assert(session_pad_nudge(&pad,true)==8);
+    session_pad_set_zoom(&pad,100.0f);
+    assert(session_pad_nudge(&pad,true)==2);
+
+    puts("RDP session touchpad input, adaptive 720p/1080p movement and zoom tests passed");
     return 0;
 }
