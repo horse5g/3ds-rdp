@@ -15,6 +15,7 @@
 #include "rdp_startup.h"
 #include "horizon_rng.h"
 #include "rdp_ps_rng_diag.h"
+#include "rdp_openssl_init_diag.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -191,6 +192,9 @@ fail:
                  "SSL %.18s %08lX PS E%u/%u N%u/%u F%u R%08X",
                  stage, code, e_ok, e_calls, n_ok, n_calls,
                  psdiag.last_failure_stage, psdiag.last_ps_result);
+    } else if (strcmp(stage, "crypto init") == 0) {
+        snprintf(error, cap, "OpenSSL core init S%u (0x%08lX)",
+                 ossl_3ds_crypto_init_stage(), code);
     } else if (description && *description) {
         snprintf(error, cap, "SSL %.22s %.27s (0x%08lX)",
                  stage, description, code);
