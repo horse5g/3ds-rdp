@@ -912,9 +912,9 @@ static void rdp_keyboard_pump_worker(void *arg)
             pump->failure_code = count;
             break;
         }
-        const u64 wait_start_ms=osGetTime();
+        /* Keyboard applet worker pumps FreeRDP while main HID is blocked;
+         * it has no SessionPad and must not update main-thread UI metrics. */
         wait_status = WaitForMultipleObjects(count, handles, FALSE, 20);
-        pad.perf_wait_ms=(unsigned)(osGetTime()-wait_start_ms);
         if (!rdp_wait_result_valid((uint32_t)wait_status, (uint32_t)count)) {
             pump->failure_code = wait_status;
             break;
@@ -1679,7 +1679,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             result = -1;
             break;
         }
+        const u64 wait_start_ms=osGetTime();
         wait_status = WaitForMultipleObjects(count, handles, FALSE, 20);
+        pad.perf_wait_ms=(unsigned)(osGetTime()-wait_start_ms);
         /* WAIT_TIMEOUT is normal with no server activity. Abandoned or
            out-of-range waits indicate a damaged WinPR event lifecycle. */
         if (!rdp_wait_result_valid((uint32_t)wait_status, (uint32_t)count)) {
