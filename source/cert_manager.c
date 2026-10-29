@@ -2,6 +2,7 @@
 #ifdef RDP_FULL_CLIENT
 #include "cert_store.h"
 #include "connection_ui.h"
+#include "display_buffers.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,9 @@ static void draw_manager(PrintConsole *top, PrintConsole *bottom,
                          const RdpCertPool *pool, size_t selected,
                          unsigned screen, const char *notice)
 {
+    /* The certificate list shares the top console with the launcher. Its
+       cached address must follow the current backbuffer after each swap. */
+    rdp_display_bind_console(top, GFX_TOP);
     consoleSelect(top);
     printf("\x1b[2J\x1b[HTrusted RDP Certificates\n");
     printf("========================\n\n");

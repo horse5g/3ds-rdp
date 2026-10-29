@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "connection_ui.h"
+#include "display_buffers.h"
 #include "network.h"
 #include "horizon_sync.h"
 #include "loopback_pair.h"
@@ -29,6 +30,7 @@ static void draw_status(int network_ready)
 {
     char validation[96];
     bool valid = connection_ui_ready(&ui,validation,sizeof(validation));
+    rdp_display_bind_console(&top, GFX_TOP);
     consoleSelect(&top);
     printf("\x1b[2J\x1b[H3DS Remote Desktop (O3DS)\n");
     printf("=========================\n\n");
@@ -125,6 +127,9 @@ int main(int argc, char **argv)
 #ifdef RDP_FULL_CLIENT
     consoleInit(GFX_BOTTOM,&cert_bottom);
 #endif
+    /* consoleInit disables double buffering. Re-enable both screens only
+       after the last consoleInit, before the software UI starts rendering. */
+    rdp_display_enable_double_buffering();
     buffer = memalign(0x1000,SOC_SIZE);
     if (buffer && R_SUCCEEDED(socInit(buffer,SOC_SIZE))) netok=1;
     connection_ui_init(&ui,HOST_FILE,PROFILES_FILE);
@@ -171,7 +176,9 @@ int main(int argc, char **argv)
             char manager_result[100] = {0};
             const int rc = rdp_cert_manager_run(&top,&cert_bottom,
                                                 manager_result,sizeof(manager_result));
-            gfxSetScreenFormat(GFX_BOTTOM,GSP_RGB565_OES);
+            /* The keyboard / certificate applet may have presented its own
+               buffers. Restore our double-buffered drawing contract. */
+            rdp_display_enable_double_buffering();
             snprintf(status,sizeof(status),"%s",rc == 0 ?
                      "Trusted certificates" : "Certificate manager error");
             snprintf(detail,sizeof(detail),"%s",manager_result);

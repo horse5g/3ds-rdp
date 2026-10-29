@@ -9,6 +9,8 @@
 #include "connection_ui.h"
 #include "rdp_pixels.h"
 #include "session_wait.h"
+#include "display_buffers.h"
+#include "rdp_environment.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -35,6 +37,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
 #include <freerdp/update.h>
 #include <freerdp/input.h>
 #include <winpr/synch.h>
+#include <winpr/path.h>
 #include <openssl/crypto.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
@@ -216,6 +219,7 @@ static void draw_cert_challenge(const char *host, uint16_t port,
         fingerprint[2*i+1] = hex[sha256[i] & 15];
     }
     fingerprint[64] = 0;
+    rdp_display_bind_console(&trust_console, GFX_TOP);
     consoleSelect(&trust_console);
     printf("\x1b[2J\x1b[HUNKNOWN RDP CERTIFICATE\n");
     printf("This server is NOT yet trusted.\n\n");
@@ -227,6 +231,10 @@ static void draw_cert_challenge(const char *host, uint16_t port,
     printf("B/START: Reject\n");
     printf("A: Accept for this session\n");
     printf("X: Accept and save on SD\n");
+    /* gfxSwapBuffers presents BOTH LCDs. Draw the lower buffer too, so it
+       cannot alternate between a current and an old/uninitialized image. */
+    connection_ui_draw_status("UNKNOWN RDP CERTIFICATE",
+                              "VERIFY FINGERPRINT ON TOP",false);
     gfxFlushBuffers();
     gfxSwapBuffers();
 }
@@ -657,6 +665,7 @@ static void rdp_connect_worker(void *arg)
 
 static void connect_screen(const char *host, bool cancelling)
 {
+    rdp_display_bind_console(&trust_console, GFX_TOP);
     consoleSelect(&trust_console);
     printf("\x1b[2J\x1b[H3DS Remote Desktop\n\n");
     printf("%.38s\n\n", host);
@@ -664,6 +673,10 @@ static void connect_screen(const char *host, bool cancelling)
         printf("Cancelling RDP connection...\n");
     else
         printf("Connecting (TLS/NLA)...\n\nB/START: Cancel\n");
+    connection_ui_draw_status(cancelling?"CANCELLING CONNECTION":
+                               "CONNECTING (TLS/NLA)",
+                              cancelling?"STOPPING SESSION":
+                                         "B / START TO CANCEL",false);
     gfxFlushBuffers();
     gfxSwapBuffers();
 }
@@ -684,7 +697,18 @@ static bool connect_with_ui(freerdp *client, const char *host,
     LightEvent_Init(&gate.decision_ready, RESET_ONESHOT);
     gate.client = client;
     connect_gate = &gate;
-    consoleInit(GFX_TOP, &trust_console);
+    /* Reuse the already configured top console without calling consoleInit:
+       consoleInit would disable double buffering AND unexpectedly swap both
+       screens, displaying an incomplete/stale bottom touch UI frame. */
+    {
+        PrintConsole *previous = consoleSelect(&trust_console);
+        if (previous && previous->consoleInitialised) {
+            trust_console = *previous;
+        } else {
+            consoleInit(GFX_TOP, &trust_console);
+            rdp_display_enable_double_buffering();
+        }
+    }
     connect_screen(host, false);
 
     worker = threadCreate(rdp_connect_worker, &gate, 96 * 1024, 0x30, -2, false);
@@ -816,6 +840,25 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         goto done;
     }
     have_manual_pin = (pin_state > 0);
+
+    /* WinPR has no POSIX user account on Horizon. FreeRDP 3.32 requires
+     * HOME to allocate the client settings during freerdp_context_new().
+     * Export a private, existing SD directory before any FreeRDP client
+     * object is instantiated. */
+    if (rdp_environment_init("sdmc:/3ds/3ds-rdp", reason, reason_size) != 0)
+        goto done;
+    {
+        char *winpr_home = GetKnownPath(KNOWN_PATH_HOME);
+        char *winpr_config = GetKnownPath(KNOWN_PATH_XDG_CONFIG_HOME);
+        const bool ok = winpr_home && winpr_config;
+        free(winpr_home);
+        free(winpr_config);
+        if (!ok) {
+            snprintf(reason, reason_size,
+                     "WinPR cannot resolve HOME/XDG paths on SD");
+            goto done;
+        }
+    }
 
     /* Password is prompted for at runtime; never accepted from host.txt. */
     if (!prompt_password(password, sizeof(password))) {
