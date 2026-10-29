@@ -328,7 +328,7 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
     label(24,94,"DRAG FINGER TO MOVE MOUSE",258,MUTED);
     label(28,109,"LIFT AND REPOSITION ANYTIME",258,MUTED);
     label(57,126,"TAP TO LEFT CLICK",258,MUTED);
-    label(20,177,"L+CIRCLE ROTATE: ZOOM",262,BLUE);
+    label(20,177,"L+CIRCLE:ZOOM Y:FIT R:1:1",262,BLUE);
     label(20,193,"A: DRAG  B: RIGHT CLICK",262,MUTED);
     /* Thin inner grip marks, no cursor teleport on contact. */
     fill(16,62,238,1,C(226,234,243));
