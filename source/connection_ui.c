@@ -3,6 +3,7 @@
 #include <3ds.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 
 enum { F_COMPUTER, F_USER, F_DOMAIN, F_PORT, F_NAME, F_COUNT };
@@ -26,6 +27,8 @@ static void clear_profile(ConnectionUI *ui)
     ui->selected = -1;
     ui->dirty = false;
     ui->focus = 0;
+    ui->panel_scroll = 0;
+    ui->choice_menu = 0;
     ui->tab = RDP_UI_GENERAL;
     reset_pending(ui);
     tell(ui, "New connection");
@@ -40,6 +43,8 @@ static void select_profile(ConnectionUI *ui, int index)
     snprintf(ui->name, sizeof(ui->name), "%s", ui->store.items[index].name);
     ui->show_saved = false;
     ui->tab = RDP_UI_GENERAL;
+    ui->panel_scroll = 0;
+    ui->choice_menu = 0;
     ui->dirty = false;
     reset_pending(ui);
     tell(ui, "Saved connection loaded");
@@ -137,9 +142,81 @@ static void save_profile(ConnectionUI *ui, const char *path)
     select_profile(ui, index);
     tell(ui, "Connection saved on SD");
 }
+/* The saved profile remains selected unless the new name is genuinely
+ * unused. Save As must never silently overwrite another connection. */
+static int name_matches(const char *a, const char *b)
+{
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b))
+            return 0;
+        ++a; ++b;
+    }
+    return !*a && !*b;
+}
+static void save_as_profile(ConnectionUI *ui, const char *path)
+{
+    char previous[RDP_PROFILE_NAME_CAP];
+    int selected = ui->selected;
+    if (ui->profiles_unavailable) {
+        tell(ui, "Repair saved profiles on SD first");
+        return;
+    }
+    memcpy(previous, ui->name, sizeof(previous));
+    if (!edit_field(ui, F_NAME)) return;
+    for (size_t i=0; i<ui->store.count; ++i) {
+        if (name_matches(ui->name,ui->store.items[i].name)) {
+            memcpy(ui->name, previous, sizeof(previous));
+            ui->selected=selected;
+            tell(ui, "Save As needs a different profile name");
+            return;
+        }
+    }
+    ui->selected = -1;
+    save_profile(ui,path);
+}
+/* Native option dropdowns are populated from actual persisted preferences,
+ * not dummy UI rows. Disabled transport/security features are informational. */
+static int option_menu_for_row(const ConnectionUI *ui, int row)
+{
+    if (row < 0 || row > 2) return 0;
+    switch (ui->tab) {
+    case RDP_UI_DISPLAY: return row == 0 ? 1 : row == 1 ? 2 : 0;
+    case RDP_UI_LOCAL: return row + 3;
+    case RDP_UI_EXPERIENCE: return row == 0 ? 6 : 0;
+    case RDP_UI_ADVANCED: return row == 0 ? 7 : 0;
+    default: return 0;
+    }
+}
+static int choice_count(int menu)
+{
+    switch (menu) {
+    case 1: return 4;
+    case 2: case 5: case 6: return 2;
+    case 3: case 4: case 7: return 3;
+    default: return 0;
+    }
+}
+static void choose_option(ConnectionUI *ui, int choice)
+{
+    RdpUiOptions *o = &ui->options;
+    if (choice < 0 || choice >= choice_count(ui->choice_menu)) return;
+    switch(ui->choice_menu) {
+    case 1: o->display_mode=(uint8_t)choice; break;
+    case 2: o->color_depth=(uint8_t)(choice ? 32 : 16); break;
+    case 3: o->touch_speed=(uint8_t)(choice+1); break;
+    case 4: o->scroll_step=(uint8_t)(choice+1); break;
+    case 5: o->reverse_scroll=(uint8_t)choice; break;
+    case 6: o->low_bandwidth=(uint8_t)choice; break;
+    case 7: o->timeout_seconds=(uint8_t)(choice==0?8:choice==1?12:20); break;
+    }
+    ui->choice_menu=0;
+    ui->dirty=true;
+    tell(ui,"Option updated - Save to keep");
+}
 static void saved_view(ConnectionUI *ui)
 {
     ui->show_saved = true;
+    ui->choice_menu = 0;
     ui->highlight = ui->selected >= 0 ? ui->selected : 0;
     if (ui->highlight >= (int)ui->store.count && ui->store.count)
         ui->highlight = (int)ui->store.count - 1;
@@ -193,39 +270,21 @@ static void delete_profile(ConnectionUI *ui, const char *path)
     reset_pending(ui);
     tell(ui, "Saved connection deleted");
 }
-static void cycle_option(ConnectionUI *ui,int row)
+static void open_option(ConnectionUI *ui, int row)
 {
-    RdpUiOptions *o=&ui->options;
-    if(row<0 || row>2)return;
-    if((ui->tab==RDP_UI_DISPLAY && row==2) ||
-       ((ui->tab==RDP_UI_EXPERIENCE || ui->tab==RDP_UI_ADVANCED) && row!=0))
-        return;
-    switch(ui->tab){
-      case RDP_UI_DISPLAY:
-        if(row==0)o->display_mode=(uint8_t)((o->display_mode+1u)%4u);
-        if(row==1)o->color_depth=(uint8_t)(o->color_depth==32?16:32);
-        break;
-      case RDP_UI_LOCAL:
-        if(row==0)o->touch_speed=(uint8_t)(o->touch_speed%3+1);
-        if(row==1)o->scroll_step=(uint8_t)(o->scroll_step%3+1);
-        if(row==2)o->reverse_scroll^=1u;
-        break;
-      case RDP_UI_EXPERIENCE:
-        if(row==0)o->low_bandwidth^=1u;
-        break;
-      case RDP_UI_ADVANCED:
-        if(row==0)o->timeout_seconds=(uint8_t)
-          (o->timeout_seconds==8?12:o->timeout_seconds==12?20:8);
-        break;
-      default:return;
+    const int menu = option_menu_for_row(ui,row);
+    if (menu) {
+        ui->choice_menu=menu;
+        ui->focus=row;
+        tell(ui,"Select a value or tap outside to cancel");
     }
-    ui->dirty=true;
-    tell(ui,"Preferences changed - SAVE to keep");
 }
 static void change_tab(ConnectionUI *ui, int tab)
 {
     if (tab < 0 || tab >= RDP_UI_TAB_COUNT) return;
     ui->tab = tab;
+    ui->choice_menu=0;
+    ui->panel_scroll=0;
     reset_pending(ui);
     ui->focus=0;
     if (tab != RDP_UI_GENERAL)
@@ -275,89 +334,98 @@ bool connection_ui_ready(const ConnectionUI *ui, char *error, size_t cap)
 void connection_ui_key(ConnectionUI *ui, uint32_t keys, const char *path)
 {
     if (ui->show_saved) {
-        if (keys & KEY_X) { ui->show_saved = false; reset_pending(ui); return; }
-        if (keys & KEY_L) { clear_profile(ui); ui->show_saved = false; return; }
-        if (keys & KEY_DUP) {
-            if (ui->highlight > 0) --ui->highlight;
-            ui->scroll = (ui->highlight/5)*5;
-            reset_pending(ui);
-        }
-        if (keys & KEY_DDOWN) {
-            if ((size_t)(ui->highlight+1) < ui->store.count) ++ui->highlight;
-            ui->scroll = (ui->highlight/5)*5;
-            reset_pending(ui);
-        }
-        if ((keys & KEY_A) && ui->store.count) request_load(ui, ui->highlight);
-        if (keys & KEY_SELECT) delete_profile(ui, path);
+        if (keys & KEY_X) { ui->show_saved=false; reset_pending(ui); return; }
+        if (keys & KEY_L) { clear_profile(ui); ui->show_saved=false; return; }
+        if ((keys & KEY_DUP) && ui->highlight>0) --ui->highlight;
+        if ((keys & KEY_DDOWN) && (size_t)(ui->highlight+1)<ui->store.count)
+            ++ui->highlight;
+        ui->scroll=(ui->highlight/5)*5;
+        if ((keys & KEY_A) && ui->store.count) request_load(ui,ui->highlight);
+        if (keys & KEY_SELECT) delete_profile(ui,path);
         return;
     }
-    if (keys & KEY_DLEFT) change_tab(ui, (ui->tab + RDP_UI_TAB_COUNT - 1) % RDP_UI_TAB_COUNT);
-    if (keys & KEY_DRIGHT) change_tab(ui, (ui->tab + 1) % RDP_UI_TAB_COUNT);
-    if (ui->tab != RDP_UI_GENERAL && (keys & KEY_A))
-        cycle_option(ui,ui->focus%3);
-    if(ui->tab!=RDP_UI_GENERAL){
-        if(keys&KEY_DUP)ui->focus=(ui->focus+2)%3;
-        if(keys&KEY_DDOWN)ui->focus=(ui->focus+1)%3;
+    if (ui->choice_menu) {
+        if(keys & (KEY_B | KEY_X)){ui->choice_menu=0;return;}
+        if(keys & KEY_A){choose_option(ui,0);return;}
+        return;
     }
-    if (ui->tab == RDP_UI_GENERAL) {
-        if (keys & KEY_DUP) ui->focus = (ui->focus + F_COUNT - 1) % F_COUNT;
-        if (keys & KEY_DDOWN) ui->focus = (ui->focus + 1) % F_COUNT;
-        if (keys & KEY_A) edit_field(ui, ui->focus);
+    if (keys & KEY_DLEFT) change_tab(ui,(ui->tab+RDP_UI_TAB_COUNT-1)%RDP_UI_TAB_COUNT);
+    if (keys & KEY_DRIGHT) change_tab(ui,(ui->tab+1)%RDP_UI_TAB_COUNT);
+    if (ui->tab==RDP_UI_GENERAL) {
+        if(keys & KEY_DUP)ui->focus=(ui->focus+F_COUNT-1)%F_COUNT;
+        if(keys & KEY_DDOWN)ui->focus=(ui->focus+1)%F_COUNT;
+        ui->panel_scroll=ui->focus>=3?1:0;
+        if(keys & KEY_A)edit_field(ui,ui->focus);
+    } else {
+        if(keys & KEY_DUP)ui->focus=(ui->focus+2)%3;
+        if(keys & KEY_DDOWN)ui->focus=(ui->focus+1)%3;
+        if(keys & KEY_A)open_option(ui,ui->focus);
     }
-    if (keys & KEY_Y) save_profile(ui, path);
-    if (keys & KEY_X) saved_view(ui);
-    if (keys & KEY_L) clear_profile(ui);
-    if (keys & KEY_SELECT) delete_profile(ui, path);
+    if(keys & KEY_Y)save_profile(ui,path);
+    if(keys & KEY_X)saved_view(ui);
+    if(keys & KEY_L)clear_profile(ui);
+    if(keys & KEY_SELECT)delete_profile(ui,path);
 }
 void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
 {
     int hit;
-    if (x < 0 || x >= 320 || y < 0 || y >= 240) return;
-    if (y < 29 && x >= 260) { saved_view(ui); return; }
+    if (x<0 || x>=320 || y<0 || y>=240) return;
+    if (ui->choice_menu) {
+        /* Modal list: no background controls can be activated through it. */
+        if(x>=30 && x<292 && y>=80 && y<80+22*choice_count(ui->choice_menu))
+            choose_option(ui,(y-80)/22);
+        else ui->choice_menu=0;
+        return;
+    }
+    if (y<23 && x>=260) { saved_view(ui); return; }
     if (ui->show_saved) {
-        hit = connection_ui_saved_at(x,y,ui->scroll,(int)ui->store.count);
-        if (hit >= 0) {
-            ui->highlight = hit;
-            request_load(ui,hit);
-            return;
-        }
-        if (y >= 209) {
-            if (x < 80) { ui->show_saved = false; reset_pending(ui); }
-            else if (x < 158) { clear_profile(ui); ui->show_saved = false; }
-            else if (x < 238) delete_profile(ui,path);
+        hit=connection_ui_saved_at(x,y,ui->scroll,(int)ui->store.count);
+        if(hit>=0){ui->highlight=hit;request_load(ui,hit);return;}
+        if(y>=209) {
+            if(x<80){ui->show_saved=false;reset_pending(ui);}
+            else if(x<158){clear_profile(ui);ui->show_saved=false;}
+            else if(x<238)delete_profile(ui,path);
             else {
-                ui->scroll += 5;
-                if ((size_t)ui->scroll >= ui->store.count) ui->scroll = 0;
-                ui->highlight = ui->scroll;
+                ui->scroll+=5;
+                if((size_t)ui->scroll>=ui->store.count)ui->scroll=0;
+                ui->highlight=ui->scroll;
                 reset_pending(ui);
-                tell(ui, "Next saved computers");
+                tell(ui,"Next saved computers");
             }
         }
         return;
     }
-    hit = connection_ui_tab_at(x,y);
-    if (hit >= 0) { change_tab(ui,hit); return; }
-    if (ui->tab != RDP_UI_GENERAL && y>=57 && y<182){
-        int row=(y-57)/40;
-        cycle_option(ui,row);return;
-    }
-    if (ui->tab == RDP_UI_GENERAL) {
-        hit = connection_ui_field_at(x,y);
-        if (hit >= 0) {
-            ui->focus = hit;
-            edit_field(ui,hit);
+    hit=connection_ui_tab_at(x,y);
+    if(hit>=0){change_tab(ui,hit);return;}
+    if(ui->tab==RDP_UI_GENERAL) {
+        if(x>=295 && y>=53 && y<185) {
+            ui->panel_scroll = y<115 ? 0 : 1;
+            ui->focus=ui->panel_scroll ? 3 : 0;
             return;
         }
+        hit=connection_ui_field_at(x,y);
+        if(hit>=0) {
+            const int field=hit+ui->panel_scroll*3;
+            if(field<F_COUNT) {
+                ui->focus=field;
+                if(field==F_COMPUTER && x>=264) saved_view(ui);
+                else edit_field(ui,field);
+            }
+            return;
+        }
+    } else if (y>=75 && y<165 && x>=9 && x<295) {
+        open_option(ui,(y-75)/30);
+        return;
     }
-    if (y >= 209) {
-        if (x < 80) save_profile(ui,path);
-        else if (x < 158) saved_view(ui);
-        else if (x < 226) { clear_profile(ui); ui->show_saved = false; }
+    if(y>=209) {
+        if(x<71)save_profile(ui,path);
+        else if(x<150)save_as_profile(ui,path);
+        else if(x<228)saved_view(ui);
         else {
             char error[96];
-            if (connection_ui_ready(ui,error,sizeof(error))) {
-                ui->connect_requested = true;
-                tell(ui, "Connecting to selected computer");
+            if(connection_ui_ready(ui,error,sizeof(error))) {
+                ui->connect_requested=true;
+                tell(ui,"Connecting to selected computer");
             } else tell(ui,error);
         }
     }
