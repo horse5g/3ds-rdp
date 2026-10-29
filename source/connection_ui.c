@@ -190,7 +190,7 @@ static int option_menu_for_row(const ConnectionUI *ui, int row)
 static int choice_count(int menu)
 {
     switch (menu) {
-    case 1: return 4;
+    case 1: return 6;
     case 2: case 5: case 6: return 2;
     case 3: case 4: case 7: return 3;
     default: return 0;
