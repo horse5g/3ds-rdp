@@ -160,14 +160,19 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'O3DS diagnostic: preserve the last context construction stage' "$src/libfreerdp/core/freerdp.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-context-stages.patch"
   fi
-  # Native timer worker: omit the extra WinPR thread-event handshake
-  # and expose resource diagnostics. This managed tagged checkout can contain
-  # a previous experimental timer patch from an earlier build.
-  if grep -q "O3DS: keep native timer diagnostic state" "$src/libfreerdp/core/timer.c" &&
-     ! grep -q "freerdp_3ds_timer_thread_diag" "$src/libfreerdp/core/timer.c"; then
+  # A context may fail at the channel-error event and then hang in
+  # partial cleanup. Persist low-level numeric breadcrumbs *before* free.
+  if ! grep -q 'O3DS_CTX_CHECKPOINT(80, errno)' "$src/libfreerdp/core/freerdp.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-context-cleanup-checkpoints.patch"
+  fi
+  # O3DS recovery: no optional FreeRDP timer worker, preventing a
+  # native thread blocked in WinPR event wait from hanging context cleanup.
+  # Preserve this client's timer handle API without extra wake sockets.
+  # Replace the older experimental patch on managed tagged source trees.
+  if grep -q 'O3DS: keep native timer diagnostic state' "$src/libfreerdp/core/timer.c"; then
     git -C "$src" checkout -- libfreerdp/core/timer.c
   fi
-  if ! grep -q "freerdp_3ds_timer_thread_diag" "$src/libfreerdp/core/timer.c"; then
+  if ! grep -q 'O3DS diagnostic: keep timer constructor stage after' "$src/libfreerdp/core/timer.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-native-core-timer.patch"
   fi
   # WinPR events on the 3DS use nonblocking SOC loopback sockets.
