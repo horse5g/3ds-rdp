@@ -12,6 +12,7 @@
 #include "loopback_pair.h"
 #include "horizon_rng.h"
 #include "freerdp_session.h"
+#include "rdp_diag_log.h"
 #ifdef RDP_FULL_CLIENT
 #include "cert_manager.h"
 #endif
@@ -89,7 +90,9 @@ static void full_session(const ConnectionUI *state)
         connection_ui_draw_status("CONNECTING TO REMOTE DESKTOP",
                                   "SIGN IN AND VERIFY CERTIFICATE",false);
         gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
+        rdp_diag_log_event("app-connect-attempt", 0, 0, 0);
         result=freerdp_3ds_run(&state->current,&state->options,message,sizeof(message));
+        rdp_diag_log_event("app-connect-return", (unsigned long)(result != 0), 0, 0);
         if(result!=0){
             connection_ui_draw_status("CONNECTION FAILED",message,true);
             gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
@@ -144,6 +147,9 @@ int main(int argc, char **argv)
             snprintf(detail,sizeof(detail),"%s",environment_error);
         }
     }
+    /* Logging is OFF unless an existing, writable rdplog.txt opts in. */
+    rdp_diag_log_init();
+    rdp_diag_log_event("app-boot", (unsigned long)netok, 0, 0);
     connection_ui_init(&ui,HOST_FILE,PROFILES_FILE);
     if (!netok) {
         snprintf(status,sizeof(status),"Network initialization failed");
@@ -227,6 +233,7 @@ int main(int argc, char **argv)
         connection_ui_draw(&ui);
         gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
     }
+    rdp_diag_log_event("app-exit", 0, 0, 0);
     if (netok) socExit();
     free(buffer);
     gfxExit();
