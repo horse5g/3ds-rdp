@@ -423,3 +423,54 @@ closing the underlying service handle while it may be in use.
 These changes are on the experimental branch/draft PR only, and
 require on-device confirmation; the old log cannot prove the
 workaround succeeds.
+
+### Physical O3DS cert IP name mismatch after valid time/date (rdplog 5)
+
+With a correct system clock, the previous SO_RCVBUF workaround gets
+past TCP setup. The O3DS log now records `tcp-stage 0x26`
+(original kernel receive buffer 0x2000 = 8192 bytes), `tcp-stage 0x24`
+(accepted fallback), `tcp-stage 0x23` (successful default TCP
+socket setup), `tcp-stage 0x2e` (transport layer created), and
+`connect-worker-end 00000000 00020008` (TLS connect failed).
+Physical UI reports `RDP certificate IP name mismatch`;
+this came from our own `verify_x509_cert()`, which previously
+rejected the IP address before asking the user to trust. No
+saved endpoints yet because trust creation had not been reached.
+Both log sessions finish at `app-soc-exit-deferred` and
+`app-gfx-exit-done`, matching the report of normal process exit.
+
+**Certificate-name exception design on experimental branch:**
+For a parseable PEM X.509 certificate within its valid time window,
+verify IP via OpenSSL `X509_check_ip_asc` (IP SAN) or a hostname via
+`X509_check_host` with `NO_PARTIAL_WILDCARDS`. A negative result
+from OpenSSL's checker is a hard error (do not offer override).
+A nonmatching but otherwise parseable certificate is NOT silently
+accepted. For an unknown `host:port`, show an explicit
+`CERTIFICATE NAME MISMATCH!` warning on the 3DS and the
+complete leaf DER SHA-256 fingerprint. User must independently
+verify the fingerprint with the actual Windows RDP host and
+press B/START (reject), A (accept once), or X (accept and
+persist a host:port-scoped exact fingerprint on SD).
+No default acceptance. The trust file is still read back and
+validated, and changed saved fingerprints are blocked. A
+previously explicitly trusted exact fingerprint can be accepted
+on later connections for the *same* host:port despite mismatch;
+the trusted fingerprint acts as identity verification in lieu
+of hostname matching. Only the name check can be overridden:
+invalid date, parser error, changed pin, unexpected callback
+flags, missing certificate and hostname/port mismatch remain
+rejected.
+
+`cert-name-check` log entry contains mode (1 IP/2 DNS) and
+name-valid (0/1), and `cert-approval` logs manual selection
+(0 reject, 1 session-only, 2 save) and mismatch/IP flags.
+No cert, fingerprint, hostname, username or secret material is
+written to opt-in logs. If using a local Windows RDP host,
+using the correct certificate DNS hostname instead of its
+IP, or issuing a certificate with an appropriate IP SAN, avoids
+the mismatch entirely and is preferable to an exception.
+
+**Caveat:** first-use trust without independently verifying
+the fingerprint against the Windows machine could permit a
+man-in-the-middle. This experiment must be tested on O3DS;
+it does not confirm NLA, RDP graphics, input or audio.
