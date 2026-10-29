@@ -9,6 +9,7 @@
 #include "connection_ui.h"
 #include "rdp_pixels.h"
 #include "session_wait.h"
+#include "display_buffers.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -216,6 +217,7 @@ static void draw_cert_challenge(const char *host, uint16_t port,
         fingerprint[2*i+1] = hex[sha256[i] & 15];
     }
     fingerprint[64] = 0;
+    rdp_display_bind_console(&trust_console, GFX_TOP);
     consoleSelect(&trust_console);
     printf("\x1b[2J\x1b[HUNKNOWN RDP CERTIFICATE\n");
     printf("This server is NOT yet trusted.\n\n");
@@ -657,6 +659,7 @@ static void rdp_connect_worker(void *arg)
 
 static void connect_screen(const char *host, bool cancelling)
 {
+    rdp_display_bind_console(&trust_console, GFX_TOP);
     consoleSelect(&trust_console);
     printf("\x1b[2J\x1b[H3DS Remote Desktop\n\n");
     printf("%.38s\n\n", host);
@@ -684,7 +687,18 @@ static bool connect_with_ui(freerdp *client, const char *host,
     LightEvent_Init(&gate.decision_ready, RESET_ONESHOT);
     gate.client = client;
     connect_gate = &gate;
-    consoleInit(GFX_TOP, &trust_console);
+    /* Reuse the already configured top console without calling consoleInit:
+       consoleInit would disable double buffering AND unexpectedly swap both
+       screens, displaying an incomplete/stale bottom touch UI frame. */
+    {
+        PrintConsole *previous = consoleSelect(&trust_console);
+        if (previous && previous->consoleInitialised) {
+            trust_console = *previous;
+        } else {
+            consoleInit(GFX_TOP, &trust_console);
+            rdp_display_enable_double_buffering();
+        }
+    }
     connect_screen(host, false);
 
     worker = threadCreate(rdp_connect_worker, &gate, 96 * 1024, 0x30, -2, false);
