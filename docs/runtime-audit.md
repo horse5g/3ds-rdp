@@ -44,6 +44,20 @@ timed-out socket operation. Reinitialize the descriptor set and timeout on
 every retry. A portable injected-`select` test explicitly clobbers both
 on its first interrupted call and asserts they are restored on retry.
 
+### On-screen keyboard page and stale modifiers
+
+The F1–F12 key page previously had no way back to the normal modifier,
+navigation, and text keys without closing the panel; the UI labeled the
+function-page action as `F1-F12` even while already on that page. The
+`F1-F12 / BASIC` toggle now stays in the same touchscreen cell on both
+pages, and regression tests cover switching back.
+
+Keyboard modifiers are sticky intentionally while the key panel is open,
+but must not remain invisible/latched after closing it. Clear Ctrl/Alt/
+Shift/Win on close and when switching to the Settings overlay; opening
+Keyboard replaces Settings instead of allowing the two overlays to conflict.
+Tests exercise both toolbar and on-screen transitions.
+
 ## Validation and constraints
 
 - Portable tests: desktop resize limit and duplicate profile rejection.
