@@ -287,6 +287,9 @@ static void open_option(ConnectionUI *ui, int row)
                                          ui->options.timeout_seconds==12?1:2; break;
             default: ui->choice_highlight=0;
         }
+        if (ui->choice_highlight<0 || ui->choice_highlight>=choice_count(menu))
+            ui->choice_highlight=0;
+        ui->choice_scroll=ui->choice_highlight>=5?ui->choice_highlight-4:0;
         tell(ui,"Use D-pad or tap to choose a value");
     }
 }
@@ -362,6 +365,10 @@ void connection_ui_key(ConnectionUI *ui, uint32_t keys, const char *path)
         if((keys & KEY_DDOWN) &&
            ui->choice_highlight+1<choice_count(ui->choice_menu))
             ++ui->choice_highlight;
+        if(ui->choice_highlight<ui->choice_scroll)
+            ui->choice_scroll=ui->choice_highlight;
+        if(ui->choice_highlight>=ui->choice_scroll+5)
+            ui->choice_scroll=ui->choice_highlight-4;
         if(keys & KEY_A){choose_option(ui,ui->choice_highlight);return;}
         return;
     }
@@ -388,9 +395,15 @@ void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
     if (x<0 || x>=320 || y<0 || y>=240) return;
     if (ui->choice_menu) {
         /* Modal list: no background controls can be activated through it. */
-        if(x>=30 && x<292 && y>=80 && y<80+22*choice_count(ui->choice_menu))
-            choose_option(ui,(y-80)/22);
-        else ui->choice_menu=0;
+        const int visible=choice_count(ui->choice_menu)<5?
+                          choice_count(ui->choice_menu):5;
+        if(x>=30 && x<292 && y>=80 && y<80+22*visible)
+            choose_option(ui,ui->choice_scroll+(y-80)/22);
+        else if(x>=30 && x<292 && y>=52 && y<80 &&
+                ui->choice_scroll>0) {
+            --ui->choice_scroll;
+            ui->choice_highlight=ui->choice_scroll;
+        } else ui->choice_menu=0;
         return;
     }
     if (y<23 && x>=260) { saved_view(ui); return; }
