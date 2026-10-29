@@ -5,10 +5,11 @@
  * https://github.com/rust3ds/pthread-3ds
  *
  * This is intentionally NOT a replacement for pthread mutex/once/rwlock;
- * it supplies only the four missing thread-specific-data functions on 3DS.
+ * it supplies linker-wrapped versions of the four broken key functions.
  * It relies on libctru's working GCC __thread storage for per-thread values.
  * libctru threadCreate users MUST invoke the cleanup hook on thread exit.
- * No synthetic entropy, process-global "TLS" values or no-threads workaround.
+ * devkitARM libsysbase.a already defines pthread_key_create (ENOSYS),
+ * so strong duplicate names would fail to link. Link with --wrap for all four.\n * No synthetic entropy, process-global "TLS" values or no-threads workaround.
  */
 #ifdef __3DS__
 #include "rdp_pthread_tsd.h"
@@ -60,7 +61,7 @@ static bool key_valid(unsigned index, uint32_t generation)
            rdp_tsd_keys[index].generation == generation;
 }
 
-int pthread_key_create(pthread_key_t *key, void (*destructor)(void *))
+int __wrap_pthread_key_create(pthread_key_t *key, void (*destructor)(void *))
 {
     unsigned i;
     if (!key)
@@ -82,7 +83,7 @@ int pthread_key_create(pthread_key_t *key, void (*destructor)(void *))
     return EAGAIN;
 }
 
-int pthread_key_delete(pthread_key_t key)
+int __wrap_pthread_key_delete(pthread_key_t key)
 {
     unsigned i;
     uint32_t gen;
@@ -102,7 +103,7 @@ int pthread_key_delete(pthread_key_t key)
     return 0;
 }
 
-void *pthread_getspecific(pthread_key_t key)
+void *__wrap_pthread_getspecific(pthread_key_t key)
 {
     unsigned i;
     uint32_t gen;
@@ -116,7 +117,7 @@ void *pthread_getspecific(pthread_key_t key)
         ? rdp_thread_values.value[i] : NULL;
 }
 
-int pthread_setspecific(pthread_key_t key, const void *value)
+int __wrap_pthread_setspecific(pthread_key_t key, const void *value)
 {
     unsigned i;
     uint32_t gen;
