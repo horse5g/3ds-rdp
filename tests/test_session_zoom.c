@@ -80,12 +80,12 @@ int main(void)
     settle(&z);
     assert(session_zoom_percent(&z)==100);
 
-    /* Maximum 300% even if the user spins several times. */
+    /* Maximum 500% permits native-detail panning at 1080p. */
     session_zoom_update(&z,false,0,0);
-    clockwise(&z,4);
-    assert(z.target==3.0f);
+    clockwise(&z,6);
+    assert(z.target==5.0f);
     settle(&z);
-    assert(session_zoom_percent(&z)==300);
+    assert(session_zoom_percent(&z)==500);
     v=session_zoom_view(&z,200,120,400,240);
     session_zoom_sample(&v,200,120,400,240,400,240,&x,&y);
     assert(x==200 && y==120);
@@ -97,6 +97,15 @@ int main(void)
     assert(z.target==1.0f);
     settle(&z);
     assert(session_zoom_percent(&z)==100);
+    /* A 1080p source can be fully viewed or cropped to 1:1 via native zoom. */
+    z.visible=1.0f;
+    v=session_zoom_view(&z,960,540,1920,1080);
+    session_zoom_sample(&v,200,120,400,240,1920,1080,&x,&y);
+    assert(x==960 && y==540);
+    z.visible=4.8f;
+    v=session_zoom_view(&z,960,540,1920,1080);
+    session_zoom_sample(&v,200,120,400,240,1920,1080,&x,&y);
+    assert(x==960 && y==540);
     puts("Circle Pad clockwise/counterclockwise cursor-centered zoom tests passed");
     return 0;
 }
