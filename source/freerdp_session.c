@@ -85,6 +85,10 @@ static uint16_t requested_port;
 static PrintConsole trust_console;
 static char cert_failure[100];
 static char post_connect_failure[100];
+/* Worker writes; main thread reads only after worker join.
+ * Reset before each attempt to avoid reporting prior successful codecs. */
+static volatile unsigned recent_codec_stage=0;
+static volatile unsigned recent_tcp_stage=0;
 /* Give hardware tests an actionable stage instead of reporting every
  * authentication, DNS, transport and activation error as "connect failed".
  * Never include the password or FreeRDP's credential buffers. */
@@ -95,6 +99,7 @@ static char post_connect_failure[100];
 void freerdp_3ds_codec_checkpoint(unsigned int stage,unsigned int flags,
                                  unsigned int width,unsigned int height)
 {
+    recent_codec_stage=stage;
     rdp_diag_log_event("rdp-codec-stage",stage,flags,
                        ((unsigned long)(width & 0xFFFFu) << 16) |
                        (height & 0xFFFFu));
@@ -1185,6 +1190,7 @@ static bool connect_with_ui(freerdp *client, const char *host,
 void freerdp_3ds_tcp_checkpoint(unsigned int stage, int system_errno,
                                unsigned int winpr_error)
 {
+    recent_tcp_stage=stage;
     rdp_diag_log_event("tcp-stage", stage, (unsigned long)system_errno,
                        (unsigned long)winpr_error);
 }
@@ -1428,6 +1434,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     rdp_diag_log_event("rdp-codec-mask",
                         freerdp_settings_get_codecs_flags(settings),
                         (unsigned long)remote_w, (unsigned long)remote_h);
+    recent_codec_stage=0;
+    recent_tcp_stage=0;
 
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
@@ -1449,8 +1457,20 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             snprintf(reason, reason_size, "%.90s", post_connect_failure);
         else {
             const UINT code=freerdp_get_last_error(client->context);
-            snprintf(reason,reason_size,"%.65s (0x%08lx)",
-                     connection_failure_hint(code),(unsigned long)code);
+            if (code == FREERDP_ERROR_SUCCESS &&
+                (recent_codec_stage == 2 || recent_codec_stage == 4)) {
+                snprintf(reason,reason_size,
+                         "O3DS decoder allocation failed (stage %u)",
+                         (unsigned)recent_codec_stage);
+            } else if (code == FREERDP_ERROR_SUCCESS &&
+                       recent_codec_stage && !recent_tcp_stage) {
+                snprintf(reason,reason_size,
+                         "RDP initialization failed before TCP (stage %u)",
+                         (unsigned)recent_codec_stage);
+            } else {
+                snprintf(reason,reason_size,"%.65s (0x%08lx)",
+                         connection_failure_hint(code),(unsigned long)code);
+            }
         }
         goto done;
     }
