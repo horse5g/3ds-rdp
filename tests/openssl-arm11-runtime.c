@@ -76,7 +76,10 @@ int main(void)
     check_pthreads();
     /* Separate OpenSSL's base once-only initialization from later steps.
        A failure of base init often has no usable ERR queue. */
-    const int base_ok = OPENSSL_init_crypto(OPENSSL_INIT_BASE_ONLY, NULL);
+    /* OpenSSL 3.5.9 reserves 0x00040000 for BASE_ONLY internally, but
+       does not expose its macro in public crypto.h. This pinned-version
+       diagnostic deliberately uses that private bit, not a production API. */
+    const int base_ok = OPENSSL_init_crypto(UINT64_C(0x00040000), NULL);
     const unsigned int base_stage = ossl_3ds_crypto_init_stage();
     const int crypto_ok = OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL);
     printf("crypto BASE %d stage %u\n", base_ok, base_stage);
