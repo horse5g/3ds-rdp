@@ -51,6 +51,11 @@ int main(void)
             "rdp.example.test\t3389\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n");
     invalid("rdp.example.test\t3389\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
             "rdp.example.test\t3389\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n");
+    /* DNS case folding must not permit duplicate or changed-certificate pins. */
+    invalid("rdp.example.test\\t3389\\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\\n"
+            "RDP.EXAMPLE.TEST\\t3389\\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\\n");
+    invalid("rdp.example.test\\t3389\\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\\n"
+            "RDP.EXAMPLE.TEST\\t3389\\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n");
     invalid("rdp.example.test\t0\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n");
     invalid("rdp.example.test\t65536\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n");
     invalid("evil\nhost\t3389\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n");

@@ -100,6 +100,33 @@ int main(void)
     assert(pad.disconnect_armed && !a.disconnect);
     a=tap(&pad,50,15);
     assert(a.disconnect);
+    /* F1-F12 page must have an exit back to Esc/Tab/arrow/modifier keys.
+       Prior version had only CLOSE, trapping active sticky modifiers. */
+    pad.keyboard_open=true;
+    pad.fn_page=false;
+    a=tap(&pad, 110, 214); /* Basic row 4 col 2: F1-F12 */
+    assert(a.redraw && pad.fn_page);
+    assert(session_pad_keyboard_key(&pad,6,45)==SK_F1);
+    assert(session_pad_keyboard_key(&pad,110,214)==SK_FN);
+    a=tap(&pad,110,214); /* Function row 4 col 2: BASIC */
+    assert(a.redraw && !pad.fn_page);
+    assert(session_pad_keyboard_key(&pad,6,45)==SK_ESC);
+    /* Sticky modifier state must not survive closing the keyboard. */
+    pad.settings_open=false; /* start from a visible keyboard, not a prior toolbar state */
+    pad.keyboard_open=true;
+    pad.fn_page=false;
+    a=tap(&pad, 40, 108); /* row 2, col 1: Ctrl */
+    assert(pad.key_mods&SK_MOD_CTRL);
+    a=tap(&pad, 240, 215); /* last row: CLOSE */
+    assert(a.redraw && !pad.keyboard_open && pad.key_mods==0);
+    pad.keyboard_open=true;
+    a=tap(&pad, 42, 108);
+    assert(pad.key_mods&SK_MOD_CTRL);
+    a=tap(&pad, 150, 15); /* Settings should replace keyboard overlay */
+    assert(a.redraw && !pad.keyboard_open && pad.settings_open);
+    assert(!pad.fn_page && pad.key_mods==0);
+    a=tap(&pad, 240, 15); /* Keyboard should replace settings */
+    assert(a.redraw && pad.keyboard_open && !pad.settings_open);
     pad.keyboard_open=false; /* return to touchpad after keyboard test */
     /* x clamping and negative speed deltas */
     pad.settings_open=false;

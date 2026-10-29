@@ -81,7 +81,19 @@ int rdp_cert_pin_parse(const char *text, RdpCertPin *out)
     return 0;
 }
 
+int rdp_cert_host_equal(const char *a, const char *b)
+{
+    if (!a || !b) return 0;
+    while (*a && *b) {
+        unsigned char ca=(unsigned char)*a++;
+        unsigned char cb=(unsigned char)*b++;
+        if (ca >= 'A' && ca <= 'Z') ca=(unsigned char)(ca-'A'+'a');
+        if (cb >= 'A' && cb <= 'Z') cb=(unsigned char)(cb-'A'+'a');
+        if (ca != cb) return 0;
+    }
+    return *a == 0 && *b == 0;
+}
 int rdp_cert_pin_matches(const RdpCertPin *pin, const char *host, uint16_t port)
 {
-    return pin && host && pin->port == port && strcmp(pin->host, host) == 0;
+    return pin && host && pin->port == port && rdp_cert_host_equal(pin->host,host);
 }

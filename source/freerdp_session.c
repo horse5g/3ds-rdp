@@ -11,6 +11,8 @@
 #include "session_wait.h"
 #include "display_buffers.h"
 #include "rdp_environment.h"
+#include "rdp_desktop_limits.h"
+#include "rdp_startup.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -38,11 +40,13 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
 #include <freerdp/input.h>
 #include <winpr/synch.h>
 #include <winpr/path.h>
+#include <winpr/sysinfo.h>
 #include <openssl/crypto.h>
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/evp.h>
+#include <openssl/rand.h>
 #include <arpa/inet.h>
 #include <limits.h>
 #include <errno.h>
@@ -70,6 +74,49 @@ static char requested_host[RDP_HOST_CAP];
 static uint16_t requested_port;
 static PrintConsole trust_console;
 static char cert_failure[100];
+static char post_connect_failure[100];
+/* Give hardware tests an actionable stage instead of reporting every
+ * authentication, DNS, transport and activation error as "connect failed".
+ * Never include the password or FreeRDP's credential buffers. */
+static const char *connection_failure_hint(UINT error)
+{
+    switch (error) {
+        case FREERDP_ERROR_DNS_ERROR:
+        case FREERDP_ERROR_DNS_NAME_NOT_FOUND:
+            return "RDP DNS lookup failed (try IPv4)";
+        case FREERDP_ERROR_CONNECT_FAILED:
+        case FREERDP_ERROR_CONNECT_TRANSPORT_FAILED:
+            return "RDP TCP failed (check IP/port)";
+        case FREERDP_ERROR_SECURITY_NEGO_CONNECT_FAILED:
+            return "RDP NLA security negotiation failed";
+        case FREERDP_ERROR_TLS_CONNECT_FAILED:
+            return "RDP TLS handshake failed";
+        case FREERDP_ERROR_CONNECT_LOGON_FAILURE:
+        case FREERDP_ERROR_CONNECT_WRONG_PASSWORD:
+        case FREERDP_ERROR_CONNECT_NO_OR_MISSING_CREDENTIALS:
+        case FREERDP_ERROR_AUTHENTICATION_FAILED:
+            return "RDP NLA username/password rejected";
+        case FREERDP_ERROR_CONNECT_KDC_UNREACHABLE:
+            return "Kerberos unavailable; NTLMv2 required";
+        case FREERDP_ERROR_CONNECT_ACCOUNT_LOCKED_OUT:
+        case FREERDP_ERROR_CONNECT_ACCOUNT_DISABLED:
+        case FREERDP_ERROR_CONNECT_ACCESS_DENIED:
+        case FREERDP_ERROR_CONNECT_LOGON_TYPE_NOT_GRANTED:
+            return "Windows denied this RDP account";
+        case FREERDP_ERROR_CONNECT_PASSWORD_EXPIRED:
+        case FREERDP_ERROR_CONNECT_PASSWORD_MUST_CHANGE:
+            return "Windows password expired/must change";
+        case FREERDP_ERROR_CONNECT_ACTIVATION_TIMEOUT:
+            return "RDP desktop activation timed out";
+        case FREERDP_ERROR_POST_CONNECT_FAILED:
+            return "FreeRDP PostConnect graphics failed";
+        case FREERDP_ERROR_CONNECT_CANCELLED:
+            return "RDP connection cancelled";
+        default:
+            return "RDP connection failed (see code)";
+    }
+}
+
 static bool desktop_dirty;
 static SessionCursor system_cursor;
 static int cursor_remote_x=RDP_W/2,cursor_remote_y=RDP_H/2;
@@ -257,7 +304,7 @@ static int verify_x509_cert(freerdp *instance, const BYTE *pem, size_t length,
 
     snprintf(cert_failure, sizeof(cert_failure), "RDP certificate rejected");
     if (!pem || !length || length > INT_MAX || !host ||
-        strcmp(host, requested_host) != 0 || port != requested_port ||
+        !rdp_cert_host_equal(host, requested_host) || port != requested_port ||
         flags != VERIFY_CERT_FLAG_NONE)
         return 0;
 
@@ -500,20 +547,44 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
 
 static BOOL desktop_resize(rdpContext *context)
 {
-    return context && context->gdi &&
-           gdi_resize(context->gdi,
-                      freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth),
-                      freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopHeight));
+    UINT32 width, height;
+    if (!context || !context->gdi || !context->settings)
+        return FALSE;
+    width = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth);
+    height = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopHeight);
+    /* A server-initiated resize could otherwise allocate tens/hundreds of
+     * megabytes and kill the O3DS process. Refuse it before GDI allocates. */
+    if (!rdp_desktop_size_allowed(width, height,
+                                  (unsigned)remote_w, (unsigned)remote_h))
+        return FALSE;
+    return gdi_resize(context->gdi, width, height);
 }
 
 static BOOL post_connect(freerdp *instance)
 {
     rdpContext *ctx;
-    if (!instance || !gdi_init(instance, PIXEL_FORMAT_XRGB32))
+    UINT32 width, height;
+    snprintf(post_connect_failure, sizeof(post_connect_failure),
+             "RDP desktop setup failed");
+    if (!instance || !(ctx=instance->context) ||
+        !ctx->settings || !ctx->update)
         return FALSE;
-    ctx = instance->context;
-    if (!ctx || !ctx->update)
+    width=freerdp_settings_get_uint32(ctx->settings, FreeRDP_DesktopWidth);
+    height=freerdp_settings_get_uint32(ctx->settings, FreeRDP_DesktopHeight);
+    /* This is BEFORE gdi_init(), when the initial GDI framebuffer is
+       allocated. A server's negotiated size must not exhaust O3DS memory. */
+    if (!rdp_desktop_size_allowed(width,height,
+                                  (unsigned)remote_w,(unsigned)remote_h)) {
+        snprintf(post_connect_failure,sizeof(post_connect_failure),
+                 "Server requested unsupported desktop size");
         return FALSE;
+    }
+    if (!gdi_init(instance, PIXEL_FORMAT_XRGB32)) {
+        snprintf(post_connect_failure,sizeof(post_connect_failure),
+                 "RDP graphics allocation failed (O3DS memory)");
+        return FALSE;
+    }
+    post_connect_failure[0]=0;
     ctx->update->BeginPaint = begin_paint;
     ctx->update->EndPaint = end_paint;
     ctx->update->DesktopResize = desktop_resize;
@@ -542,6 +613,7 @@ static bool prompt_password(char *password, size_t size)
     swkbdSetHintText(&keyboard, "RDP password (not saved)");
     swkbdSetPasswordMode(&keyboard, SWKBD_PASSWORD_HIDE);
     button = swkbdInputText(&keyboard, password, size);
+    rdp_display_restore_after_keyboard();
     OPENSSL_cleanse(&keyboard, sizeof(keyboard));
     return button == SWKBD_BUTTON_CONFIRM;
 }
@@ -617,6 +689,7 @@ static bool send_text(freerdp *client, char *reason, size_t reason_size)
     }
 
     button = swkbdInputText(&keyboard, text, sizeof(text));
+    rdp_display_restore_after_keyboard();
     LightLock_Lock(&pump.lock);
     pump.stop_requested = true;
     LightLock_Unlock(&pump.lock);
@@ -813,24 +886,21 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     RdpUiOptions opts=options?*options:rdp_options_default();
     int result = -1;
 
-    if (!rdp_options_valid(&opts) || !cfg || !reason || !reason_size)
+    if (!reason || !reason_size)
+        return -1;
+    /* A probe-only host profile is not sufficient for NLA. Catch missing
+       credentials and malformed fields before any FreeRDP/WinPR allocation
+       or password applet, instead of a vague CredSSP authentication error. */
+    if (rdp_full_session_preflight(cfg, &opts, reason, reason_size))
         return -1;
     snprintf(reason, reason_size, "FreeRDP startup failed");
-    /* The UI ordinarily validates all fields. Enforce bounds here too:
-       certificate lookup and WinPR settings use null-terminated strings. */
-    if (!cfg->host[0] || !cfg->port ||
-        !memchr(cfg->host, 0, sizeof(cfg->host)) ||
-        !memchr(cfg->username, 0, sizeof(cfg->username)) ||
-        !memchr(cfg->domain, 0, sizeof(cfg->domain))) {
-        snprintf(reason, reason_size, "Invalid or unterminated connection settings");
-        return -1;
-    }
 
     /* Load both trust sources before prompting for credentials. Missing files
        are allowed (new server); malformed or unreadable files fail closed. */
     memset(&active_pin, 0, sizeof(active_pin));
     memset(&active_pool, 0, sizeof(active_pool));
     cert_failure[0] = '\0';
+    post_connect_failure[0] = '\0';
     memset(requested_host, 0, sizeof(requested_host));
     memcpy(requested_host, cfg->host, strlen(cfg->host) + 1);
     requested_port = cfg->port;
@@ -860,10 +930,34 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         }
     }
 
-    /* Password is prompted for at runtime; never accepted from host.txt. */
-    if (!prompt_password(password, sizeof(password))) {
-        snprintf(reason, reason_size, "Password input cancelled");
-        goto done;
+    /* FreeRDP settings_new() calls GetComputerNameExA before a client
+       context exists. 3DS has no guaranteed gethostname(), so verify our
+       narrowly scoped WinPR client-label fallback is active first. */
+    {
+        CHAR client_name[MAX_COMPUTERNAME_LENGTH+1]={0};
+        DWORD client_name_size=(DWORD)sizeof(client_name);
+        if (!GetComputerNameExA(ComputerNameNetBIOS,
+                                client_name,&client_name_size) ||
+            !client_name[0]) {
+            snprintf(reason,reason_size,
+                     "WinPR cannot get 3DS client hostname");
+            goto done;
+        }
+    }
+
+    /* The OpenSSL 3DS backend must obtain cryptographic randomness from
+       Horizon PS before TLS/NLA. Fail with a specific message rather than
+       interpreting RAND/PS initialization failure as a Windows login error.
+       Never print or retain the generated bytes. */
+    {
+        unsigned char entropy_check[32] = {0};
+        const int seeded = RAND_bytes(entropy_check, (int)sizeof(entropy_check));
+        OPENSSL_cleanse(entropy_check, sizeof(entropy_check));
+        if (seeded != 1) {
+            snprintf(reason, reason_size,
+                     "OpenSSL entropy unavailable (3DS PS service)");
+            goto done;
+        }
     }
 
     client = freerdp_new();
@@ -876,13 +970,26 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
     client->PostConnect = post_connect;
     client->PostDisconnect = post_disconnect;
     if (!freerdp_context_new(client)) {
-        snprintf(reason, reason_size, "FreeRDP context allocation failed");
+        snprintf(reason, reason_size,
+                 "FreeRDP context init failed (WinPR/heap)");
         goto done;
     }
     initialized = true;
-    settings = client->context->settings;
+    settings = client->context ? client->context->settings : NULL;
+    if (!settings) {
+        snprintf(reason, reason_size,
+                 "FreeRDP context has no client settings");
+        goto done;
+    }
     remote_w=opts.display_mode?640:RDP_W;
     remote_h=opts.display_mode?360:RDP_H;
+    /* Do WinPR/client-context allocation before opening the modal password
+       keyboard. On an O3DS allocation failure, users can diagnose the
+       failure immediately instead of repeatedly entering a secret. */
+    if (!prompt_password(password, sizeof(password))) {
+        snprintf(reason, reason_size, "Password input cancelled");
+        goto done;
+    }
     if (!freerdp_settings_set_string(settings, FreeRDP_ServerHostname, cfg->host) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, cfg->port) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, (UINT32)remote_w) ||
@@ -899,6 +1006,11 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         !freerdp_settings_set_bool(settings, FreeRDP_DisableWallpaper,
                                    opts.low_bandwidth!=0) ||
         !freerdp_settings_set_bool(settings, FreeRDP_TcpKeepAlive, FALSE) ||
+        /* FreeRDP defaults multitransport/clipboard on, but our O3DS build
+           intentionally has no RDP virtual channels or UDP transport. Stay
+           on the tested IPv4 TCP path and do not advertise a dead channel. */
+        !freerdp_settings_set_bool(settings, FreeRDP_SupportMultitransport, FALSE) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_RedirectClipboard, FALSE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_ExternalCertificateManagement, TRUE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_IgnoreCertificate, FALSE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_AutoAcceptCertificate, FALSE) ||
@@ -927,9 +1039,13 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             goto done;
         if (cert_failure[0])
             snprintf(reason, reason_size, "%.90s", cert_failure);
-        else
-        snprintf(reason, reason_size, "RDP connect failed (0x%08lx)",
-                 (unsigned long)freerdp_get_last_error(client->context));
+        else if (post_connect_failure[0])
+            snprintf(reason, reason_size, "%.90s", post_connect_failure);
+        else {
+            const UINT code=freerdp_get_last_error(client->context);
+            snprintf(reason,reason_size,"%.65s (0x%08lx)",
+                     connection_failure_hint(code),(unsigned long)code);
+        }
         goto done;
     }
     connected = true;
@@ -1178,6 +1294,7 @@ done:
     have_manual_pin = false;
     requested_port = 0;
     OPENSSL_cleanse(cert_failure, sizeof(cert_failure));
+    OPENSSL_cleanse(post_connect_failure, sizeof(post_connect_failure));
     return result;
 }
 #endif

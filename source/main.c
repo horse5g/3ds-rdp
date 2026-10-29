@@ -6,6 +6,7 @@
 #include <string.h>
 #include "connection_ui.h"
 #include "display_buffers.h"
+#include "rdp_environment.h"
 #include "network.h"
 #include "horizon_sync.h"
 #include "loopback_pair.h"
@@ -132,6 +133,17 @@ int main(int argc, char **argv)
     rdp_display_enable_double_buffering();
     buffer = memalign(0x1000,SOC_SIZE);
     if (buffer && R_SUCCEEDED(socInit(buffer,SOC_SIZE))) netok=1;
+    /* The Save button is usable before the first RDP connection, so the
+       home/profile directory must exist at startup, not only after NLA.
+       Also provides WinPR its HOME path for all later FreeRDP allocations. */
+    {
+        char environment_error[96];
+        if (rdp_environment_init("sdmc:/3ds/3ds-rdp",
+                                 environment_error,sizeof(environment_error))) {
+            snprintf(status,sizeof(status),"SD home initialization failed");
+            snprintf(detail,sizeof(detail),"%s",environment_error);
+        }
+    }
     connection_ui_init(&ui,HOST_FILE,PROFILES_FILE);
     if (!netok) {
         snprintf(status,sizeof(status),"Network initialization failed");

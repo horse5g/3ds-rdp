@@ -40,7 +40,7 @@ int session_pad_keyboard_key(const SessionPad *pad,int x,int y)
         SK_F1,SK_F2,SK_F3,SK_F4,
         SK_F5,SK_F6,SK_F7,SK_F8,
         SK_F9,SK_F10,SK_F11,SK_F12,
-        SK_CTRL_ALT_END,SK_ALT_TAB,SK_WIN_R,SK_CLOSE
+        SK_CTRL_ALT_END,SK_FN,SK_WIN_R,SK_ALT_TAB
     };
     int col,row;
     if(!pad || !pad->keyboard_open || x<4 || x>=316 || y<40 || y>=232)return 0;
@@ -148,8 +148,9 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
         pad->captured = PAD_NONE;
         pad->scroll_remainder = 0;
         if (pad->keyboard_open && key && !pad->moved && release_inside) {
-            if(key==SK_CLOSE){pad->keyboard_open=false;pad->fn_page=false;out->redraw=true;}
-            else if(key==SK_FN){pad->fn_page=true;out->redraw=true;}
+            if(key==SK_CLOSE){pad->keyboard_open=false;pad->fn_page=false;
+                pad->key_mods=0;out->redraw=true;}
+            else if(key==SK_FN){pad->fn_page=!pad->fn_page;out->redraw=true;}
             else if(key==SK_TEXT){out->text_input=true;out->redraw=true;}
             else if(key==SK_CTRL||key==SK_ALT||key==SK_SHIFT||key==SK_WIN){
                 unsigned bit=1u<<(key-SK_CTRL);
@@ -172,13 +173,17 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                 case PAD_RIGHT_BUTTON: out->right_click = true; break;
                 case PAD_KEYBOARD:
                     pad->keyboard_open = !pad->keyboard_open;
-                    if(!pad->keyboard_open)pad->fn_page=false;
+                    if(pad->keyboard_open)pad->settings_open=false;
+                    else {pad->fn_page=false;pad->key_mods=0;}
                     out->keyboard = true;
                     pad->disconnect_armed = false;
                     out->redraw = true;
                     break;
                 case PAD_SETTINGS:
                     pad->settings_open = !pad->settings_open;
+                    pad->keyboard_open=false;
+                    pad->fn_page=false;
+                    pad->key_mods=0;
                     pad->disconnect_armed = false;
                     out->redraw = true;
                     break;

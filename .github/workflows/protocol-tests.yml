@@ -9,6 +9,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compile and run parser tests
         run: make -C tests test
+      # The portable parsers, SD profile code and touchpad helpers can also
+      # be tested with desktop sanitizers before risking an O3DS crash.
+      - name: Check native code with ASan and UBSan
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          make -C tests clean
+          make -C tests test CFLAGS="-O1 -g -Wall -Wextra -Werror -std=c11 -fsanitize=address,undefined -fno-omit-frame-pointer"
+          make -C tests clean
       - name: Verify FreeRDP patch syntax
         run: python3 scripts/check-patches.py
 

@@ -18,4 +18,6 @@ typedef struct {
  */
 int rdp_cert_pin_parse(const char *text, RdpCertPin *out);
 int rdp_cert_pin_matches(const RdpCertPin *pin, const char *host, uint16_t port);
+/* Case-insensitive ASCII DNS endpoint comparison; not a wildcard match. */
+int rdp_cert_host_equal(const char *a, const char *b);
 #endif

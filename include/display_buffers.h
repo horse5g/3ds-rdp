@@ -16,6 +16,18 @@ static inline void rdp_display_enable_double_buffering(void)
     gfxSetDoubleBuffering(GFX_BOTTOM, true);
 }
 
+/* System software-keyboard applets can disturb the application's GSP
+ * presentation state. Restore our expected pixel formats and both buffers
+ * after the applet returns, before drawing or reusing the console. */
+static inline void rdp_display_restore_after_keyboard(void)
+{
+    if (gfxGetScreenFormat(GFX_TOP) != GSP_RGB565_OES)
+        gfxSetScreenFormat(GFX_TOP, GSP_RGB565_OES);
+    if (gfxGetScreenFormat(GFX_BOTTOM) != GSP_RGB565_OES)
+        gfxSetScreenFormat(GFX_BOTTOM, GSP_RGB565_OES);
+    rdp_display_enable_double_buffering();
+}
+
 /* consoleInit()'s cached frameBuffer becomes stale after the next swap. */
 static inline void rdp_display_bind_console(PrintConsole *console, gfxScreen_t screen)
 {
