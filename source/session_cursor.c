@@ -23,7 +23,8 @@ void session_cursor_overlay(uint16_t *frame,int out_w,int out_h,
     start_y=(int)(((int64_t)(py-c->hot_y)*65536-top)*out_h/height);
     draw_w=(int)((int64_t)c->width*out_w*65536/width);
     draw_h=(int)((int64_t)c->height*out_h*65536/height);
-    if(draw_w<1)draw_w=1;if(draw_h<1)draw_h=1;
+    if(draw_w<1)draw_w=1;
+    if(draw_h<1)draw_h=1;
     for(dy=0;dy<draw_h;++dy) {
         int y=start_y+dy;
         int sy=dy*c->height/draw_h;
