@@ -42,7 +42,14 @@ int main(void)
     assert(rdp_profiles_save(file, &store, error, sizeof(error)) == 0);
     assert(rdp_profiles_load(file, &loaded, error, sizeof(error)) == 0);
     assert(loaded.items[0].options.display_mode == 2);
-    store.items[0].options.display_mode = 4; /* Unsafe/unavailable */
+    for (int mode=4;mode<=5;++mode) {
+        store.items[0].options.display_mode=(uint8_t)mode;
+        assert(rdp_options_valid(&store.items[0].options));
+        assert(rdp_profiles_save(file,&store,error,sizeof(error))==0);
+        assert(rdp_profiles_load(file,&loaded,error,sizeof(error))==0);
+        assert(loaded.items[0].options.display_mode==mode);
+    }
+    store.items[0].options.display_mode = 6; /* Unsafe/unavailable */
     assert(!rdp_options_valid(&store.items[0].options));
     store.items[0].options.display_mode = 2;
     /* Stale transaction sidecars must never be overwritten or deleted. */
