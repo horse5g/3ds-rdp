@@ -124,6 +124,7 @@ int main(int argc, char **argv)
 {
     void *buffer;
     int netok = 0;
+    bool ran_freerdp = false;
     (void)argc; (void)argv;
     gfxInitDefault();
     gfxSetScreenFormat(GFX_BOTTOM,GSP_RGB565_OES);
@@ -226,7 +227,12 @@ int main(int argc, char **argv)
                 probe(&ui);
             }
 #ifdef RDP_FULL_CLIENT
-            else full_session(&ui);
+            else {
+                /* A run of FreeRDP currently leaves SOCU_Shutdown blocked on
+                 * physical O3DS after all context cleanup finished. */
+                ran_freerdp = true;
+                full_session(&ui);
+            }
 #endif
         }
         draw_status(netok);
@@ -236,13 +242,24 @@ int main(int argc, char **argv)
     /* HOME/START can reach this code while remaining SOC sockets still
      * exist. Distinguish the final app frame from SOC/GFX shutdown hangs. */
     rdp_diag_log_event("app-exit", 0, 0, 0);
-    rdp_diag_log_event("app-soc-exit-enter", (unsigned long)netok, 0, 0);
-    if (netok) {
-        const Result soc_result = socExit();
-        rdp_diag_log_event("app-soc-exit-done", (unsigned long)soc_result, 0, 0);
+    if (netok && ran_freerdp) {
+        /* O3DS recovery workaround: after a FreeRDP attempt, socExit()
+         * reproducibly never returns from SOCU_Shutdown, freezing HOME.
+         * Defer the SOC service/IPC handle and shared-memory cleanup to
+         * process termination. Do not free the context buffer while its
+         * kernel memory block may still reference it. This is intentionally
+         * scoped to actual FreeRDP attempts; ordinary probe-only exits
+         * preserve the normal socExit() path. */
+        rdp_diag_log_event("app-soc-exit-deferred", 1, 0, 0);
+    } else {
+        rdp_diag_log_event("app-soc-exit-enter", (unsigned long)netok, 0, 0);
+        if (netok) {
+            const Result soc_result = socExit();
+            rdp_diag_log_event("app-soc-exit-done", (unsigned long)soc_result, 0, 0);
+        }
+        rdp_diag_log_event("app-soc-buffer-free", 0, 0, 0);
+        free(buffer);
     }
-    rdp_diag_log_event("app-soc-buffer-free", 0, 0, 0);
-    free(buffer);
     rdp_diag_log_event("app-gfx-exit-enter", 0, 0, 0);
     gfxExit();
     rdp_diag_log_event("app-gfx-exit-done", 0, 0, 0);
