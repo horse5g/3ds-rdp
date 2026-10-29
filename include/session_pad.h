@@ -2,6 +2,7 @@
 #define RDP_SESSION_PAD_H
 
 #include <stdbool.h>
+#include "session_keys.h"
 
 /* 320x240 bottom screen becomes a laptop-style touchpad after RDP connects.
  * This state machine intentionally has no libctru / FreeRDP dependencies. */
@@ -32,6 +33,9 @@ typedef struct {
     int scroll_amount;        /* 1, 2, 3 wheel notches per button press */
     bool reverse_scroll;
     bool settings_open;
+    bool keyboard_open;
+    bool fn_page;
+    unsigned key_mods;
     bool disconnect_armed;
     bool touching;
     bool moved;
@@ -45,6 +49,9 @@ typedef struct {
     bool left_click, right_click;
     int wheel_notches;        /* + is up, - is down */
     bool keyboard, disconnect;
+    int key;                      /* SK_* physical scancode action */
+    unsigned modifiers;
+    bool text_input;
     bool redraw;
 } PadActions;
 
@@ -55,5 +62,6 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
 /* Implementation is in connection_ui_draw.c; draws GSP_RGB565_OES bottom
  * screen through the same small font / framebuffer renderer as the menu. */
 void session_pad_draw(const SessionPad *pad, int zoom_percent);
+int session_pad_keyboard_key(const SessionPad *pad,int x,int y);
 
 #endif
