@@ -22,6 +22,18 @@ int main(void)
     assert(n==4 && events[1].scan==0x58 && events[2].scan==0x58);
     assert(session_key_sequence(SK_TEXT,0,events,10)==0);
     assert(session_key_sequence(SK_F1,0,events,1)==0);
-    puts("Keyboard key and shortcut scancodes passed");
+    { uint8_t scan=0,shift=0;
+      assert(session_ascii_scan('a',&scan,&shift) && scan==0x1E && !shift);
+      assert(session_ascii_scan('A',&scan,&shift) && scan==0x1E && shift);
+      assert(session_ascii_scan('Z',&scan,&shift) && scan==0x2C && shift);
+      assert(session_ascii_scan('!',&scan,&shift) && scan==0x02 && shift);
+      assert(session_ascii_scan('0',&scan,&shift) && scan==0x0B && !shift);
+      assert(session_ascii_scan('?',&scan,&shift) && scan==0x35 && shift);
+      assert(session_ascii_scan('@',&scan,&shift) && scan==0x03 && shift);
+      assert(session_ascii_scan(' ',&scan,&shift) && scan==0x39 && !shift);
+      assert(!session_ascii_scan(0xE9,&scan,&shift));
+      assert(!session_ascii_scan('X',NULL,&shift));
+    }
+    puts("Keyboard key, shortcut and software text scancodes passed");
     return 0;
 }
