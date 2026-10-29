@@ -4,11 +4,11 @@
 #include <stdint.h>
 
 #define SESSION_ZOOM_MIN 1.0f
-#define SESSION_ZOOM_MAX 3.0f
+#define SESSION_ZOOM_MAX 5.0f
 #define SESSION_ZOOM_PI 3.14159265358979323846f
 
-/* Local magnification ONLY. Remote screen stays 400x240; the mouse position
- * remains in remote coordinates. No RDP resolution change or remote wheel. */
+/* Zooms only the 400x240 top-screen viewport; source desktop can be 1080p.
+ * The remote pointer stays in desktop coordinates. No remote wheel. */
 typedef struct {
     float target;
     float visible;
