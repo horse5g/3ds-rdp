@@ -1,7 +1,7 @@
 diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/implementations/rands/seeding/rand_unix.c
 --- a/providers/implementations/rands/seeding/rand_unix.c
 +++ b/providers/implementations/rands/seeding/rand_unix.c
-@@ -8,4 +8,84 @@
+@@ -8,4 +8,90 @@
   */
  
 +#if defined(__3DS__)
@@ -72,12 +72,18 @@ diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/imp
 +int ossl_pool_add_nonce_data(RAND_POOL *pool)
 +{
 +    unsigned char nonce[32];
++    size_t capacity = ossl_rand_pool_bytes_remaining(pool);
++    const size_t amount = capacity < sizeof(nonce) ? capacity : sizeof(nonce);
 +    int added = 0;
 +
++    /* The nonce pool can be smaller than 32 bytes. Do not give OpenSSL
++     * an oversized nonce and incorrectly fail DRBG initialization. */
++    if (amount == 0)
++        return 0;
 +    if (psInit() != 0)
 +        return 0;
-+    if (PS_GenerateRandomBytes(nonce, sizeof(nonce)) == 0)
-+        added = ossl_rand_pool_add(pool, nonce, sizeof(nonce), 0);
++    if (PS_GenerateRandomBytes(nonce, amount) == 0)
++        added = ossl_rand_pool_add(pool, nonce, amount, 0);
 +    OPENSSL_cleanse(nonce, sizeof(nonce));
 +    psExit();
 +    return added;
@@ -86,7 +92,7 @@ diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/imp
 +#else /* !__3DS__ */
  #ifndef _GNU_SOURCE
  #define _GNU_SOURCE
-@@ -799,5 +879,6 @@
+@@ -799,5 +885,6 @@
      return time(NULL);
  }
  
