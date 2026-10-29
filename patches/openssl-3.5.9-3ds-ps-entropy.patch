@@ -1,7 +1,7 @@
 diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/implementations/rands/seeding/rand_unix.c
 --- a/providers/implementations/rands/seeding/rand_unix.c
 +++ b/providers/implementations/rands/seeding/rand_unix.c
-@@ -8,4 +8,90 @@
+@@ -8,4 +8,141 @@
   */
  
 +#if defined(__3DS__)
@@ -17,6 +17,22 @@ diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/imp
 +#include "prov/seeding.h"
 +
 +#define OSSL_3DS_PS_CHUNK 32
++
++/* Diagnostic metadata only: never store PS-generated random output. */
++typedef struct {
++    unsigned int entropy_calls, entropy_successes;
++    unsigned int nonce_calls, nonce_successes;
++    unsigned int last_failure_stage, last_ps_result;
++    unsigned int last_entropy_request, last_nonce_capacity;
++} OSSL_3DS_PS_RNG_DIAG;
++
++static OSSL_3DS_PS_RNG_DIAG ps_rng_diag;
++
++void ossl_3ds_ps_rng_snapshot(OSSL_3DS_PS_RNG_DIAG *out)
++{
++    if (out != NULL)
++        *out = ps_rng_diag;
++}
 +
 +int ossl_rand_pool_init(void)
 +{
@@ -36,25 +52,38 @@ diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/imp
 +{
 +    size_t remaining = ossl_rand_pool_bytes_needed(pool, 1);
 +    size_t entropy;
++    Result rc;
 +
++    ps_rng_diag.entropy_calls++;
 +    if (remaining == 0)
 +        return ossl_rand_pool_entropy_available(pool);
 +
-+    if (psInit() != 0)
++    rc = psInit();
++    if (rc != 0) {
++        ps_rng_diag.last_failure_stage = 1;
++        ps_rng_diag.last_ps_result = (unsigned int)rc;
 +        return 0;
++    }
 +
 +    while (remaining != 0) {
 +        const size_t amount = remaining > OSSL_3DS_PS_CHUNK
 +                                  ? OSSL_3DS_PS_CHUNK : remaining;
 +        unsigned char *dest = ossl_rand_pool_add_begin(pool, amount);
 +
-+        if (dest == NULL)
++        ps_rng_diag.last_entropy_request = (unsigned int)amount;
++        if (dest == NULL) {
++            ps_rng_diag.last_failure_stage = 3;
 +            break;
-+        if (PS_GenerateRandomBytes(dest, amount) != 0) {
++        }
++        rc = PS_GenerateRandomBytes(dest, amount);
++        if (rc != 0) {
++            ps_rng_diag.last_failure_stage = 2;
++            ps_rng_diag.last_ps_result = (unsigned int)rc;
 +            OPENSSL_cleanse(dest, amount);
 +            break;
 +        }
 +        if (!ossl_rand_pool_add_end(pool, amount, amount * 8)) {
++            ps_rng_diag.last_failure_stage = 3;
 +            OPENSSL_cleanse(dest, amount);
 +            break;
 +        }
@@ -66,6 +95,10 @@ diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/imp
 +        return 0;
 +
 +    entropy = ossl_rand_pool_entropy_available(pool);
++    if (entropy == 0)
++        ps_rng_diag.last_failure_stage = 3;
++    else
++        ps_rng_diag.entropy_successes++;
 +    return entropy;
 +}
 +
@@ -75,17 +108,35 @@ diff --git a/providers/implementations/rands/seeding/rand_unix.c b/providers/imp
 +    size_t capacity = ossl_rand_pool_bytes_remaining(pool);
 +    const size_t amount = capacity < sizeof(nonce) ? capacity : sizeof(nonce);
 +    int added = 0;
++    Result rc;
 +
++    ps_rng_diag.nonce_calls++;
++    ps_rng_diag.last_nonce_capacity = (unsigned int)capacity;
 +    /* The nonce pool can be smaller than 32 bytes. Do not give OpenSSL
 +     * an oversized nonce and incorrectly fail DRBG initialization. */
-+    if (amount == 0)
++    if (amount == 0) {
++        ps_rng_diag.last_failure_stage = 6;
 +        return 0;
-+    if (psInit() != 0)
++    }
++    rc = psInit();
++    if (rc != 0) {
++        ps_rng_diag.last_failure_stage = 4;
++        ps_rng_diag.last_ps_result = (unsigned int)rc;
 +        return 0;
-+    if (PS_GenerateRandomBytes(nonce, amount) == 0)
++    }
++    rc = PS_GenerateRandomBytes(nonce, amount);
++    if (rc == 0) {
 +        added = ossl_rand_pool_add(pool, nonce, amount, 0);
++        if (!added)
++            ps_rng_diag.last_failure_stage = 6;
++    } else {
++        ps_rng_diag.last_failure_stage = 5;
++        ps_rng_diag.last_ps_result = (unsigned int)rc;
++    }
 +    OPENSSL_cleanse(nonce, sizeof(nonce));
 +    psExit();
++    if (added)
++        ps_rng_diag.nonce_successes++;
 +    return added;
 +}
 +
