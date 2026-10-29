@@ -155,6 +155,11 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'Do not falsely claim Unix sharing/locking semantics on FAT' "$src/winpr/libwinpr/file/file.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-no-flock.patch"
   fi
+  # Context and RDP subtree failures are otherwise flattened to a generic
+  # boolean. Keep the last non-sensitive initialization stage after cleanup.
+  if ! grep -q 'O3DS diagnostic: preserve the last context construction stage' "$src/libfreerdp/core/freerdp.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-context-stages.patch"
+  fi
 else
   echo "Custom FreeRDP source: experimental 3DS patches are not automatically applied."
 fi
