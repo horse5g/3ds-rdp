@@ -1150,6 +1150,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
         rdp_diag_log_event("freerdp-context-winpr", winpr_error, 0, 0);
         if (tstage)
             rdp_diag_log_event("freerdp-timer-stage", tstage, 0, 0);
+        if (cstage == 9)
+            rdp_diag_log_event("freerdp-channels-stage",
+                               freerdp_3ds_channels_init_stage(), 0, 0);
         if (tstage == 5) {
             unsigned int prio = 0, used = 0, limit = 0, heap_ok = 0;
             freerdp_3ds_timer_thread_diag(&prio, &used, &limit, &heap_ok);
