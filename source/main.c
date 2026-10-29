@@ -99,7 +99,7 @@ static void full_session(const ConnectionUI *state)
                                   "SIGN IN AND VERIFY CERTIFICATE",false);
         gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
         rdp_diag_log_event("app-connect-attempt", 0, 0, 0);
-        result=freerdp_3ds_run(&state->current,&state->options,message,sizeof(message));
+        result=freerdp_3ds_run(&state->current,&state->options,state->cache_password_for_run,message,sizeof(message));
         rdp_diag_log_event("app-connect-return", (unsigned long)(result != 0), 0, 0);
         /* Always return to a deliberate choice after the FreeRDP context
          * and worker have been fully torn down. Reconnect never reuses an
@@ -128,6 +128,9 @@ static void full_session(const ConnectionUI *state)
             gspWaitForVBlank();
         }
     }while(again);
+    /* Cached credentials are usable only for explicit retries within this
+     * launcher operation. Never retain them after Back/START. */
+    freerdp_3ds_clear_password_cache();
     snprintf(status,sizeof(status),"%s",result==0 ? "Session exited" : "RDP session error");
     snprintf(detail,sizeof(detail),"%s",message);
 }
@@ -255,6 +258,9 @@ int main(int argc, char **argv)
     }
     /* HOME/START can reach this code while remaining SOC sockets still
      * exist. Distinguish the final app frame from SOC/GFX shutdown hangs. */
+#ifdef RDP_FULL_CLIENT
+    freerdp_3ds_clear_password_cache();
+#endif
     rdp_diag_log_event("app-exit", 0, 0, 0);
     if (netok && ran_freerdp) {
         /* O3DS recovery workaround: after a FreeRDP attempt, socExit()
