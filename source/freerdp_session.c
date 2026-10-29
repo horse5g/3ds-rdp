@@ -11,6 +11,7 @@
 #include "session_wait.h"
 #include "display_buffers.h"
 #include "rdp_environment.h"
+#include "rdp_desktop_limits.h"
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
@@ -500,10 +501,17 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
 
 static BOOL desktop_resize(rdpContext *context)
 {
-    return context && context->gdi &&
-           gdi_resize(context->gdi,
-                      freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth),
-                      freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopHeight));
+    UINT32 width, height;
+    if (!context || !context->gdi || !context->settings)
+        return FALSE;
+    width = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth);
+    height = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopHeight);
+    /* A server-initiated resize could otherwise allocate tens/hundreds of
+     * megabytes and kill the O3DS process. Refuse it before GDI allocates. */
+    if (!rdp_desktop_size_allowed(width, height,
+                                  (unsigned)remote_w, (unsigned)remote_h))
+        return FALSE;
+    return gdi_resize(context->gdi, width, height);
 }
 
 static BOOL post_connect(freerdp *instance)
