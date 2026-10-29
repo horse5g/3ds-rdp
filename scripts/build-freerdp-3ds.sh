@@ -142,6 +142,12 @@ if [[ "$src" == "$root/external/FreeRDP" ]]; then
   if ! grep -q 'Optional O3DS TCP diagnostic hook' "$src/libfreerdp/core/tcp.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-tcp-stage-diag.patch"
   fi
+  # Once TCP is connected, libctru SOC may reject growing SO_RCVBUF to 32K.
+  # Keep a valid, positive kernel buffer on 3DS instead of killing the RDP
+  # connection. Leave desktop and other FreeRDP targets strict.
+  if ! grep -q 'Horizon SOC may reject the 32-KiB receive-buffer request' "$src/libfreerdp/core/tcp.c"; then
+    patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-soc-rcvbuf.patch"
+  fi
   if ! grep -q 'IPv6 subnet matching is unavailable on Horizon' "$src/libfreerdp/core/proxy.c"; then
     patch -d "$src" -p1 < "$root/patches/freerdp-3.32.2-3ds-proxy-ipv4.patch"
   fi
