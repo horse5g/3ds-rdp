@@ -181,6 +181,7 @@ static void dropdown_overlay(const ConnectionUI *ui)
     static const char *scroll[]={"1 NOTCH","2 NOTCH","3 NOTCH"};
     static const char *bools[]={"OFF","ON"};
     static const char *timeout[]={"8 SECONDS","12 SECONDS","20 SECONDS"};
+    static const char *gdiformats[]={"XRGB32 (BGR)","BGRX32 (RGB)"};
     const char *const *items=NULL;
     int count=0;
     switch(ui->choice_menu) {
@@ -190,6 +191,7 @@ static void dropdown_overlay(const ConnectionUI *ui)
     case 4: items=scroll;count=3;break;
     case 5: case 6: case 8: items=bools;count=2;break;
     case 7: items=timeout;count=3;break;
+    case 9: items=gdiformats;count=2;break;
     default:return;
     }
     fill(27,49,270,146,C(217,222,229));
@@ -266,7 +268,7 @@ static void main_panel(const ConnectionUI *ui)
         default:
             snprintf(value,sizeof(value),"%u SEC",(unsigned)o->timeout_seconds);
             setting_row(0,"CONNECT TIMEOUT",value,1);
-            setting_row(1,"SECURITY","NLA REQUIRED",0);
+            setting_row(1,"GDI FORMAT",ui->gdi_bgrx_for_run?"BGRX32":"XRGB32",1);
             setting_row(2,"CACHE PASSWORD",
                          ui->cache_password_for_run?"THIS RUN: ON":"THIS RUN: OFF",1);
             break;

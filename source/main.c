@@ -99,7 +99,8 @@ static void full_session(const ConnectionUI *state)
                                   "SIGN IN AND VERIFY CERTIFICATE",false);
         gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
         rdp_diag_log_event("app-connect-attempt", 0, 0, 0);
-        result=freerdp_3ds_run(&state->current,&state->options,state->cache_password_for_run,message,sizeof(message));
+        result=freerdp_3ds_run(&state->current,&state->options,state->cache_password_for_run,
+                              state->gdi_bgrx_for_run,message,sizeof(message));
         rdp_diag_log_event("app-connect-return", (unsigned long)(result != 0), 0, 0);
         /* Always return to a deliberate choice after the FreeRDP context
          * and worker have been fully torn down. Reconnect never reuses an
