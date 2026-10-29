@@ -1106,9 +1106,14 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
             cstage == 4 ? freerdp_3ds_rdp_init_stage() : 0u;
         const unsigned long saved_errno = (unsigned long)errno;
         const unsigned long winpr_error = (unsigned long)GetLastError();
+        const unsigned int tstage =
+            (cstage == 4 && rstage == 17) ? freerdp_3ds_timer_init_stage() : 0u;
         rdp_diag_log_event("freerdp-context-fail", cstage, rstage, saved_errno);
         rdp_diag_log_event("freerdp-context-winpr", winpr_error, 0, 0);
-        snprintf(reason, reason_size, "FreeRDP ctx C%u R%u", cstage, rstage);
+        if (tstage)
+            rdp_diag_log_event("freerdp-timer-stage", tstage, 0, 0);
+        snprintf(reason, reason_size, "FreeRDP ctx C%u R%u T%u",
+                 cstage, rstage, tstage);
         goto done;
     }
     initialized = true;
