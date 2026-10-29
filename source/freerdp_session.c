@@ -1157,7 +1157,9 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *rea
                 ((unsigned long)(used & 0xFFFFu) << 16) | (limit & 0xFFFFu),
                 heap_ok);
         }
-        log_loopback_budget(true);
+        /* Recovery build: avoid creating more SOC sockets after a failure.
+         * Core-side checkpoints already preserve the failing socket count. */
+        log_loopback_budget(false);
         snprintf(reason, reason_size, "FreeRDP ctx C%u R%u T%u",
                  cstage, rstage, tstage);
         goto done;
