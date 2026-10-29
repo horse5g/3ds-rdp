@@ -36,9 +36,9 @@ static void check_pthreads(void)
     int rc_set = rc_key == 0 ? pthread_setspecific(key, (void *)0x1) : -1;
     int rc_get = rc_set == 0 && pthread_getspecific(key) == (void *)0x1;
     if (rc_key == 0) pthread_key_delete(key);
-    printf("pthread once %d,%d calls %u\\n", rc_once, rc_once_again, once_count);
-    printf("mutex init/lock/unlock %d/%d/%d\\n", rc_mutex, rc_lock, rc_unlock);
-    printf("TLS key/create/set/get %d/%d/%d\\n", rc_key, rc_set, rc_get);
+    printf("pthread once %d,%d calls %u\n", rc_once, rc_once_again, once_count);
+    printf("mutex init/lock/unlock %d/%d/%d\n", rc_mutex, rc_lock, rc_unlock);
+    printf("TLS key/create/set/get %d/%d/%d\n", rc_key, rc_set, rc_get);
 }
 
 static void show_error(const char *what)
@@ -70,8 +70,8 @@ int main(void)
     const int base_ok = OPENSSL_init_crypto(OPENSSL_INIT_BASE_ONLY, NULL);
     const unsigned int base_stage = ossl_3ds_crypto_init_stage();
     const int crypto_ok = OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL);
-    printf("crypto BASE %d stage %u\\n", base_ok, base_stage);
-    printf("crypto FULL %d stage %u\\n",
+    printf("crypto BASE %d stage %u\n", base_ok, base_stage);
+    printf("crypto FULL %d stage %u\n",
            crypto_ok, ossl_3ds_crypto_init_stage());
 
     /* Isolate PS-backed SEED-SRC from CTR-DRBG and its thread-local RNGs.
