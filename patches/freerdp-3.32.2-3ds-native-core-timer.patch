@@ -1,0 +1,125 @@
+diff --git a/libfreerdp/core/timer.c b/libfreerdp/core/timer.c
+--- a/libfreerdp/core/timer.c
++++ b/libfreerdp/core/timer.c
+@@ -27,7 +27,22 @@
+ #include "utils.h"
+ #include "timer.h"
+ 
++#ifdef __3DS__
++#include <3ds.h>
++#include "rdp_pthread_tsd.h"
++/* O3DS: keep native timer diagnostic state after freerdp_context_new()
++ * destroys partially constructed objects. */
++static unsigned int o3ds_timer_init_stage;
++unsigned int freerdp_3ds_timer_init_stage(void)
++{
++    return o3ds_timer_init_stage;
++}
++#define O3DS_TIMER_STAGE(value) (o3ds_timer_init_stage = (value))
++#else
++#define O3DS_TIMER_STAGE(value) ((void)0)
++#endif
++
+ #if !defined(EMSCRIPTEN)
+ #define FREERDP_TIMER_SUPPORTED
+ #endif
+ #define TAG FREERDP_TAG("timer")
+@@ -47,7 +62,11 @@
+ {
+ 	rdpRdp* rdp;
+ 	wArrayList* entries;
+-	HANDLE thread;
++#ifdef __3DS__
++	Thread thread;
++#else
++	HANDLE thread;
++#endif
+ 	HANDLE event;
+ 	HANDLE mainevent;
+ 	size_t maxIdx;
+@@ -229,7 +248,18 @@
+ }
+ #endif
+ 
++#if defined(__3DS__) && defined(FREERDP_TIMER_SUPPORTED)
++static void o3ds_timer_entry(void* argument)
++{
++    /* Keep FreeRDP's actual timer expiry/WinPR event scheduling logic.
++     * Only the thread's creation/join mechanism is platform-specific:
++     * WinPR CreateThread calls pthread_create, unavailable on this O3DS. */
++    (void)timer_thread(argument);
++    rdp_3ds_tsd_cleanup_current_thread();
++}
++#endif
++
+ void freerdp_timer_free(FreeRDPTimer* timer)
+ {
+ 	if (!timer)
+ 		return;
+@@ -240,8 +270,16 @@
+ 
+ 	if (timer->thread)
+ 	{
+-		(void)WaitForSingleObject(timer->thread, INFINITE);
++#ifdef __3DS__
++        (void)threadJoin(timer->thread, U64_MAX);
++#else
++		(void)WaitForSingleObject(timer->thread, INFINITE);
++#endif
+-		CloseHandle(timer->thread);
++#ifdef __3DS__
++        threadFree(timer->thread);
++#else
++		CloseHandle(timer->thread);
++#endif
+ 	}
+ 	if (timer->mainevent)
+ 		CloseHandle(timer->mainevent);
+@@ -267,12 +305,14 @@
+ FreeRDPTimer* freerdp_timer_new(rdpRdp* rdp)
+ {
+ 	WINPR_ASSERT(rdp);
++	O3DS_TIMER_STAGE(1); /* timer allocation */
+ 	FreeRDPTimer* timer = calloc(1, sizeof(FreeRDPTimer));
+ 	if (!timer)
+ 		return nullptr;
+ 	timer->rdp = rdp;
+ 
++	O3DS_TIMER_STAGE(2); /* synchronized timer entries */
+ 	timer->entries = ArrayList_New(TRUE);
+ 	if (!timer->entries)
+ 		goto fail;
+ 
+@@ -283,21 +323,31 @@
+ 		obj->fnObjectFree = free;
+ 	}
+ 
++	O3DS_TIMER_STAGE(3); /* WinPR timer wake event */
+ 	timer->event = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+ 	if (!timer->event)
+ 		goto fail;
+ 
++	O3DS_TIMER_STAGE(4); /* WinPR timer main-loop event */
+ 	timer->mainevent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+ 	if (!timer->mainevent)
+ 		goto fail;
+ 
+ #if defined(FREERDP_TIMER_SUPPORTED)
+ 	timer->running = true;
+-	timer->thread = CreateThread(nullptr, 0, timer_thread, timer, 0, nullptr);
++    O3DS_TIMER_STAGE(5); /* timer worker */
++#ifdef __3DS__
++    /* FreeRDP/WinPR's pthread_create path does not create libctru threads.
++     * Keep the existing timer worker and use native, joinable ARM11 thread. */
++    timer->thread = threadCreate(o3ds_timer_entry, timer, 64 * 1024, 0x30, -2, false);
++#else
++	imer->thread = CreateThread(nullptr, 0, timer_thread, timer, 0, nullptr);
++#endif
+ 	if (!timer->thread)
+ 		goto fail;
+ #endif
++	O3DS_TIMER_STAGE(6); /* timer constructed successfully */
+ 	return timer;
+ 
+ fail:
+ 	freerdp_timer_free(timer);
