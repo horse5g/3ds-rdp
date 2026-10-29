@@ -186,8 +186,10 @@ the top screen's physical 400x240 pixels.
 
 A graphical **Connecting** screen precedes the experimental FreeRDP
 login/certificate callbacks, followed by explicit graphical **Retry**
-and **Back** actions on failure. There is **no working cancel during the
-synchronous TCP/TLS handshake yet**. Retry is not automatic.
+and **Back** actions on failure. The newer core connection worker also
+supports **B/START cancellation** during connection, with a pending-cancel
+screen while an active socket operation completes. Cancel is not guaranteed
+to interrupt a blocked OS call immediately. Retry is never automatic.
 
 The Trusted Certificates manager keeps the full SHA-256 fingerprint
 visible on the top screen and adds graphical bottom-screen controls,
