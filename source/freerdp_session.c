@@ -645,6 +645,30 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
             session_pad_update(&pad, false, -1, -1, &action);
         }
         if (action.redraw) pad_redraw = true;
+        /* A is reserved for drag. D-pad nudges the remote pointer and thus
+           pans the magnified viewport. Y always returns to fit view. */
+        if(down & KEY_Y){zoom.target=1.0f;pad_redraw=true;}
+        if(down & KEY_R){
+            float native_zoom=(float)remote_w/(float)RDP_W;
+            float vertical=(float)remote_h/(float)RDP_H;
+            if(vertical>native_zoom)native_zoom=vertical;
+            if(native_zoom<1.0f)native_zoom=1.0f;
+            zoom.target=zoom.target>1.01f?1.0f:native_zoom;
+            pad_redraw=true;
+        }
+        if(input && (held & (KEY_DUP|KEY_DDOWN|KEY_DLEFT|KEY_DRIGHT))){
+            int nx=pad.pointer_x+(((held & KEY_DRIGHT)!=0)?8:0)
+                                -(((held & KEY_DLEFT)!=0)?8:0);
+            int ny=pad.pointer_y+(((held & KEY_DDOWN)!=0)?8:0)
+                                -(((held & KEY_DUP)!=0)?8:0);
+            if(nx<0)nx=0;if(ny<0)ny=0;
+            if(nx>=remote_w)nx=remote_w-1;
+            if(ny>=remote_h)ny=remote_h-1;
+            if(nx!=pad.pointer_x || ny!=pad.pointer_y){
+                pad.pointer_x=nx;pad.pointer_y=ny;
+                action.pointer_moved=true;pad_redraw=true;
+            }
+        }
         if (action.pointer_moved && zoom.visible > 1.001f)
             pad_redraw=true; /* keep viewport tracking the remote cursor */
         if (action.disconnect || (down & KEY_START)) {
