@@ -58,6 +58,7 @@ static const Glyph font[] = {
     { '?',{0x02,0x01,0x51,0x09,0x06} },{ '!',{0x00,0x00,0x5f,0x00,0x00} },
     { '#',{0x14,0x7f,0x14,0x7f,0x14} },{ '*',{0x14,0x08,0x3e,0x08,0x14} },
     { '>',{0x00,0x41,0x22,0x14,0x08} },{ '<',{0x08,0x14,0x22,0x41,0x00} },
+    { '^',{0x04,0x02,0x01,0x02,0x04} },
     { '=',{0x14,0x14,0x14,0x14,0x14} },{ ',',{0x00,0x80,0x60,0x00,0x00} },
     { '%',{0x63,0x13,0x08,0x64,0x63} },{ '|',{0x00,0x00,0x7f,0x00,0x00} }
 };
@@ -323,36 +324,37 @@ void connection_ui_draw(const ConnectionUI *ui)
  * The top 3DS screen remains dedicated to the Windows desktop. */
 void session_pad_draw(const SessionPad *pad, int zoom_percent)
 {
-    u16 width=0, height=0;
-    uint32_t active, panel;
-    char line[60];
+    u16 width=0,height=0;
+    char line[64];
     if (!pad) return;
     fb=(uint16_t*)gfxGetFramebuffer(GFX_BOTTOM,GFX_LEFT,&width,&height);
-    if (!fb) return;
-    (void)width;
-    (void)height;
-    fill(0,0,320,240,BG);
+    if(!fb)return;
+    (void)width;(void)height;
+    fill(0,0,320,240,C(221,225,231));
 
-    /* Top row of the *touchscreen*: never obscure the desktop above. */
-    fill(0,0,320,32,NAVY);
-    active=pad->disconnect_armed ? C(191,46,47) : C(143,42,54);
-    fill(2,2,104,28,active);
-    label(10,13,pad->disconnect_armed ? "CONFIRM EXIT" : "DISCONNECT",105,WHITE);
-    fill(109,2,101,28,pad->settings_open ? BLUE : NAVY);
-    outline(109,2,101,28,BORDER);
-    label(119,13,pad->settings_open ? "BACK TO PAD" : "SETTINGS",208,WHITE);
-    fill(213,2,105,28,BLUE);
-    label(222,13,pad->keyboard_open ? "CLOSE KEYS" : "KEYBOARD",316,WHITE);
+    /* Four compact toolbar buttons: keep the desktop unobstructed above. */
+    static const char *titles[]={"DISCONNECT","SETTINGS","KEYBOARD","HELP"};
+    for(int i=0;i<4;++i){
+        const int x=i*80;
+        const bool active=(i==0 && pad->disconnect_armed) ||
+                          (i==1 && pad->settings_open) ||
+                          (i==2 && pad->keyboard_open) ||
+                          (i==3 && pad->help_open);
+        const uint32_t fill_color=i==0 && pad->disconnect_armed ?
+            C(160,61,67):active?BLUE:PALE;
+        fill(x,0,80,32,fill_color);
+        outline(x,0,80,32,BORDER);
+        label(x+7,13,i==0 && pad->disconnect_armed?"CONFIRM?":titles[i],
+              x+79,active?WHITE:INK);
+    }
 
-    if (pad->keyboard_open) {
-        int row,col;
-        fill(0,36,320,204,BG);
-        for(row=0;row<4;++row) for(col=0;col<4;++col) {
-            int x=4+col*78,y=40+row*48;
-            int key=session_pad_keyboard_key(pad,x+20,y+20);
-            const char *name=(key==SK_FN && pad->fn_page) ?
-                             "BASIC" : session_key_label(key);
-            bool selected = (key==SK_CTRL && (pad->key_mods&SK_MOD_CTRL)) ||
+    if(pad->keyboard_open){
+        for(int row=0;row<4;++row)for(int col=0;col<4;++col){
+            const int x=4+col*78,y=40+row*48;
+            const int key=session_pad_keyboard_key(pad,x+20,y+20);
+            const char *name=(key==SK_FN && pad->fn_page)?
+                             "BASIC":session_key_label(key);
+            const bool selected=(key==SK_CTRL && (pad->key_mods&SK_MOD_CTRL)) ||
                 (key==SK_ALT && (pad->key_mods&SK_MOD_ALT)) ||
                 (key==SK_SHIFT && (pad->key_mods&SK_MOD_SHIFT)) ||
                 (key==SK_WIN && (pad->key_mods&SK_MOD_WIN));
@@ -362,67 +364,85 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
         }
         return;
     }
-    if (pad->settings_open) {
-        fill(6,37,308,195,WHITE);
-        outline(6,37,308,195,BORDER);
-        label(15,46,"SESSION INPUT SETTINGS",305,INK);
-        panel=C(233,241,249);
-        fill(12,56,296,48,panel);
-        outline(12,56,296,48,BORDER);
-        snprintf(line,sizeof(line),"CURSOR SPEED: %dX  (TAP TO CHANGE)",pad->sensitivity);
-        label(20,76,line,301,INK);
-        fill(12,108,296,48,panel);
-        outline(12,108,296,48,BORDER);
-        snprintf(line,sizeof(line),"SCROLL STEP: %d  (TAP TO CHANGE)",pad->scroll_amount);
-        label(20,128,line,301,INK);
-        fill(12,160,296,48,panel);
-        outline(12,160,296,48,BORDER);
+    if(pad->help_open){
+        fill(5,37,310,196,WHITE);
+        outline(5,37,310,196,BORDER);
+        label(15,46,"TOUCHPAD HELP",306,NAVY);
+        label(15,66,"SWIPE: MOVE MOUSE",307,INK);
+        label(15,82,"TAP: LEFT CLICK",307,INK);
+        label(15,98,"A + SWIPE: DRAG  /  B: RIGHT",307,INK);
+        label(15,114,"SCROLL: USE RIGHT-HAND STRIP",307,INK);
+        label(15,130,"X OR KEYBOARD: TYPE / SHORTCUTS",307,INK);
+        label(15,146,"L + CIRCLE ROTATION: SMOOTH ZOOM",307,INK);
+        label(15,162,"Y: FIT    R: DETAIL / FIT",307,INK);
+        label(15,178,"START: DISCONNECT",307,INK);
+        fill(14,199,292,1,C(224,230,238));
+        label(17,211,"TAP HELP AGAIN TO CLOSE",304,MUTED);
+        return;
+    }
+    if(pad->settings_open){
+        fill(5,37,310,195,WHITE);
+        outline(5,37,310,195,BORDER);
+        label(14,46,"INPUT SETTINGS",307,NAVY);
+        fill(12,56,296,48,WHITE);outline(12,56,296,48,BORDER);
+        snprintf(line,sizeof(line),"CURSOR SPEED: %d X",pad->sensitivity);
+        label(20,76,line,290,BLUE);label(277,76,"V",301,BLUE);
+        fill(12,108,296,48,WHITE);outline(12,108,296,48,BORDER);
+        snprintf(line,sizeof(line),"SCROLL STEP: %d NOTCH",pad->scroll_amount);
+        label(20,128,line,291,BLUE);label(277,128,"V",301,BLUE);
+        fill(12,160,296,48,WHITE);outline(12,160,296,48,BORDER);
         label(20,180,pad->reverse_scroll ?
-              "REVERSE SCROLL: ON" : "REVERSE SCROLL: OFF",301,INK);
-        label(16,220,"L+CIRCLE ROTATE: ZOOM 100%-300%",304,MUTED);
+              "REVERSE SCROLL: ON" : "REVERSE SCROLL: OFF",291,BLUE);
+        label(277,180,"V",301,BLUE);
+        label(16,220,"BLUE LABELS ARE EDITABLE",304,MUTED);
         return;
     }
 
-    fill(4,36,262,175,C(249,251,254));
-    outline(4,36,262,175,BORDER);
-    label(20,45,"TOUCHPAD",256,MUTED);
+    /* Laptop trackpad: soft outer lip, recessed gray contact surface.
+     * Instructions are deliberately hidden behind the Help button. */
+    fill(3,35,264,177,C(180,187,196));
+    outline(3,35,264,177,C(139,149,161));
+    fill(6,38,258,170,C(211,216,224));
+    outline(6,38,258,170,C(158,169,182));
+    fill(9,41,252,164,C(221,225,232));
+    fill(9,41,252,1,C(242,244,246));
+    fill(9,204,252,1,C(182,189,199));
+    fill(15,47,16,1,C(167,175,186));
+    fill(15,47,1,16,C(167,175,186));
+    fill(240,47,15,1,C(167,175,186));
+    fill(254,47,1,16,C(167,175,186));
+    fill(15,193,16,1,C(167,175,186));
+    fill(15,178,1,16,C(167,175,186));
+    fill(240,193,15,1,C(167,175,186));
+    fill(254,178,1,16,C(167,175,186));
     snprintf(line,sizeof(line),"ZOOM %d%%",zoom_percent);
-    label(190,45,line,263,BLUE);
-    label(24,94,"DRAG FINGER TO MOVE MOUSE",258,MUTED);
-    label(28,109,"LIFT AND REPOSITION ANYTIME",258,MUTED);
-    label(57,126,"TAP TO LEFT CLICK",258,MUTED);
-    label(20,177,"L+CIRCLE:ZOOM Y:FIT R:1:1",262,BLUE);
-    label(20,193,"A: DRAG  B: RIGHT CLICK",262,MUTED);
-    /* Thin inner grip marks, no cursor teleport on contact. */
-    fill(16,62,238,1,C(226,234,243));
-    fill(16,184,238,1,C(226,234,243));
+    label(19,53,line,251,MUTED);
+    label(68,120,"TOUCHPAD",205,C(147,155,166));
+    label(67,140,"SWIPE TO MOVE",225,C(160,168,178));
+    if(pad->touching && pad->captured==PAD_AREA)
+        outline(8,40,254,166,C(105,145,187));
 
-    /* Vertical scroll controls occupy the entire right edge. */
-    fill(270,36,46,42,BLUE);
-    outline(270,36,46,42,NAVY);
-    label(277,53,"UP",313,WHITE);
-
-    fill(270,80,46,111,C(222,234,247));
+    /* Proper independent vertical scroll control, not a fake slider
+     * that moves the desktop viewport rather than remote wheel notches. */
+    fill(270,36,46,42,WHITE);outline(270,36,46,42,BORDER);
+    label(285,53,"UP",313,BLUE);
+    fill(270,80,46,111,C(229,233,239));
     outline(270,80,46,111,BORDER);
-    fill(289,88,8,95,BORDER);
-    fill(286,129,14,19,BLUE);
-    label(274,94,"SC",312,INK);
-    label(274,108,"ROLL",312,INK);
-    label(274,171,"DRAG",312,INK);
+    fill(290,88,5,94,C(190,199,210));
+    fill(285,122,15,29,C(135,155,178));
+    outline(285,122,15,29,C(107,127,150));
+    fill(270,193,46,45,WHITE);outline(270,193,46,45,BORDER);
+    label(279,212,"DOWN",314,BLUE);
 
-    fill(270,193,46,45,BLUE);
-    outline(270,193,46,45,NAVY);
-    label(276,213,"DOWN",315,WHITE);
-
-    fill(4,214,128,24,WHITE);
-    outline(4,214,128,24,BORDER);
-    label(45,223,"LEFT",128,INK);
-    fill(137,214,129,24,WHITE);
-    outline(137,214,129,24,BORDER);
-    label(174,223,"RIGHT",260,INK);
+    /* Two inset mechanical-button zones; same touch geometry as before. */
+    fill(4,214,128,24,C(240,243,246));
+    outline(4,214,128,24,C(159,168,179));
+    fill(137,214,129,24,C(240,243,246));
+    outline(137,214,129,24,C(159,168,179));
+    label(50,223,"LEFT",127,INK);
+    label(176,223,"RIGHT",260,INK);
 }
 
- 
 void connection_ui_draw_status(const char *heading,const char *message,bool retry)
 {
     u16 w=0,h=0;
