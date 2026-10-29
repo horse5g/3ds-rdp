@@ -647,11 +647,19 @@ static BOOL end_paint(rdpContext *context)
  * decoder is at fault, not the 3DS framebuffer write path. */
 static void log_desktop_color_probe(const rdpGdi *gdi)
 {
-    static unsigned probes;
+    static unsigned frame_number, probes;
     unsigned sums[3] = {0,0,0}, peaks[3] = {0,0,0};
     unsigned above[3] = {0,0,0}, whites = 0;
     const unsigned samples = 16u * 12u;
-    if (!gdi || !rdp_diag_log_enabled() || probes >= 4u)
+    if (!gdi || probes >= 4u)
+        return;
+    /* Sample after the desktop has had time to paint. A few initial frames
+     * may still show a blank login-to-desktop transition. */
+    ++frame_number;
+    if (frame_number != 1u && frame_number != 8u &&
+        frame_number != 32u && frame_number != 96u)
+        return;
+    if (!rdp_diag_log_enabled())
         return;
     ++probes;
     for (unsigned row = 0; row < 12u; ++row) {
