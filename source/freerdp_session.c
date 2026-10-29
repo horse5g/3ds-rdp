@@ -641,6 +641,46 @@ static BOOL end_paint(rdpContext *context)
 
 /* Full GDI surface copy only when a paint has occurred. The 3DS uses two
  * framebuffers; swapping on idle iterations otherwise exposes stale frames. */
+/* Opt-in only. Aggregate a sparse 16x12 sample of decoded GDI pixels.
+ * No screenshots, hostnames, remote text, or individual pixels are logged.
+ * If desktop blues/whites disappear before RGB565 output, the source
+ * decoder is at fault, not the 3DS framebuffer write path. */
+static void log_desktop_color_probe(const rdpGdi *gdi)
+{
+    static unsigned probes;
+    unsigned sums[3] = {0,0,0}, peaks[3] = {0,0,0};
+    unsigned above[3] = {0,0,0}, whites = 0;
+    const unsigned samples = 16u * 12u;
+    if (!gdi || !rdp_diag_log_enabled() || probes >= 4u)
+        return;
+    ++probes;
+    for (unsigned row = 0; row < 12u; ++row) {
+        unsigned sy = ((row * 2u + 1u) * (unsigned)gdi->height) / 24u;
+        if (sy >= (unsigned)gdi->height) sy = (unsigned)gdi->height - 1u;
+        for (unsigned col = 0; col < 16u; ++col) {
+            unsigned sx = ((col * 2u + 1u) * (unsigned)gdi->width) / 32u;
+            if (sx >= (unsigned)gdi->width) sx = (unsigned)gdi->width - 1u;
+            const u8 *px = gdi->primary_buffer + (size_t)sy*gdi->stride + (size_t)sx*4;
+            for (unsigned k=0; k<3u; ++k) {
+                const unsigned value = px[k];
+                sums[k] += value;
+                if (value > peaks[k]) peaks[k] = value;
+                if (value >= 192u) ++above[k];
+            }
+            if (px[0]>=240u && px[1]>=240u && px[2]>=240u)
+                ++whites;
+        }
+    }
+    rdp_diag_log_event("gdi-format", (unsigned long)gdi->dstFormat,
+                       (unsigned long)gdi->width, (unsigned long)gdi->height);
+    /* Channel order is raw B,G,R for PIXEL_FORMAT_XRGB32, not LCD RGB. */
+    rdp_diag_log_event("gdi-avg-bgr", sums[0]/samples,
+                       sums[1]/samples, sums[2]/samples);
+    rdp_diag_log_event("gdi-max-bgr", peaks[0], peaks[1], peaks[2]);
+    rdp_diag_log_event("gdi-high-bgr", above[0], above[1], above[2]);
+    rdp_diag_log_event("gdi-white-count", whites, samples, probes);
+}
+
 static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
                                int pointer_x, int pointer_y)
 {
@@ -684,6 +724,7 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
             frame[(size_t)x*RDP_H+(RDP_H-1-y)]=rdp_bgrx_to_rgb565(src);
         }
     }
+    log_desktop_color_probe(gdi);
     session_cursor_overlay(frame,RDP_W,RDP_H,&system_cursor,
                            cursor_remote_x,cursor_remote_y,
                            view.left_q16,view.top_q16,
@@ -725,6 +766,8 @@ static BOOL post_connect(freerdp *instance)
                  "Server requested unsupported desktop size");
         return FALSE;
     }
+    /* Consistently decode into little-endian B,G,R,X; the 3DS blitter
+     * converts those channels into the top screen's native RGB565. */
     if (!gdi_init(instance, PIXEL_FORMAT_XRGB32)) {
         snprintf(post_connect_failure,sizeof(post_connect_failure),
                  "RDP graphics allocation failed (O3DS memory)");
