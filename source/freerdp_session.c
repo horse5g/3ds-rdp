@@ -4,6 +4,7 @@
 #include "cert_store.h"
 #include "session_pad.h"
 #include "session_zoom.h"
+#include "session_cursor.h"
 #include "rdp_pixels.h"
 #include "session_wait.h"
 #include <stdio.h>
@@ -26,6 +27,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
 #include <freerdp/error.h>
 #include <freerdp/settings.h>
 #include <freerdp/gdi/gdi.h>
+#include <freerdp/graphics.h>
+#include <freerdp/codec/color.h>
 #include <freerdp/update.h>
 #include <freerdp/input.h>
 #include <winpr/synch.h>
@@ -62,6 +65,8 @@ static uint16_t requested_port;
 static PrintConsole trust_console;
 static char cert_failure[100];
 static bool desktop_dirty;
+static SessionCursor system_cursor;
+static int cursor_remote_x=RDP_W/2,cursor_remote_y=RDP_H/2;
 
 /* 0 = optional pin absent, 1 = loaded, -1 = malformed or I/O error */
 static int load_cert_pin(RdpCertPin *pin)
@@ -280,6 +285,74 @@ static DWORD deny_unknown_certificate(freerdp *instance, const char *host, UINT1
     return 0;
 }
 
+/* Windows cursor shapes are transmitted as RDP pointer updates. Register
+ * FreeRDP's pointer cache callbacks and decode BGRA32, preserving the server
+ * hotspot and alpha channel instead of substituting a fixed 3DS arrow. */
+typedef struct {
+    rdpPointer pointer; /* must be first for FreeRDP's allocator */
+    BYTE *pixels;
+} Pointer3ds;
+
+static BOOL pointer_new(rdpContext *context,rdpPointer *base)
+{
+    Pointer3ds *p=(Pointer3ds *)base;
+    size_t len;
+    if(!p||!context||!context->gdi)return FALSE;
+    p->pixels=NULL;
+    if(base->width>RDP_CURSOR_MAX||base->height>RDP_CURSOR_MAX ||
+       !base->width||!base->height)return TRUE; /* safe fallback */
+    len=(size_t)base->width*base->height*4;
+    p->pixels=(BYTE *)malloc(len);
+    if(!p->pixels)return FALSE;
+    if(!freerdp_image_copy_from_pointer_data(p->pixels,PIXEL_FORMAT_BGRA32,0,0,0,
+          base->width,base->height,base->xorMaskData,base->lengthXorMask,
+          base->andMaskData,base->lengthAndMask,base->xorBpp,
+          &context->gdi->palette)){
+        free(p->pixels);p->pixels=NULL;return FALSE;
+    }
+    return TRUE;
+}
+static void pointer_free(rdpContext *context,rdpPointer *base)
+{
+    Pointer3ds *p=(Pointer3ds *)base;
+    (void)context;
+    if(p){free(p->pixels);p->pixels=NULL;}
+}
+static BOOL pointer_set(rdpContext *context,rdpPointer *base)
+{
+    Pointer3ds *p=(Pointer3ds *)base;
+    (void)context;
+    if(!p || !p->pixels){
+        system_cursor.visible=false;desktop_dirty=true;return TRUE;
+    }
+    if(!session_cursor_set(&system_cursor,p->pixels,(int)base->width,
+                           (int)base->height,(int)base->xPos,(int)base->yPos))
+        system_cursor.visible=false;
+    desktop_dirty=true;
+    return TRUE;
+}
+static BOOL pointer_null(rdpContext *context)
+{
+    (void)context;
+    system_cursor.visible=false;desktop_dirty=true;return TRUE;
+}
+static BOOL pointer_default(rdpContext *context)
+{
+    (void)context;
+    /* A default pointer is not a cached server bitmap. Keep the last known
+       Windows cursor where available, otherwise a safe generic fallback. */
+    system_cursor.visible=system_cursor.shape_known;
+    desktop_dirty=true;
+    return TRUE;
+}
+static BOOL pointer_position(rdpContext *context,UINT32 x,UINT32 y)
+{
+    (void)context;
+    cursor_remote_x=x<RDP_W?(int)x:RDP_W-1;
+    cursor_remote_y=y<RDP_H?(int)y:RDP_H-1;
+    desktop_dirty=true;return TRUE;
+}
+
 static BOOL begin_paint(rdpContext *context)
 {
     if (context && context->gdi && context->gdi->primary &&
@@ -342,6 +415,10 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
             frame[(size_t)x*RDP_H+(RDP_H-1-y)]=rdp_bgrx_to_rgb565(src);
         }
     }
+    session_cursor_overlay(frame,RDP_W,RDP_H,&system_cursor,
+                           cursor_remote_x,cursor_remote_y,
+                           view.left_q16,view.top_q16,
+                           view.width_q16,view.height_q16);
     return TRUE;
 }
 
@@ -364,6 +441,14 @@ static BOOL post_connect(freerdp *instance)
     ctx->update->BeginPaint = begin_paint;
     ctx->update->EndPaint = end_paint;
     ctx->update->DesktopResize = desktop_resize;
+    if(ctx->graphics){
+        rdpPointer proto={0};
+        proto.size=sizeof(Pointer3ds);
+        proto.New=pointer_new;proto.Free=pointer_free;
+        proto.Set=pointer_set;proto.SetNull=pointer_null;
+        proto.SetDefault=pointer_default;proto.SetPosition=pointer_position;
+        graphics_register_pointer(ctx->graphics,&proto);
+    }
     return TRUE;
 }
 
@@ -501,6 +586,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
     desktop_dirty = false;
+    session_cursor_reset(&system_cursor);
+    cursor_remote_x=RDP_W/2;cursor_remote_y=RDP_H/2;
     if (!freerdp_connect(client)) {
         if (cert_failure[0])
             snprintf(reason, reason_size, "%.90s", cert_failure);
@@ -583,6 +670,8 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
         }
         if (input) {
             if (action.pointer_moved) {
+                cursor_remote_x=pad.pointer_x;cursor_remote_y=pad.pointer_y;
+                desktop_dirty=true;
                 (void)freerdp_input_send_mouse_event(input, PTR_FLAGS_MOVE,
                          (UINT16)pad.pointer_x, (UINT16)pad.pointer_y);
             }
