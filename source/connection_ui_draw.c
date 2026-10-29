@@ -188,7 +188,7 @@ static void dropdown_overlay(const ConnectionUI *ui)
     case 2: items=depth;count=2;break;
     case 3: items=speed;count=3;break;
     case 4: items=scroll;count=3;break;
-    case 5: case 6: items=bools;count=2;break;
+    case 5: case 6: case 8: items=bools;count=2;break;
     case 7: items=timeout;count=3;break;
     default:return;
     }
@@ -267,7 +267,8 @@ static void main_panel(const ConnectionUI *ui)
             snprintf(value,sizeof(value),"%u SEC",(unsigned)o->timeout_seconds);
             setting_row(0,"CONNECT TIMEOUT",value,1);
             setting_row(1,"SECURITY","NLA REQUIRED",0);
-            setting_row(2,"CERTIFICATES","L + X TO VIEW",0);
+            setting_row(2,"CACHE PASSWORD",
+                         ui->cache_password_for_run?"THIS RUN: ON":"THIS RUN: OFF",1);
             break;
         }
         label(13,172,"BLUE BOX = SETTING; GRAY = STATUS",294,MUTED);
