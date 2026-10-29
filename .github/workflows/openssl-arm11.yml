@@ -39,14 +39,22 @@ jobs:
         continue-on-error: true
         run: bash scripts/link-openssl-3ds.sh
       - name: Build standalone OpenSSL PS RNG smoke-test 3DSX
-        continue-on-error: true
-        run: bash scripts/link-openssl-3ds.sh runtime
-      - uses: actions/upload-artifact@v4
-        if: success()
+        run: |
+          bash scripts/link-openssl-3ds.sh runtime
+          test -s build/openssl-3ds/openssl-rng-smoke.3dsx
+      # Keep the runnable .3dsx separate from developer .a archives.
+      # Uploading archives alone must NEVER imply the smoke app was built.
+      - name: Upload standalone O3DS RNG diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: openssl-rng-smoke-o3ds
+          path: build/openssl-3ds/openssl-rng-smoke.3dsx
+          if-no-files-found: error
+      - name: Upload OpenSSL static developer archives
+        uses: actions/upload-artifact@v4
         with:
           name: openssl-arm11-static-experimental
           path: |
             build/openssl-3ds/libcrypto.a
             build/openssl-3ds/libssl.a
-            build/openssl-3ds/openssl-rng-smoke.3dsx
           if-no-files-found: error
