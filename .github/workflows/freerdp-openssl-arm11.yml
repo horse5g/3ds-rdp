@@ -148,6 +148,13 @@ jobs:
             full-client-syntax.log
             build/freerdp-3ds/CMakeCache.txt
             build/freerdp-3ds/CMakeFiles/CMakeConfigureLog.yaml
+      - name: Upload runnable full O3DS RDP client
+        if: steps.fullapp.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: 3ds-rdp-full-o3ds
+          path: 3ds-rdp-full.3dsx
+          if-no-files-found: error
       - name: Upload compiled FreeRDP libraries
         if: always()
         uses: actions/upload-artifact@v4
