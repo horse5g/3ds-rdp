@@ -10,9 +10,10 @@
 #include <stdio.h>
 
 #ifndef RDP_FULL_CLIENT
-int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
+int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options, char *reason, size_t reason_size)
 {
     (void)cfg;
+    (void)options;
     if (reason && reason_size)
         snprintf(reason, reason_size, "FreeRDP not linked in this build");
     return -1;
@@ -67,6 +68,7 @@ static char cert_failure[100];
 static bool desktop_dirty;
 static SessionCursor system_cursor;
 static int cursor_remote_x=RDP_W/2,cursor_remote_y=RDP_H/2;
+static int remote_w=RDP_W,remote_h=RDP_H;
 
 /* 0 = optional pin absent, 1 = loaded, -1 = malformed or I/O error */
 static int load_cert_pin(RdpCertPin *pin)
@@ -348,8 +350,8 @@ static BOOL pointer_default(rdpContext *context)
 static BOOL pointer_position(rdpContext *context,UINT32 x,UINT32 y)
 {
     (void)context;
-    cursor_remote_x=x<RDP_W?(int)x:RDP_W-1;
-    cursor_remote_y=y<RDP_H?(int)y:RDP_H-1;
+    cursor_remote_x=x<(UINT32)remote_w?(int)x:remote_w-1;
+    cursor_remote_y=y<(UINT32)remote_h?(int)y:remote_h-1;
     desktop_dirty=true;return TRUE;
 }
 
@@ -394,7 +396,7 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
     frame=(uint16_t *)gfxGetFramebuffer(GFX_TOP,GFX_LEFT,&fb_width,&fb_height);
     if (!frame || fb_width < RDP_H || fb_height < RDP_W) return FALSE;
 
-    view=session_zoom_view(zoom,pointer_x,pointer_y,RDP_W,RDP_H);
+    view=session_zoom_view(zoom,pointer_x,pointer_y,gdi->width,gdi->height);
     step_x=view.width_q16/RDP_W;
     step_y=view.height_q16/RDP_H;
     /* Cache vertical source row lookup once per frame; on an O3DS this
@@ -502,9 +504,10 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     bool pad_redraw = true;
     SessionPad pad;
     SessionZoom zoom;
+    RdpUiOptions opts=options?*options:rdp_options_default();
     int result = -1;
 
-    if (!cfg || !reason || !reason_size)
+    if (!rdp_options_valid(&opts) || !cfg || !reason || !reason_size)
         return -1;
     snprintf(reason, reason_size, "FreeRDP startup failed");
     /* The UI ordinarily validates all fields. Enforce bounds here too:
@@ -553,19 +556,23 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     }
     initialized = true;
     settings = client->context->settings;
+    remote_w=opts.display_mode?640:RDP_W;
+    remote_h=opts.display_mode?360:RDP_H;
     if (!freerdp_settings_set_string(settings, FreeRDP_ServerHostname, cfg->host) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, cfg->port) ||
-        !freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, RDP_W) ||
-        !freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, RDP_H) ||
-        !freerdp_settings_set_uint32(settings, FreeRDP_ColorDepth, 32) ||
+        !freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, (UINT32)remote_w) ||
+        !freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, (UINT32)remote_h) ||
+        !freerdp_settings_set_uint32(settings, FreeRDP_ColorDepth, (UINT32)opts.color_depth) ||
         /* Only NLA/CredSSP (including hybrid extended). No legacy RDP
            Security or TLS-without-NLA credential fallback. */
         /* Horizon SOC is IPv4-only and does not support SO_KEEPALIVE;
            FreeRDP otherwise defaults TCP keepalive to enabled. */
         !freerdp_settings_set_uint32(settings, FreeRDP_ForceIPvX, 4) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_TcpConnectTimeout,
-                                     RDP_TCP_CONNECT_TIMEOUT_MS) ||
+                                     (UINT32)opts.timeout_seconds*1000u) ||
         !freerdp_settings_set_bool(settings, FreeRDP_AutoReconnectionEnabled, FALSE) ||
+        !freerdp_settings_set_bool(settings, FreeRDP_DisableWallpaper,
+                                   opts.low_bandwidth!=0) ||
         !freerdp_settings_set_bool(settings, FreeRDP_TcpKeepAlive, FALSE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_ExternalCertificateManagement, TRUE) ||
         !freerdp_settings_set_bool(settings, FreeRDP_IgnoreCertificate, FALSE) ||
@@ -598,6 +605,12 @@ int freerdp_3ds_run(const RdpConfig *cfg, char *reason, size_t reason_size)
     }
     connected = true;
     session_pad_init(&pad);
+    pad.remote_w=remote_w;pad.remote_h=remote_h;
+    pad.pointer_x=remote_w/2;pad.pointer_y=remote_h/2;
+    pad.sensitivity=opts.touch_speed;
+    pad.scroll_amount=opts.scroll_step;
+    pad.reverse_scroll=opts.reverse_scroll!=0;
+    cursor_remote_x=pad.pointer_x;cursor_remote_y=pad.pointer_y;
     session_zoom_init(&zoom);
     snprintf(reason, reason_size, "Session ended");
     result = 0;
