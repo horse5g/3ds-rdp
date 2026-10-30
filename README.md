@@ -44,7 +44,7 @@ The native UI borrows the **layout and interaction conventions** of Windows Remo
 | Smooth zoom in/out | Hold **L** and rotate the Circle Pad clockwise/counterclockwise |
 | Compare source color-channel mapping | **L + X** toggles corrected/old red-blue output for diagnosis |
 | Compare high-resolution downscaling | **L + Y** toggles four-tap smoothing when heavily zoomed out |
-| Show independently generated LCD RGB test colors | **L + SELECT** during a session; swatches in red, green, blue, white, yellow, cyan, magenta order |
+| Compare native LCD against FreeRDP-packed color test | **L + SELECT** shows two matching swatch rows; both ordered red, green, blue, white, yellow, cyan, magenta |
 | Fit entire desktop | Physical **Y** |
 | Toggle fit / close-up | Physical **R** |
 | Disconnect | **START** or two taps on **Disconnect** |

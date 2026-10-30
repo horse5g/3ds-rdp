@@ -708,7 +708,9 @@ static BOOL end_paint(rdpContext *context)
 static void log_desktop_color_probe(const rdpGdi *gdi)
 {
     unsigned sums[3] = {0,0,0}, peaks[3] = {0,0,0};
-    unsigned above[3] = {0,0,0}, whites = 0;
+    unsigned above[3] = {0,0,0}, whites = 0, changed = 0;
+    uint8_t first[3]={0,0,0};
+    bool first_valid=false;
     const unsigned samples = 16u * 12u;
     /* The 16-bit surface has packed RGB565, not B/G/R byte channels.
      * Avoid mislabeling its samples as 32-bit GDI channel statistics. */
@@ -732,6 +734,12 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
             unsigned sx = ((col * 2u + 1u) * (unsigned)gdi->width) / 32u;
             if (sx >= (unsigned)gdi->width) sx = (unsigned)gdi->width - 1u;
             const u8 *px = gdi->primary_buffer + (size_t)sy*gdi->stride + (size_t)sx*4;
+            if(!first_valid) {
+                first[0]=px[0];first[1]=px[1];first[2]=px[2];
+                first_valid=true;
+            } else if(px[0]!=first[0] || px[1]!=first[1] || px[2]!=first[2]) {
+                ++changed;
+            }
             for (unsigned k=0; k<3u; ++k) {
                 const unsigned value = px[k];
                 sums[k] += value;
@@ -754,20 +762,50 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
     rdp_diag_log_event(rgb?"gdi-high-rgb":"gdi-high-bgr",
                        above[0],above[1],above[2]);
     rdp_diag_log_event("gdi-white-count",whites,samples,color_probe_count);
+    /* A uniform-color remote desktop should have very few spatial
+     * differences. Count only variation; no actual pixel contents saved. */
+    rdp_diag_log_event("gdi-spatial-change",changed,samples,color_probe_count);
 }
 
-/* Native LCD self-test: known RGB565 swatches are drawn AFTER GDI
- * conversion, so the strip reveals physical framebuffer channel order
- * independently of the RDP decoder. Left to right: red, green, blue,
- * white, yellow, cyan, magenta. No host data is captured or written. */
-static void draw_lcd_color_strip(uint16_t *frame)
+/* Diagnostic only, never sent to the server or stored on SD.
+ * TOP (first 12 rows): fixed RGB565 LCD swatches without FreeRDP.
+ * BOTTOM (next 12 rows): the identical seven colors packed using
+ * FreeRDPGetColor/FreeRDPWriteColor for the ACTIVE GDI destination,
+ * then fed through the actual desktop-to-RGB565 conversion.
+ * Matching rows but bad remote colors isolate decoding/remote updates.
+ * Differing rows isolate FreeRDP pixel-format interpretation or blitter.
+ * Order: red, green, blue, white, yellow, cyan, magenta. */
+static bool draw_lcd_color_strip(uint16_t *frame, UINT32 format, bool swap_rb)
 {
-    static const uint16_t colors[7]={
-        0xF800u,0x07E0u,0x001Fu,0xFFFFu,0xFFE0u,0x07FFu,0xF81Fu
+    static const struct {
+        uint8_t r,g,b;
+        uint16_t lcd;
+    } colors[7]={
+        {255,0,0,0xF800u},{0,255,0,0x07E0u},{0,0,255,0x001Fu},
+        {255,255,255,0xFFFFu},{255,255,0,0xFFE0u},
+        {0,255,255,0x07FFu},{255,0,255,0xF81Fu}
     };
-    for(int x=0;x<RDP_W;++x)
-        for(int y=0;y<24;++y)
-            frame[(size_t)x*RDP_H+(RDP_H-1-y)]=colors[x*7/RDP_W];
+    uint16_t from_gdi[7];
+    if (!frame || (format != PIXEL_FORMAT_XRGB32 &&
+                   format != PIXEL_FORMAT_BGRX32))
+        return false;
+    for (unsigned i=0;i<7;++i) {
+        BYTE packed[4]={0,0,0,0};
+        const UINT32 value=FreeRDPGetColor(format,colors[i].r,
+                                         colors[i].g,colors[i].b,255);
+        if (!FreeRDPWriteColor(packed,format,value))
+            return false;
+        from_gdi[i]=rdp_desktop_to_rgb565(packed,swap_rb);
+    }
+    for(int x=0;x<RDP_W;++x) {
+        const unsigned i=(unsigned)(x*7/RDP_W);
+        for(int y=0;y<12;++y)
+            frame[(size_t)x*RDP_H+(RDP_H-1-y)]=colors[i].lcd;
+        for(int y=13;y<25;++y)
+            frame[(size_t)x*RDP_H+(RDP_H-1-y)]=from_gdi[i];
+        frame[(size_t)x*RDP_H+(RDP_H-1-12)]=0;
+    }
+    return true;
 }
 
 static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
@@ -854,11 +892,15 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
         }
     }
     log_desktop_color_probe(gdi);
-    if(test_pattern)draw_lcd_color_strip(frame);
     session_cursor_overlay(frame,RDP_W,RDP_H,&system_cursor,
                            cursor_remote_x,cursor_remote_y,
                            view.left_q16,view.top_q16,
                            view.width_q16,view.height_q16);
+    /* Draw last so a large remote cursor cannot obscure the diagnostic.
+     * A malformed pixel-format choice is never silently misrepresented. */
+    if (test_pattern &&
+        !draw_lcd_color_strip(frame,gdi->dstFormat,swap_rb))
+        rdp_diag_log_event("gdi-strip-pack-fail",gdi->dstFormat,0,0);
     return TRUE;
 }
 

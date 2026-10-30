@@ -614,3 +614,9 @@ by `gdi-init-format` and `gdi-init-ok` (stride,height), or
 intentionally not emitted for packed 16-bit frames. The design
 is covered by endian, red/blue, averaged color and white portable
 tests. Actual client performance/appearance require an O3DS test.
+
+### Two-stage color path test after PR #15
+
+To separate actual raw FreeRDP desktop corruption from the O3DS RGB565 output stage, the L+SELECT test is extended from a single native row to two 12-pixel-tall rows: direct RGB565 swatches first, then synthetic pixels generated using FreeRDP’s exact active GDI destination format followed by the ordinary 3DS blitter. The expected two rows are identical in red/green/blue/white/yellow/cyan/magenta order, regardless of whether XRGB32 or BGRX32 is selected. L+X intentionally changes the second row to verify that the channel switch truly affects the blitter. To distinguish a genuinely flat decoded surface from a conversion error, `gdi-spatial-change` now logs a **count only**, the number of sparse color sample positions differing from sample zero. No individual sampled pixel values, host text, clipboard or credentials are logged.
+
+The user has not yet physically tested these improvements, so no claim that the underlying color issue is fixed is supported.
