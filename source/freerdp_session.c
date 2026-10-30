@@ -850,8 +850,12 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
      * Fixed-point offsets avoid float arithmetic in the 96k-pixel loop. */
     const bool box4=valid_zoom && smoothing_enabled &&
          step_x >= 2*65536 && step_y >= 2*65536;
-    const int off_x=box4 ? (step_x >> 2) : 0;
-    const int off_y=box4 ? (step_y >> 2) : 0;
+    /* step_x/step_y are 16.16 values. Convert to integer source
+     * pixel offsets BEFORE subtracting from sx/sy. The old >>2 passed
+     * 52,428px on 720p fit and 78,643px on 1080p fit; all four
+     * taps clamped to desktop edges, creating a solid-color image. */
+    const int off_x=box4 ? rdp_box4_radius_px(step_x) : 0;
+    const int off_y=box4 ? rdp_box4_radius_px(step_y) : 0;
     /* Cache vertical source row lookup once per frame; on an O3DS this
        avoids 400x repeating the expensive crop and bound arithmetic. */
     for (y=0;y<RDP_H;++y) {
