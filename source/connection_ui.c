@@ -224,9 +224,10 @@ static void saved_view(ConnectionUI *ui)
     ui->highlight = ui->selected >= 0 ? ui->selected : 0;
     if (ui->highlight >= (int)ui->store.count && ui->store.count)
         ui->highlight = (int)ui->store.count - 1;
-    ui->scroll = (ui->highlight / 5) * 5;
+    ui->scroll = connection_ui_scroll_clamp(ui->highlight-4,
+                                                   (int)ui->store.count,5);
     reset_pending(ui);
-    tell(ui, "Tap a computer to load");
+    tell(ui, "Tap or drag to browse computers");
 }
 static void request_load(ConnectionUI *ui, int index)
 {
@@ -270,7 +271,8 @@ static void delete_profile(ConnectionUI *ui, const char *path)
     ui->show_saved = true;
     if (ui->highlight >= (int)candidate.count)
         ui->highlight = candidate.count ? (int)candidate.count - 1 : 0;
-    ui->scroll = (ui->highlight / 5) * 5;
+    ui->scroll = connection_ui_scroll_clamp(ui->scroll,
+                                                   (int)candidate.count,5);
     reset_pending(ui);
     tell(ui, "Saved connection deleted");
 }
@@ -358,7 +360,13 @@ void connection_ui_key(ConnectionUI *ui, uint32_t keys, const char *path)
         if ((keys & KEY_DUP) && ui->highlight>0) --ui->highlight;
         if ((keys & KEY_DDOWN) && (size_t)(ui->highlight+1)<ui->store.count)
             ++ui->highlight;
-        ui->scroll=(ui->highlight/5)*5;
+        /* Do not reset a stylus-scrolled list to the highlighted page on
+         * every idle frame. Only keyboard navigation follows the cursor. */
+        if (keys & (KEY_DUP|KEY_DDOWN)) {
+            if (ui->highlight<ui->scroll) ui->scroll=ui->highlight;
+            if (ui->highlight>=ui->scroll+5) ui->scroll=ui->highlight-4;
+            ui->scroll=connection_ui_scroll_clamp(ui->scroll,(int)ui->store.count,5);
+        }
         if ((keys & KEY_A) && ui->store.count) request_load(ui,ui->highlight);
         if (keys & KEY_SELECT) delete_profile(ui,path);
         return;
@@ -370,10 +378,12 @@ void connection_ui_key(ConnectionUI *ui, uint32_t keys, const char *path)
         if((keys & KEY_DDOWN) &&
            ui->choice_highlight+1<choice_count(ui->choice_menu))
             ++ui->choice_highlight;
-        if(ui->choice_highlight<ui->choice_scroll)
-            ui->choice_scroll=ui->choice_highlight;
-        if(ui->choice_highlight>=ui->choice_scroll+5)
-            ui->choice_scroll=ui->choice_highlight-4;
+        if (keys & (KEY_DUP|KEY_DDOWN)) {
+            if(ui->choice_highlight<ui->choice_scroll)
+                ui->choice_scroll=ui->choice_highlight;
+            if(ui->choice_highlight>=ui->choice_scroll+5)
+                ui->choice_scroll=ui->choice_highlight-4;
+        }
         if(keys & KEY_A){choose_option(ui,ui->choice_highlight);return;}
         return;
     }
@@ -382,7 +392,8 @@ void connection_ui_key(ConnectionUI *ui, uint32_t keys, const char *path)
     if (ui->tab==RDP_UI_GENERAL) {
         if(keys & KEY_DUP)ui->focus=(ui->focus+F_COUNT-1)%F_COUNT;
         if(keys & KEY_DDOWN)ui->focus=(ui->focus+1)%F_COUNT;
-        ui->panel_scroll=ui->focus>=3?1:0;
+        if (keys & (KEY_DUP|KEY_DDOWN))
+            ui->panel_scroll=ui->focus>=3?1:0;
         if(keys & KEY_A)edit_field(ui,ui->focus);
     } else {
         if(keys & KEY_DUP)ui->focus=(ui->focus+2)%3;
@@ -402,19 +413,25 @@ void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
         /* Modal list: no background controls can be activated through it. */
         const int visible=choice_count(ui->choice_menu)<5?
                           choice_count(ui->choice_menu):5;
-        if(x>=280 && x<299 && y>=80 && y<190 &&
+        if(x>=RDP_UI_CHOICE_BAR_X && x<295 &&
+           y>=RDP_UI_CHOICE_BAR_Y && y<RDP_UI_CHOICE_BAR_Y+RDP_UI_CHOICE_BAR_H &&
            choice_count(ui->choice_menu)>5) {
-            if(y<135 && ui->choice_scroll>0) --ui->choice_scroll;
-            if(y>=135 && ui->choice_scroll+5<choice_count(ui->choice_menu))
-                ++ui->choice_scroll;
-            ui->choice_highlight=ui->choice_scroll;
-        } else if(x>=30 && x<280 && y>=80 && y<80+22*visible) {
+            ui->choice_scroll=connection_ui_scroll_at(y,RDP_UI_CHOICE_BAR_Y,
+                 RDP_UI_CHOICE_BAR_H,choice_count(ui->choice_menu),5);
+        } else if(x>=30 && x<RDP_UI_CHOICE_BAR_X &&
+                  y>=80 && y<80+22*visible) {
             choose_option(ui,ui->choice_scroll+(y-80)/22);
         } else ui->choice_menu=0;
         return;
     }
     if (y<23 && x>=260) { saved_view(ui); return; }
     if (ui->show_saved) {
+        if (x>=RDP_UI_SAVED_BAR_X && x<313 && y>=RDP_UI_SAVED_BAR_Y &&
+            y<RDP_UI_SAVED_BAR_Y+RDP_UI_SAVED_BAR_H) {
+            ui->scroll=connection_ui_scroll_at(y,RDP_UI_SAVED_BAR_Y,
+                            RDP_UI_SAVED_BAR_H,(int)ui->store.count,5);
+            return;
+        }
         hit=connection_ui_saved_at(x,y,ui->scroll,(int)ui->store.count);
         if(hit>=0){ui->highlight=hit;request_load(ui,hit);return;}
         if(y>=209) {
@@ -422,8 +439,9 @@ void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
             else if(x<158){clear_profile(ui);ui->show_saved=false;}
             else if(x<238)delete_profile(ui,path);
             else {
-                ui->scroll+=5;
-                if((size_t)ui->scroll>=ui->store.count)ui->scroll=0;
+                const int next=connection_ui_scroll_clamp(ui->scroll+5,
+                                                          (int)ui->store.count,5);
+                ui->scroll=next==ui->scroll?0:next;
                 ui->highlight=ui->scroll;
                 reset_pending(ui);
                 tell(ui,"Next saved computers");
@@ -434,8 +452,10 @@ void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
     hit=connection_ui_tab_at(x,y);
     if(hit>=0){change_tab(ui,hit);return;}
     if(ui->tab==RDP_UI_GENERAL) {
-        if(x>=295 && y>=53 && y<185) {
-            ui->panel_scroll = y<115 ? 0 : 1;
+        if(x>=RDP_UI_GENERAL_BAR_X && x<311 && y>=RDP_UI_GENERAL_BAR_Y &&
+           y<RDP_UI_GENERAL_BAR_Y+RDP_UI_GENERAL_BAR_H) {
+            ui->panel_scroll=connection_ui_scroll_at(y,RDP_UI_GENERAL_BAR_Y,
+                                         RDP_UI_GENERAL_BAR_H,2,1);
             ui->focus=ui->panel_scroll ? 3 : 0;
             return;
         }
@@ -463,6 +483,135 @@ void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
                 ui->connect_requested=true;
                 tell(ui,"Connecting to selected computer");
             } else tell(ui,error);
+        }
+    }
+}
+
+/* Distinguish a real tap from a drag so browsing cannot accidentally launch
+ * a password keyboard, load a profile or dismiss an open dropdown. */
+static RdpUiDragRegion launcher_drag_region(const ConnectionUI *ui,int x,int y)
+{
+    if (ui->choice_menu) {
+        if (y>=80 && y<190 && x>=30 && x<295)
+            return x>=RDP_UI_CHOICE_BAR_X ? RDP_UI_DRAG_CHOICE_BAR : RDP_UI_DRAG_CHOICE;
+        return RDP_UI_DRAG_NONE;
+    }
+    if (ui->show_saved) {
+        if (y>=RDP_UI_SAVED_BAR_Y &&
+            y<RDP_UI_SAVED_BAR_Y+RDP_UI_SAVED_BAR_H && x>=7 && x<313)
+            return x>=RDP_UI_SAVED_BAR_X ? RDP_UI_DRAG_SAVED_BAR : RDP_UI_DRAG_SAVED;
+        return RDP_UI_DRAG_NONE;
+    }
+    if (ui->tab==RDP_UI_GENERAL && y>=RDP_UI_GENERAL_BAR_Y &&
+        y<RDP_UI_GENERAL_BAR_Y+RDP_UI_GENERAL_BAR_H && x>=8 && x<311)
+        return x>=RDP_UI_GENERAL_BAR_X ? RDP_UI_DRAG_GENERAL_BAR : RDP_UI_DRAG_GENERAL;
+    return RDP_UI_DRAG_NONE;
+}
+
+void connection_ui_touch_update(ConnectionUI *ui, bool held, int x, int y,
+                                const char *path)
+{
+    int dy;
+    if (!ui) return;
+    if (held && (x<0 || x>=320 || y<0 || y>=240)) held=false;
+    if (held && !ui->touch_active) {
+        int top=0,height=0,count=0,visible=0,first=0;
+        ui->touch_active=true;
+        ui->touch_dragged=false;
+        ui->touch_start_x=x;
+        ui->touch_start_y=y;
+        ui->touch_region=launcher_drag_region(ui,x,y);
+        ui->touch_thumb_offset=0;
+        switch(ui->touch_region) {
+        case RDP_UI_DRAG_GENERAL: case RDP_UI_DRAG_GENERAL_BAR:
+            ui->touch_start_scroll=ui->panel_scroll;
+            top=RDP_UI_GENERAL_BAR_Y;height=RDP_UI_GENERAL_BAR_H;
+            count=2;visible=1;first=ui->panel_scroll;
+            break;
+        case RDP_UI_DRAG_SAVED: case RDP_UI_DRAG_SAVED_BAR:
+            ui->touch_start_scroll=ui->scroll;
+            top=RDP_UI_SAVED_BAR_Y;height=RDP_UI_SAVED_BAR_H;
+            count=(int)ui->store.count;visible=5;first=ui->scroll;
+            break;
+        case RDP_UI_DRAG_CHOICE: case RDP_UI_DRAG_CHOICE_BAR:
+            ui->touch_start_scroll=ui->choice_scroll;
+            top=RDP_UI_CHOICE_BAR_Y;height=RDP_UI_CHOICE_BAR_H;
+            count=choice_count(ui->choice_menu);visible=5;first=ui->choice_scroll;
+            break;
+        default: ui->touch_start_scroll=0;break;
+        }
+        if (ui->touch_region==RDP_UI_DRAG_GENERAL_BAR ||
+            ui->touch_region==RDP_UI_DRAG_SAVED_BAR ||
+            ui->touch_region==RDP_UI_DRAG_CHOICE_BAR) {
+            const int thumb_y=connection_ui_scroll_thumb_y(top,height,count,visible,first);
+            const int thumb_h=connection_ui_scroll_thumb_h(height,count,visible);
+            if (y>=thumb_y && y<thumb_y+thumb_h)
+                ui->touch_thumb_offset=y-(thumb_y+thumb_h/2);
+        }
+        return;
+    }
+    if (held && ui->touch_active) {
+        const int dx=x-ui->touch_start_x;
+        dy=y-ui->touch_start_y;
+        if (abs(dx)>=8 || abs(dy)>=8) ui->touch_dragged=true;
+        if (!ui->touch_dragged) return;
+        switch(ui->touch_region) {
+        case RDP_UI_DRAG_GENERAL:
+            if (abs(dy)>=32) {
+                ui->panel_scroll=dy<0?1:0;
+                ui->focus=ui->panel_scroll?3:0;
+            } else {
+                ui->panel_scroll=ui->touch_start_scroll;
+            }
+            break;
+        case RDP_UI_DRAG_GENERAL_BAR:
+            ui->panel_scroll=connection_ui_scroll_at(y-ui->touch_thumb_offset,
+                                   RDP_UI_GENERAL_BAR_Y,RDP_UI_GENERAL_BAR_H,2,1);
+            ui->focus=ui->panel_scroll?3:0;
+            break;
+        case RDP_UI_DRAG_SAVED:
+            ui->scroll=connection_ui_scroll_drag(ui->touch_start_scroll,dy,25,
+                                                     (int)ui->store.count,5);
+            break;
+        case RDP_UI_DRAG_SAVED_BAR:
+            ui->scroll=connection_ui_scroll_at(y-ui->touch_thumb_offset,
+                         RDP_UI_SAVED_BAR_Y,RDP_UI_SAVED_BAR_H,(int)ui->store.count,5);
+            break;
+        case RDP_UI_DRAG_CHOICE:
+            ui->choice_scroll=connection_ui_scroll_drag(ui->touch_start_scroll,dy,
+                                             22,choice_count(ui->choice_menu),5);
+            break;
+        case RDP_UI_DRAG_CHOICE_BAR:
+            ui->choice_scroll=connection_ui_scroll_at(y-ui->touch_thumb_offset,
+                       RDP_UI_CHOICE_BAR_Y,RDP_UI_CHOICE_BAR_H,
+                       choice_count(ui->choice_menu),5);
+            break;
+        default:break;
+        }
+        return;
+    }
+    if (!held && ui->touch_active) {
+        const RdpUiDragRegion region=ui->touch_region;
+        const bool was_dragged=ui->touch_dragged;
+        const int tx=ui->touch_start_x,ty=ui->touch_start_y;
+        const int offset=ui->touch_thumb_offset;
+        ui->touch_active=false;
+        ui->touch_dragged=false;
+        ui->touch_region=RDP_UI_DRAG_NONE;
+        if (was_dragged) return;
+        /* A tap on a thumb must not jump it to the middle of the track. */
+        if (region==RDP_UI_DRAG_GENERAL_BAR) {
+            ui->panel_scroll=connection_ui_scroll_at(ty-offset,RDP_UI_GENERAL_BAR_Y,
+                                                    RDP_UI_GENERAL_BAR_H,2,1);
+            ui->focus=ui->panel_scroll?3:0;
+        } else if (region==RDP_UI_DRAG_SAVED_BAR) {
+            ui->scroll=connection_ui_scroll_at(ty-offset,RDP_UI_SAVED_BAR_Y,
+                                        RDP_UI_SAVED_BAR_H,(int)ui->store.count,5);
+        } else if (region==RDP_UI_DRAG_CHOICE_BAR) {
+            ui->choice_scroll=connection_ui_scroll_at(ty-offset,RDP_UI_CHOICE_BAR_Y,
+                              RDP_UI_CHOICE_BAR_H,choice_count(ui->choice_menu),5);
+        } else {
+            connection_ui_touch(ui,tx,ty,path);
         }
     }
 }
