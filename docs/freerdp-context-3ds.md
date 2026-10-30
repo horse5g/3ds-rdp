@@ -620,3 +620,36 @@ tests. Actual client performance/appearance require an O3DS test.
 To separate actual raw FreeRDP desktop corruption from the O3DS RGB565 output stage, the L+SELECT test is extended from a single native row to two 12-pixel-tall rows: direct RGB565 swatches first, then synthetic pixels generated using FreeRDP’s exact active GDI destination format followed by the ordinary 3DS blitter. The expected two rows are identical in red/green/blue/white/yellow/cyan/magenta order, regardless of whether XRGB32 or BGRX32 is selected. L+X intentionally changes the second row to verify that the channel switch truly affects the blitter. To distinguish a genuinely flat decoded surface from a conversion error, `gdi-spatial-change` now logs a **count only**, the number of sparse color sample positions differing from sample zero. No individual sampled pixel values, host text, clipboard or credentials are logged.
 
 The user has not yet physically tested these improvements, so no claim that the underlying color issue is fixed is supported.
+
+### October 2026 physical color-strip result: exact FreeRDP layout bug
+
+The hardware user reported the two-row L+SELECT strip as direct RGB565
+`red green blue white yellow cyan magenta`, versus FreeRDP-derived
+`green red black yellow yellow red green`. The latter is exactly the
+output obtained when interpreting FreeRDP's **XRGB32 [X,R,G,B]** as
+[B,G,R,X]. In pinned FreeRDP 3.32.2 `libfreerdp/codec/color.h`,
+`FreeRDPWriteColor_int` writes 32-bit colors MSB-first regardless
+of ARM's little-endian native integer representation. `FreeRDPGetColor`
+in `libfreerdp/codec/color.c` packs XRGB as `0x00RRGGBB`, so bytes
+[X,R,G,B]. BGRX is `0xBBGGRR00`, bytes [B,G,R,X]. Previous
+conversion code used [B,G,R,X] for XRGB32 and [R,G,B,X] for BGRX32.
+The actual desktop blitter and 4-tap box average are now corrected,
+and telemetry `gdi-avg-rgb` takes normalized RGB samples in both
+formats; synthetic FreeRDP canary is `00D05020` for XRGB32 and
+`2050D000` for BGRX32 (R=D0,G=50,B=20).
+
+The earlier samples' channel labels were incorrect, so do not rely
+on any prior `gdi-avg-bgr` values as true blue/red measurements.
+This bug may also explain a uniform-looking blue Windows desktop
+at larger resolutions because the old code entirely ignored byte 3
+of XRGB32 (which carries blue). It does **not** yet prove that the
+high-resolution GDI decoder works in every mode. Test physical
+640×360 then 800×480, 1280×720 and 1920×1080; leave L+X off.
+
+The previous RAM credential cache was accidentally wiped whenever
+returning from full_session() to the launcher, even if the user had
+explicitly selected Advanced → Cache Password → This Run: On.
+The program now retains the opt-in credential across later manual
+connections within the same process, matched to full host/port/user/domain,
+and wipes immediately when the option is disabled, a connection fails,
+or the process exits. The password never persists to SD.
