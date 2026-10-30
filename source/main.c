@@ -99,7 +99,7 @@ static void full_session(const ConnectionUI *state)
                                   "SIGN IN AND VERIFY CERTIFICATE",false);
         gfxFlushBuffers();gfxSwapBuffers();gspWaitForVBlank();
         rdp_diag_log_event("app-connect-attempt", 0, 0, 0);
-        result=freerdp_3ds_run(&state->current,&state->options,state->cache_password_for_run,
+        result=freerdp_3ds_run(&state->current,&state->options,
                               state->gdi_bgrx_for_run,message,sizeof(message));
         rdp_diag_log_event("app-connect-return", (unsigned long)(result != 0), 0, 0);
         /* Always return to a deliberate choice after the FreeRDP context
@@ -179,7 +179,6 @@ int main(int argc, char **argv)
     while (aptMainLoop()) {
         u32 down, held, menu_keys;
         bool call_probe, call_full;
-        const bool was_caching=ui.cache_password_for_run;
         bool touch_connect;
         char validation[96];
         hidScanInput();
@@ -196,11 +195,6 @@ int main(int argc, char **argv)
         if (held & KEY_L) menu_keys &= ~(KEY_Y|KEY_SELECT|KEY_X);
         connection_ui_key(&ui,menu_keys,PROFILES_FILE);
 #ifdef RDP_FULL_CLIENT
-        /* Turning the checkbox OFF immediately destroys cached credentials.
-         * Returning to launcher while ON intentionally keeps the password
-         * for this process only; exit below always wipes it. */
-        if(was_caching && !ui.cache_password_for_run)
-            freerdp_3ds_clear_password_cache();
 #endif
         touch_connect = ui.connect_requested;
         ui.connect_requested = false;
