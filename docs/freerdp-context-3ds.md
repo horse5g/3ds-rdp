@@ -653,3 +653,9 @@ The program now retains the opt-in credential across later manual
 connections within the same process, matched to full host/port/user/domain,
 and wipes immediately when the option is disabled, a connection fails,
 or the process exits. The password never persists to SD.
+
+### High-resolution fit-mode single-color root cause
+
+The user observed that 800×480 and 1080p show a single color only at fit/100% and the actual remote image appears when zooming in (about 150% on 720p). Both FreeRDP XRGB32 and BGRX32 now render correctly when zoomed in, so decoder color loss is no longer the likely cause. In `copy_desktop_frame`, `step_x = view.width_q16 / 400` and `step_y = view.height_q16 / 240` are 16.16 Q16 source-pixel steps. Prior four-tap smoothing computed `off_x = step_x >> 2` then subtracted `off_x` from a plain integer `sx`. At 1920×1080 in fit mode, `step_x = 314572` (4.8px per LCD sample), creating `off_x = 78643` **integer source pixels** instead of ~1 pixel. Both X and Y sample corners clamped to the same desktop edges, so the entire downscaled frame was a nearly uniform blend of four corners. The corrected helper `rdp_box4_radius_px` divides the Q16 quarter-footprint by 65536, rounds and uses an integer source-pixel offset. Unit tests cover all six desktop resolutions and zoom=150%; press L+Y to compare smoothed and unfiltered output. Actual device behavior needs retesting.
+
+RAM credential caching is now automatic during the process lifetime (same host/port/user/domain only), with failure/exit cleanup and no SD persistence. The previous Advanced cache toggle has been removed.

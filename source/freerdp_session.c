@@ -25,11 +25,10 @@
 
 #ifndef RDP_FULL_CLIENT
 int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
-                   bool cache_password, bool bgrx_gdi, char *reason, size_t reason_size)
+                   bool bgrx_gdi, char *reason, size_t reason_size)
 {
     (void)cfg;
     (void)options;
-    (void)cache_password;
     (void)bgrx_gdi;
     if (reason && reason_size)
         snprintf(reason, reason_size, "FreeRDP not linked in this build");
@@ -850,8 +849,12 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
      * Fixed-point offsets avoid float arithmetic in the 96k-pixel loop. */
     const bool box4=valid_zoom && smoothing_enabled &&
          step_x >= 2*65536 && step_y >= 2*65536;
-    const int off_x=box4 ? (step_x >> 2) : 0;
-    const int off_y=box4 ? (step_y >> 2) : 0;
+    /* step_x/step_y are 16.16 values. Convert to integer source
+     * pixel offsets BEFORE subtracting from sx/sy. The old >>2 passed
+     * 52,428px on 720p fit and 78,643px on 1080p fit; all four
+     * taps clamped to desktop edges, creating a solid-color image. */
+    const int off_x=box4 ? rdp_box4_radius_px(step_x) : 0;
+    const int off_y=box4 ? rdp_box4_radius_px(step_y) : 0;
     /* Cache vertical source row lookup once per frame; on an O3DS this
        avoids 400x repeating the expensive crop and bound arithmetic. */
     for (y=0;y<RDP_H;++y) {
@@ -1367,7 +1370,7 @@ static void log_loopback_budget(bool probe_capacity)
 }
 
 int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
-                   bool cache_password, bool bgrx_gdi, char *reason, size_t reason_size)
+                   bool bgrx_gdi, char *reason, size_t reason_size)
 {
     freerdp *client = NULL;
     rdpSettings *settings;
@@ -1528,10 +1531,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
     /* Do WinPR/client-context allocation before opening the modal password
        keyboard. On an O3DS allocation failure, users can diagnose the
        failure immediately instead of repeatedly entering a secret. */
-    if (!cache_password)
-        freerdp_3ds_clear_password_cache();
-    if (cache_password)
-        used_cached_password=cached_password_for(cfg,password,sizeof(password));
+    used_cached_password=cached_password_for(cfg,password,sizeof(password));
     if (used_cached_password) {
         rdp_diag_log_event("password-ram-cache-hit",1,0,0);
     } else {
@@ -1547,7 +1547,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
     }
     /* Candidate is transient until NLA has actually succeeded.
      * A failed login must never be remembered for a retry. */
-    if (cache_password && !used_cached_password)
+    if (!used_cached_password)
         memcpy(password_candidate,password,sizeof(password_candidate));
     if (!freerdp_settings_set_string(settings, FreeRDP_ServerHostname, cfg->host) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, cfg->port) ||
@@ -1634,7 +1634,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
         goto done;
     }
     connected = true;
-    if (cache_password && !used_cached_password)
+    if (!used_cached_password)
         remember_password_in_ram(cfg,password_candidate);
     OPENSSL_cleanse(password_candidate,sizeof(password_candidate));
     rdp_diag_log_event("rdp-connected", 1, 0, 0);

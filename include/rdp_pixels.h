@@ -26,6 +26,21 @@ static inline uint16_t rdp_gdi32_to_rgb565(const uint8_t *src,
                       ((green & 0xFCu)<<3) | (blue>>3));
 }
 
+/* Convert the source footprint from 16.16 pixels to an INTEGER offset
+ * before indexing the decoded desktop. The old renderer used step_q16>>2
+ * directly as a pixel displacement, clamping each 1080p sample to a
+ * distant desktop edge. At 1920x1080 fit: step=4.8 pixels, so sample
+ * radius should be ~1 pixel, NOT 78,643 pixels.
+ * The four taps are spaced at +/- one quarter of a screen pixel's
+ * source footprint. Rounding is symmetric for every axis. */
+static inline int rdp_box4_radius_px(int32_t source_step_q16)
+{
+    if (source_step_q16 < 2 * 65536)
+        return 0;
+    return (int)(((int64_t)source_step_q16 + (2LL * 65536LL)) /
+                 (4LL * 65536LL));
+}
+
 /* Four-tap box sampling with source-channel offsets applied BEFORE averaging.
  * No per-pixel heap allocations and sums are bounded to 4*255. */
 static inline uint16_t rdp_gdi32_box4_to_rgb565(const uint8_t *a,

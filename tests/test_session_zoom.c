@@ -106,6 +106,33 @@ int main(void)
     v=session_zoom_view(&z,960,540,1920,1080);
     session_zoom_sample(&v,200,120,400,240,1920,1080,&x,&y);
     assert(x==960 && y==540);
-    puts("Circle Pad clockwise/counterclockwise cursor-centered zoom tests passed");
+    /* Regress high-resolution fit and zoomed coordinate sampling. At
+     * 100% a corner, center and opposite corner must sample distinct
+     * source locations for every offered desktop mode. The previously
+     * broken smoothing filter incorrectly used 16.16 deltas directly. */
+    {
+        static const struct {int w,h;} modes[]={
+            {400,240},{640,360},{800,480},{960,540},
+            {1280,720},{1920,1080}
+        };
+        for(unsigned i=0;i<sizeof(modes)/sizeof(modes[0]);++i) {
+            int xa,ya,xb,yb,xc,yc;
+            z.visible=1.0f;
+            v=session_zoom_view(&z,modes[i].w/2,modes[i].h/2,
+                                modes[i].w,modes[i].h);
+            session_zoom_sample(&v,0,0,400,240,modes[i].w,modes[i].h,&xa,&ya);
+            session_zoom_sample(&v,200,120,400,240,modes[i].w,modes[i].h,&xb,&yb);
+            session_zoom_sample(&v,399,239,400,240,modes[i].w,modes[i].h,&xc,&yc);
+            assert(xa==0 && ya==0);
+            assert(xb==modes[i].w/2 && yb==modes[i].h/2);
+            assert(xa<xb && xb<xc && ya<yb && yb<yc);
+            z.visible=1.5f;
+            v=session_zoom_view(&z,modes[i].w/2,modes[i].h/2,
+                                modes[i].w,modes[i].h);
+            session_zoom_sample(&v,200,120,400,240,modes[i].w,modes[i].h,&x,&y);
+            assert(x==modes[i].w/2 && y==modes[i].h/2);
+        }
+    }
+    puts("Circle Pad zoom and six desktop resolution fit/150% sampling tests passed");
     return 0;
 }
