@@ -25,11 +25,10 @@
 
 #ifndef RDP_FULL_CLIENT
 int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
-                   bool cache_password, bool bgrx_gdi, char *reason, size_t reason_size)
+                   bool bgrx_gdi, char *reason, size_t reason_size)
 {
     (void)cfg;
     (void)options;
-    (void)cache_password;
     (void)bgrx_gdi;
     if (reason && reason_size)
         snprintf(reason, reason_size, "FreeRDP not linked in this build");
@@ -1371,7 +1370,7 @@ static void log_loopback_budget(bool probe_capacity)
 }
 
 int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
-                   bool cache_password, bool bgrx_gdi, char *reason, size_t reason_size)
+                   bool bgrx_gdi, char *reason, size_t reason_size)
 {
     freerdp *client = NULL;
     rdpSettings *settings;
@@ -1532,10 +1531,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
     /* Do WinPR/client-context allocation before opening the modal password
        keyboard. On an O3DS allocation failure, users can diagnose the
        failure immediately instead of repeatedly entering a secret. */
-    if (!cache_password)
-        freerdp_3ds_clear_password_cache();
-    if (cache_password)
-        used_cached_password=cached_password_for(cfg,password,sizeof(password));
+    used_cached_password=cached_password_for(cfg,password,sizeof(password));
     if (used_cached_password) {
         rdp_diag_log_event("password-ram-cache-hit",1,0,0);
     } else {
@@ -1551,7 +1547,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
     }
     /* Candidate is transient until NLA has actually succeeded.
      * A failed login must never be remembered for a retry. */
-    if (cache_password && !used_cached_password)
+    if (!used_cached_password)
         memcpy(password_candidate,password,sizeof(password_candidate));
     if (!freerdp_settings_set_string(settings, FreeRDP_ServerHostname, cfg->host) ||
         !freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, cfg->port) ||
@@ -1638,7 +1634,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
         goto done;
     }
     connected = true;
-    if (cache_password && !used_cached_password)
+    if (!used_cached_password)
         remember_password_in_ram(cfg,password_candidate);
     OPENSSL_cleanse(password_candidate,sizeof(password_candidate));
     rdp_diag_log_event("rdp-connected", 1, 0, 0);
