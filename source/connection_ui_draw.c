@@ -181,7 +181,7 @@ static void dropdown_overlay(const ConnectionUI *ui)
     static const char *scroll[]={"1 NOTCH","2 NOTCH","3 NOTCH"};
     static const char *bools[]={"OFF","ON"};
     static const char *timeout[]={"8 SECONDS","12 SECONDS","20 SECONDS"};
-    static const char *gdiformats[]={"XRGB32 (BGR)","BGRX32 (RGB)"};
+    static const char *gdiformats[]={"XRGB32 (RGB)","BGRX32 (BGR)"};
     const char *const *items=NULL;
     int count=0;
     switch(ui->choice_menu) {
