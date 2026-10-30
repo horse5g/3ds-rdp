@@ -61,7 +61,7 @@ static void draw_status(int network_ready)
 #endif
     printf("B: Events  L+Y: SOC  L+SEL: RNG\n");
     printf("START: Exit\n\n");
-    printf("Credentials are never saved.\n");
+    printf("Passwords are never saved to SD.\n");
 }
 
 static void probe(const ConnectionUI *state)
@@ -93,7 +93,7 @@ static void full_session(const ConnectionUI *state)
     do{
         again=false;
         snprintf(status,sizeof(status),"Experimental FreeRDP...");
-        snprintf(detail,sizeof(detail),"Authenticating; password not saved");
+        snprintf(detail,sizeof(detail),"Authenticating; no SD password storage");
         draw_status(1);
         connection_ui_draw_status("CONNECTING TO REMOTE DESKTOP",
                                   "SIGN IN AND VERIFY CERTIFICATE",false);
