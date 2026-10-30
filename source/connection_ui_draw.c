@@ -203,8 +203,8 @@ static void dropdown_overlay(const ConnectionUI *ui)
     for(int i=0;i<visible;i++) {
         const int n=first+i,y=80+22*i;
         const bool current=n==ui->choice_highlight;
-        fill(36,y,251,21,current?HIGHLIGHT:(i&1)?PALE:WHITE);
-        outline(36,y,251,21,current?BLUE:C(217,222,229));
+        fill(36,y,244,21,current?HIGHLIGHT:(i&1)?PALE:WHITE);
+        outline(36,y,244,21,current?BLUE:C(217,222,229));
         label(46,y+7,items[n],275,current?BLUE:INK);
     }
     if (count>5) {
