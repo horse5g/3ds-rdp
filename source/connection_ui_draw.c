@@ -208,9 +208,13 @@ static void dropdown_overlay(const ConnectionUI *ui)
         label(46,y+7,items[n],275,current?BLUE:INK);
     }
     if (count>5) {
-        fill(284,80,3,108,C(220,226,234));
-        const int slider=80+(ui->choice_scroll*108)/(count-4);
-        fill(283,slider,5,18,BLUE);
+        /* The thumb reflects the 5 visible rows, not an arbitrary
+         * 18px marker which previously escaped its track at the bottom. */
+        const int thumb_h=connection_ui_scroll_thumb_h(RDP_UI_CHOICE_BAR_H,count,5);
+        const int thumb_y=connection_ui_scroll_thumb_y(RDP_UI_CHOICE_BAR_Y,
+                 RDP_UI_CHOICE_BAR_H,count,5,ui->choice_scroll);
+        fill(283,RDP_UI_CHOICE_BAR_Y,7,RDP_UI_CHOICE_BAR_H,C(220,226,234));
+        fill(283,thumb_y,7,thumb_h,BLUE);
     }
 }
 static void main_panel(const ConnectionUI *ui)
@@ -232,11 +236,12 @@ static void main_panel(const ConnectionUI *ui)
             field(1,"SAVE AS",ui->name,ui->focus==4,false);
             label(15,148,"PASSWORDS ARE REQUESTED ON CONNECT",291,MUTED);
         }
-        fill(297,56,13,120,C(237,240,244));
-        outline(297,56,13,120,BORDER);
-        label(301,60,"^",311,ui->panel_scroll==0?BLUE:MUTED);
-        fill(300,83+ui->panel_scroll*57,7,47,BLUE);
-        label(301,163,"V",311,ui->panel_scroll?MUTED:BLUE);
+        const int thumb_h=connection_ui_scroll_thumb_h(RDP_UI_GENERAL_BAR_H,2,1);
+        const int thumb_y=connection_ui_scroll_thumb_y(RDP_UI_GENERAL_BAR_Y,
+                     RDP_UI_GENERAL_BAR_H,2,1,ui->panel_scroll);
+        fill(297,RDP_UI_GENERAL_BAR_Y,13,RDP_UI_GENERAL_BAR_H,C(237,240,244));
+        outline(297,RDP_UI_GENERAL_BAR_Y,13,RDP_UI_GENERAL_BAR_H,BORDER);
+        fill(299,thumb_y+2,9,thumb_h-4,BLUE);
         label(13,170,ui->panel_scroll?"PAGE 2 / 2":"PAGE 1 / 2",280,MUTED);
     } else {
         const char *group=ui->tab==RDP_UI_DISPLAY?"REMOTE DISPLAY":
@@ -281,14 +286,23 @@ static void saved_panel(const ConnectionUI *ui)
     int i;
     char line[30];
     for (i=0; i<5; ++i) {
-        int index = ui->scroll+i, y=58+25*i;
-        uint32_t color = index == ui->highlight ? HIGHLIGHT : WHITE;
-        fill(7,y,306,23,color);
-        outline(7,y,306,23,index == ui->highlight ? BLUE : BORDER);
+        const int index = ui->scroll+i, y=58+25*i;
+        const uint32_t color = index == ui->highlight ? HIGHLIGHT : WHITE;
+        fill(7,y,285,23,color);
+        outline(7,y,285,23,index == ui->highlight ? BLUE : BORDER);
         if ((size_t)index >= ui->store.count) continue;
         snprintf(line,sizeof(line),"%2d  %.23s",index+1,ui->store.items[index].name);
-        label(14,y+8,line,292,INK);
-        label(295,y+8,">",310,BLUE);
+        label(14,y+8,line,278,INK);
+        label(280,y+8,">",290,BLUE);
+    }
+    {
+        const int thumb_h=connection_ui_scroll_thumb_h(RDP_UI_SAVED_BAR_H,
+                                             (int)ui->store.count,5);
+        const int thumb_y=connection_ui_scroll_thumb_y(RDP_UI_SAVED_BAR_Y,
+                    RDP_UI_SAVED_BAR_H,(int)ui->store.count,5,ui->scroll);
+        fill(297,RDP_UI_SAVED_BAR_Y,13,RDP_UI_SAVED_BAR_H,C(237,240,244));
+        outline(297,RDP_UI_SAVED_BAR_Y,13,RDP_UI_SAVED_BAR_H,BORDER);
+        fill(299,thumb_y+2,9,thumb_h-4,BLUE);
     }
 }
 void connection_ui_draw(const ConnectionUI *ui)
@@ -308,7 +322,7 @@ void connection_ui_draw(const ConnectionUI *ui)
         fill(0,31,320,23,WHITE);
         snprintf(count,sizeof(count),"SAVED CONNECTIONS: %u",(unsigned)ui->store.count);
         label(10,40,count,265,INK);
-        label(270,40,"UP/DN",319,MUTED);
+        label(270,40,"DRAG",319,MUTED);
         saved_panel(ui);
     }
     fill(0,185,320,55,C(231,235,240));
