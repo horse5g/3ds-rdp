@@ -34,7 +34,6 @@ typedef struct {
     bool show_saved;
     bool dirty;
     bool connect_requested;
-    bool cache_password_for_run; /* opt-in: RAM only, never persisted */
     bool gdi_bgrx_for_run; /* experimental 32-bit output order; not saved */
     bool profiles_unavailable; /* refuse to overwrite a corrupt SD profile store */
 } ConnectionUI;
