@@ -185,10 +185,14 @@ int main(int argc, char **argv)
         down = hidKeysDown();
         held = hidKeysHeld();
         if (down & KEY_START) break;
-        if (down & KEY_TOUCH) {
+        /* Read stylus motion every frame, not only KEY_TOUCH down.
+         * Release decides whether it was a tap or a deliberate scroll. */
+        if (held & KEY_TOUCH) {
             touchPosition touch;
             hidTouchRead(&touch);
-            connection_ui_touch(&ui,touch.px,touch.py,PROFILES_FILE);
+            connection_ui_touch_update(&ui,true,touch.px,touch.py,PROFILES_FILE);
+        } else {
+            connection_ui_touch_update(&ui,false,0,0,PROFILES_FILE);
         }
         /* L is a diagnostic/session modifier, never an editor shortcut. */
         menu_keys = down & ~KEY_L;
