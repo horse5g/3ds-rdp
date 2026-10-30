@@ -23,6 +23,7 @@ int main(void)
     assert(connection_ui_saved_at(100,58+2*25,10,12) == -1);
     assert(connection_ui_saved_at(100,58+1*25,10,12) == 11);
     assert(connection_ui_saved_at(100,209,0,12) == -1);
+    assert(connection_ui_saved_at(300,58,0,12) == -1); /* right scrollbar is not a row */
     /* Scrollbar locations, short lists, exact bottom, and clamping. */
     assert(connection_ui_scroll_clamp(-12,12,5)==0);
     assert(connection_ui_scroll_clamp(100,12,5)==7);
