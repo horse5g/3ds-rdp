@@ -11,9 +11,9 @@ This document describes the **working experimental FreeRDP launcher and session 
 
 The bottom screen uses a window-style tab strip: **General, Display, Local, Experience, Advanced**.
 
-**General — two scrollable pages:** The first shows Computer (text entry plus saved-profile chooser), User name and Domain. The second shows Port, Save As name and read-only password guidance. Touch the narrow scrollbar at the right (upper/lower part), or move through fields with D-pad Up/Down; the UI automatically follows the focused field.
+**General — two scrollable pages:** The first shows Computer (text entry plus saved-profile chooser), User name and Domain. The second shows Port, Save As name and read-only password guidance. Swipe up/down on the form to change pages, or drag/tap the proportional right scrollbar; D-pad Up/Down follows the focused field. Dragging a field does not launch the keyboard.
 
-The bottom command bar provides **Save**, **Save As**, **Open**, **Connect**. Save uses the selected profile name or asks for one; Save As requires a *different* name and refuses accidental overwrite of another saved connection; Open presents the paged list of up to 12 saved profiles; Connect starts the full client in a full-client build and runs the X.224-only probe in the lightweight build. The Open list has **Back, New, Delete, Next**. Existing safeguards require confirming deletion and discarding unsaved edits.
+The bottom command bar provides **Save**, **Save As**, **Open**, **Connect**. Save uses the selected profile name or asks for one; Save As requires a *different* name and refuses accidental overwrite of another saved connection; Open presents a list of up to 12 saved profiles. Swipe the list to browse one row at a time, or drag/tap its right scrollbar; D-pad Up/Down keeps the selection visible. Connect starts the full client in a full-client build and runs the X.224-only probe in the lightweight build. The Open list retains **Back, New, Delete, Next**. Existing safeguards require confirming deletion and discarding unsaved edits. Releasing a drag never triggers a profile load.
 
 **Display:** Remote desktop resolution dropdown (400×240 / 640×360 / 800×480 / 960×540 / 1280×720 / 1920×1080) and negotiated 16-/32-bit color-depth dropdown. The physical top screen stays 400×240. 800×480 and higher modes are experimental on the original 3DS; the server cannot force an unconfigured desktop allocation.
 
@@ -23,7 +23,7 @@ The bottom command bar provides **Save**, **Save As**, **Open**, **Connect**. Sa
 
 **Advanced:** Editable connection timeout (8/12/20 seconds), **GDI Format: XRGB32 / BGRX32** (session-only diagnostic), and read-only **Password Cache: RAM Until Exit**. Password caching is automatic after the first successful authenticated connection and applies to the same host:port, username and domain in this app launch. No On/Off setting; credentials are never written to SD and are wiped on account changes, connection failures, or exit. TLS/NLA and certificate checks are unchanged.
 
-**What is actionable?** A blue-outlined white field with a dropdown arrow is an editable setting. A muted gray value row is status or unavailable capability, not a switch. The slim footer includes a clearly marked `STATUS:` message area, visually separated from action buttons. The option dropdown is a true modal list: tap a choice or use D-pad Up/Down, A to confirm; B or tapping outside cancels.
+**What is actionable?** A blue-outlined white field with a dropdown arrow is an editable setting. A muted gray value row is status or unavailable capability, not a switch. The slim footer includes a clearly marked `STATUS:` message area, visually separated from action buttons. The option dropdown is a true modal list: tap a choice, swipe up/down on the list or drag its right thumb, or use D-pad Up/Down and A to confirm; B or tapping outside cancels. A drag never selects an item or closes the dropdown.
 
 The design uses a lightweight embedded 5×7 uppercase font, so saved hostnames render in uppercase on screen but retain their original case in profile files. No passwords, tokens, TLS secrets or session traffic are saved.
 
