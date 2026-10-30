@@ -709,6 +709,10 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
 {
     unsigned sums[3] = {0,0,0}, peaks[3] = {0,0,0};
     unsigned above[3] = {0,0,0}, whites = 0, changed = 0;
+    const bool bgrx=(gdi && gdi->dstFormat==PIXEL_FORMAT_BGRX32);
+    /* Normalize raw decoded bytes to R,G,B, regardless of FreeRDP's
+     * format. XRGB32=[X,R,G,B], BGRX32=[B,G,R,X]. */
+    const unsigned indexes[3]={bgrx?2u:1u,bgrx?1u:2u,bgrx?0u:3u};
     uint8_t first[3]={0,0,0};
     bool first_valid=false;
     const unsigned samples = 16u * 12u;
@@ -735,32 +739,32 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
             if (sx >= (unsigned)gdi->width) sx = (unsigned)gdi->width - 1u;
             const u8 *px = gdi->primary_buffer + (size_t)sy*gdi->stride + (size_t)sx*4;
             if(!first_valid) {
-                first[0]=px[0];first[1]=px[1];first[2]=px[2];
+                first[0]=px[indexes[0]];first[1]=px[indexes[1]];
+                first[2]=px[indexes[2]];
                 first_valid=true;
-            } else if(px[0]!=first[0] || px[1]!=first[1] || px[2]!=first[2]) {
+            } else if(px[indexes[0]]!=first[0] ||
+                      px[indexes[1]]!=first[1] || px[indexes[2]]!=first[2]) {
                 ++changed;
             }
             for (unsigned k=0; k<3u; ++k) {
-                const unsigned value = px[k];
+                const unsigned value = px[indexes[k]];
                 sums[k] += value;
                 if (value > peaks[k]) peaks[k] = value;
                 if (value >= 192u) ++above[k];
             }
-            if (px[0]>=240u && px[1]>=240u && px[2]>=240u)
+            if (px[indexes[0]]>=240u && px[indexes[1]]>=240u &&
+                px[indexes[2]]>=240u)
                 ++whites;
         }
     }
     rdp_diag_log_event("gdi-format", (unsigned long)gdi->dstFormat,
                        (unsigned long)gdi->width, (unsigned long)gdi->height);
-    /* Log actual raw byte order. Never interpret these sums as LCD RGB
-     * unless the chosen GDI format is known. XRGB32: B,G,R; BGRX32: R,G,B. */
-    const bool rgb=(gdi->dstFormat==PIXEL_FORMAT_BGRX32);
-    rdp_diag_log_event(rgb?"gdi-avg-rgb":"gdi-avg-bgr",
-                       sums[0]/samples,sums[1]/samples,sums[2]/samples);
-    rdp_diag_log_event(rgb?"gdi-max-rgb":"gdi-max-bgr",
-                       peaks[0],peaks[1],peaks[2]);
-    rdp_diag_log_event(rgb?"gdi-high-rgb":"gdi-high-bgr",
-                       above[0],above[1],above[2]);
+    /* Consistent channel order makes the two GDI experiments directly
+     * comparable; their X (unused) byte is intentionally ignored. */
+    rdp_diag_log_event("gdi-avg-rgb",sums[0]/samples,sums[1]/samples,
+                       sums[2]/samples);
+    rdp_diag_log_event("gdi-max-rgb",peaks[0],peaks[1],peaks[2]);
+    rdp_diag_log_event("gdi-high-rgb",above[0],above[1],above[2]);
     rdp_diag_log_event("gdi-white-count",whites,samples,color_probe_count);
     /* A uniform-color remote desktop should have very few spatial
      * differences. Count only variation; no actual pixel contents saved. */
@@ -795,7 +799,8 @@ static bool draw_lcd_color_strip(uint16_t *frame, UINT32 format, bool swap_rb)
                                          colors[i].g,colors[i].b,255);
         if (!FreeRDPWriteColor(packed,format,value))
             return false;
-        from_gdi[i]=rdp_desktop_to_rgb565(packed,swap_rb);
+        from_gdi[i]=rdp_gdi32_to_rgb565(packed,
+                   format==PIXEL_FORMAT_BGRX32,swap_rb);
     }
     for(int x=0;x<RDP_W;++x) {
         const unsigned i=(unsigned)(x*7/RDP_W);
@@ -883,11 +888,13 @@ static BOOL copy_desktop_frame(rdpContext *context, const SessionZoom *zoom,
                 const u8 *c=rowhi+xleft,*d=rowhi+xright;
                 frame[out]=native565 ?
                     rdp_desktop_native565_box4(a,b,c,d,swap_rb) :
-                    rdp_desktop_box4_to_rgb565(a,b,c,d,swap_rb);
+                    rdp_gdi32_box4_to_rgb565(a,b,c,d,
+                      gdi->dstFormat==PIXEL_FORMAT_BGRX32,swap_rb);
             } else {
                 frame[out]=native565 ?
                     rdp_desktop_native565(src,swap_rb) :
-                    rdp_desktop_to_rgb565(src,swap_rb);
+                    rdp_gdi32_to_rgb565(src,
+                      gdi->dstFormat==PIXEL_FORMAT_BGRX32,swap_rb);
             }
         }
     }
@@ -958,17 +965,18 @@ static BOOL post_connect(freerdp *instance)
     }
     rdp_diag_log_event("gdi-init-ok",gdi_format,ctx->gdi->stride,
                        (unsigned long)ctx->gdi->height);
-    /* Independent known-color canary through FreeRDP's OWN color packing
-     * routines, not our 3DS blitter or a remotely provided pixel. On
-     * little-endian ARM11 XRGB32 should pack as 20 50 D0 00 and BGRX32
-     * as D0 50 20 00 for R=D0,G=50,B=20. Log no remote content. */
+    /* FreeRDPWriteColor writes the most-significant byte first, not
+     * native ARM little-endian. For R=D0,G=50,B=20 the exact bytes
+     * are 00 D0 50 20 (XRGB32) or 20 50 D0 00 (BGRX32).
+     * This canary contains synthetic data only. */
     {
         BYTE canary[4]={0,0,0,0};
         const UINT32 color=FreeRDPGetColor(gdi_format,0xD0,0x50,0x20,0xFF);
         if(FreeRDPWriteColor(canary,gdi_format,color)) {
-            const unsigned long packed=((unsigned long)canary[0]<<16) |
-                                        ((unsigned long)canary[1]<<8) |
-                                        (unsigned long)canary[2];
+            const unsigned long packed=((unsigned long)canary[0]<<24) |
+                                        ((unsigned long)canary[1]<<16) |
+                                        ((unsigned long)canary[2]<<8) |
+                                        (unsigned long)canary[3];
             rdp_diag_log_event("gdi-color-canary",gdi_format,packed,0);
         } else
             rdp_diag_log_event("gdi-color-canary-fail",gdi_format,0,0);
@@ -1587,7 +1595,7 @@ int freerdp_3ds_run(const RdpConfig *cfg, const RdpUiOptions *options,
     /* Security policy is not weakened. Without an explicitly trusted
        certificate, FreeRDP is expected to fail closed. */
     desktop_dirty = false;
-    bool swap_rb = bgrx_gdi; /* XRGB32 = B,G,R bytes; BGRX32 = R,G,B; L+X toggles. */
+    bool swap_rb = false; /* GDI format is decoded explicitly; L+X reverses R/B only for tests. */
     bool smoothing_enabled = true;
     bool test_pattern = false;
     unsigned blit_samples_remaining=3;

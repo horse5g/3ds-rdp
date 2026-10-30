@@ -44,7 +44,7 @@ The native UI borrows the **layout and interaction conventions** of Windows Remo
 | Smooth zoom in/out | Hold **L** and rotate the Circle Pad clockwise/counterclockwise |
 | Compare source color-channel mapping | **L + X** toggles corrected/old red-blue output for diagnosis |
 | Compare high-resolution downscaling | **L + Y** toggles four-tap smoothing when heavily zoomed out |
-| Compare native LCD against FreeRDP-packed color test | **L + SELECT** shows two matching swatch rows; both ordered red, green, blue, white, yellow, cyan, magenta |
+| Compare native LCD against FreeRDP-packed color test | **L + SELECT** shows two matching swatch rows; both ordered red, green, blue, white, yellow, cyan, magenta (with no L+X channel reversal) |
 | Fit entire desktop | Physical **Y** |
 | Toggle fit / close-up | Physical **R** |
 | Disconnect | **START** or two taps on **Disconnect** |
@@ -57,9 +57,12 @@ The touchscreen and on-screen keyboard are experimental. Relative pointer moveme
 
 ### Diagnosing incorrect remote desktop colors
 
-The **Advanced → GDI Format** dropdown selects how *FreeRDP itself* decodes pixels: **XRGB32** (default, little-endian B/G/R byte order) or **BGRX32** (experimental, little-endian R/G/B byte order). This choice is only for the current launch and does not change the RDP session's negotiated 16-/32-bit color depth or the saved profile. For a controlled comparison, keep resolution and Windows desktop contents unchanged, connect once with each format, and avoid toggling L+X until you have compared the default results.
+The **Advanced → GDI Format** dropdown selects how *FreeRDP itself* decodes pixels: **XRGB32** (default, MSB-first X/R/G/B byte layout) or **BGRX32** (experimental, MSB-first B/G/R/X byte layout). This choice is only for the current launch and does not change the RDP session's negotiated 16-/32-bit color depth or the saved profile. For a controlled comparison, keep resolution and Windows desktop contents unchanged, connect once with each format, and avoid toggling L+X until you have compared the default results.
 
-In each attempt, `gdi-color-canary` logs how FreeRDP packs a synthetic red/green/blue sample, independent of Windows. The sparse `gdi-avg-bgr` / `gdi-avg-rgb` events measure aggregate raw decoded channel values without logging individual pixels. Probes now reset for every reconnect. **L+SELECT** shows the independent native-RGB565 color strip to distinguish display output from decoder errors. Use `L+X` only as a second test of the 3DS-side conversion.
+In each attempt, `gdi-color-canary` logs how FreeRDP packs a synthetic red/green/blue sample, independent of Windows. The `gdi-avg-rgb` event measures normalized red, green, blue averages for either output format without logging individual pixels. Probes now reset for every reconnect. **L+SELECT** shows the independent native-RGB565 color strip to distinguish display output from decoder errors. Use `L+X` only as a second test of the 3DS-side conversion.
+
+
+**Color root cause (October 2026 hardware feedback):** the earlier two-row test displayed a correct direct-LCD row but a lower row reading green/red/black/yellow/yellow/red/green. That exact result is explained by FreeRDP 3.32.2 writing 32-bit colors **MSB-first**: XRGB32 is four bytes `X,R,G,B`, not `B,G,R,X`; BGRX32 is `B,G,R,X`, not `R,G,B,X`. The blitter and four-tap downscaler now use the verified byte positions, and the GDI diagnostic normalizes both formats to R/G/B before reporting averages. This is a confirmed source-code error with a portable regression test; the repaired desktop output still requires an O3DS test. Uniform-looking large desktops may have resulted from dropping the blue channel, but other high-resolution decoder bugs are not excluded.
 
 ### Reconnect and performance panel
 
@@ -74,7 +77,7 @@ During a session, press **SELECT** to toggle an optional read-only performance p
 3. Set the **correct date and time on the 3DS**. An incorrect clock causes legitimate TLS certificates to fail their validity checks.
 4. In **General**, enter the target computer's IPv4 address or hostname, username and optional domain. The default RDP port is **3389**. Set resolution/depth in **Display**. Save the connection if desired and tap **Connect**.
 5. When an unknown certificate or **IP/DNS name mismatch** appears, verify its **full SHA-256 leaf certificate fingerprint independently on the Windows host** before accepting. Press **A** to trust for this session or **X** to save the exact fingerprint for this host and port. **B/START** rejects it. A previously saved certificate changing unexpectedly remains blocked.
-6. Enter your password at connection time; it is never stored in a profile or on SD. To skip re-entry during explicit reconnects only, enable **Advanced → Cache Password → This Run: On** before connecting (OFF by default). After authentication, the top display shows Windows; the bottom touchscreen controls the mouse.
+6. Enter your password at connection time; it is never stored in a profile or on SD. To skip re-entry for reconnects and later connections in the same app process, enable **Advanced → Cache Password → This Run: On** before connecting (OFF by default). After authentication, the top display shows Windows; the bottom touchscreen controls the mouse.
 
 A Windows RDP certificate is often issued for a hostname rather than a numeric IP. **Connecting using a hostname on that certificate, or issuing a certificate with the correct IP Subject Alternative Name, is preferred** to approving a mismatch. Never approve a fingerprint you have not verified.
 
