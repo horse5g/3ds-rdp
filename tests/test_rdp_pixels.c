@@ -72,6 +72,27 @@ int main(void)
                rdp_desktop_box4_to_rgb565(bgrx_test,bgrx_test,
                                            bgrx_test,bgrx_test,1));
     }
-    puts("RDP RGB565 conversion, GDI XRGB/BGRX selection, channel reversal and box downscale passed");
+    /* The top diagnostic swatches are direct RGB565; the bottom row
+     * passes the same colors through the chosen FreeRDP 32-bit byte layout.
+     * Verify the exact display bytes for all seven swatches in both
+     * GDI modes so comparing rows on hardware has a known reference. */
+    {
+        const struct { uint8_t r,g,b; uint16_t lcd; } colors[]={
+            {255,0,0,0xF800},{0,255,0,0x07E0},{0,0,255,0x001F},
+            {255,255,255,0xFFFF},{255,255,0,0xFFE0},
+            {0,255,255,0x07FF},{255,0,255,0xF81F}
+        };
+        for (unsigned i=0;i<sizeof(colors)/sizeof(colors[0]);++i) {
+            uint8_t xrgb[4]={colors[i].b,colors[i].g,colors[i].r,0};
+            uint8_t bgrx[4]={colors[i].r,colors[i].g,colors[i].b,0};
+            assert(rdp_desktop_to_rgb565(xrgb,0)==colors[i].lcd);
+            assert(rdp_desktop_to_rgb565(bgrx,1)==colors[i].lcd);
+            if (colors[i].r!=colors[i].b) {
+                assert(rdp_desktop_to_rgb565(xrgb,1)!=colors[i].lcd);
+                assert(rdp_desktop_to_rgb565(bgrx,0)!=colors[i].lcd);
+            }
+        }
+    }
+    puts("RDP RGB565 conversion, two-row GDI canaries, channel reversal and box downscale passed");
     return 0;
 }
