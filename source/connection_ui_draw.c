@@ -387,7 +387,7 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
         label(15,162,"Y: FIT    R: DETAIL / FIT",307,INK);
         label(15,178,"L+X: COLORS  L+Y: SMOOTH",307,INK);
         fill(14,199,292,1,C(224,230,238));
-        label(17,211,"L+SELECT: RGB TEST; SEL: FPS",304,MUTED);
+        label(17,211,"L+SEL: TWO COLOR ROWS; SEL: FPS",304,MUTED);
         return;
     }
     if(pad->settings_open){
