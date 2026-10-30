@@ -62,6 +62,41 @@ int main(void)
     assert(rdp_desktop_native565_box4(red565,blue565,green565,white565,1)==0x8410);
     assert(rdp_desktop_native565_box4(white565,white565,white565,white565,1)==0xFFFF);
 
-    puts("FreeRDP MSB-first XRGB32/BGRX32 colors, dual swatches, 4-tap downscale passed");
+    /* Four-sample source offsets are integer pixels, NOT 16.16 units.
+     * Prior bug: at 1920x1080 fit, 4.8px/sample yielded radius
+     * 78,643 pixels, so the taps all clamped to desktop edges. */
+    {
+        static const struct {int w,h;} modes[]={
+            {400,240},{640,360},{800,480},{960,540},
+            {1280,720},{1920,1080}
+        };
+        for(unsigned i=0;i<sizeof(modes)/sizeof(modes[0]);++i) {
+            const int32_t sx=(int32_t)(((int64_t)modes[i].w*65536)/400);
+            const int32_t sy=(int32_t)(((int64_t)modes[i].h*65536)/240);
+            const int rx=rdp_box4_radius_px(sx);
+            const int ry=rdp_box4_radius_px(sy);
+            if(modes[i].w<800)assert(rx==0);
+            if(modes[i].w>=800) {
+                assert(rx>=1 && rx<=2);
+                assert(ry>=1 && ry<=2);
+                /* A center pixel must sample nearby interior pixels,
+                 * not image borders or corners. */
+                assert(modes[i].w/2-rx>0);
+                assert(modes[i].w/2+rx<modes[i].w-1);
+                assert(modes[i].h/2-ry>0);
+                assert(modes[i].h/2+ry<modes[i].h-1);
+            }
+        }
+        /* Zooming to 150% reduces fit sampling footprint; a 720p
+         * viewport no longer chooses a huge offscreen radius. */
+        assert(rdp_box4_radius_px((int32_t)(1280.0f/1.5f*65536.0f/400))<=1);
+        assert(rdp_box4_radius_px((int32_t)(1920.0f/1.5f*65536.0f/400))<=1);
+        assert(rdp_box4_radius_px(65536)==0);
+        assert(rdp_box4_radius_px(2*65536)==1);
+        assert(rdp_box4_radius_px(5*65536)==1);
+        assert(rdp_box4_radius_px(6*65536)==2);
+    }
+
+    puts("FreeRDP colors, Q16 fit-mode smoothing offsets and zoom regressions passed");
     return 0;
 }
