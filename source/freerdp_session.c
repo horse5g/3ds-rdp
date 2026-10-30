@@ -708,7 +708,9 @@ static BOOL end_paint(rdpContext *context)
 static void log_desktop_color_probe(const rdpGdi *gdi)
 {
     unsigned sums[3] = {0,0,0}, peaks[3] = {0,0,0};
-    unsigned above[3] = {0,0,0}, whites = 0;
+    unsigned above[3] = {0,0,0}, whites = 0, changed = 0;
+    uint8_t first[3]={0,0,0};
+    bool first_valid=false;
     const unsigned samples = 16u * 12u;
     /* The 16-bit surface has packed RGB565, not B/G/R byte channels.
      * Avoid mislabeling its samples as 32-bit GDI channel statistics. */
@@ -732,6 +734,12 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
             unsigned sx = ((col * 2u + 1u) * (unsigned)gdi->width) / 32u;
             if (sx >= (unsigned)gdi->width) sx = (unsigned)gdi->width - 1u;
             const u8 *px = gdi->primary_buffer + (size_t)sy*gdi->stride + (size_t)sx*4;
+            if(!first_valid) {
+                first[0]=px[0];first[1]=px[1];first[2]=px[2];
+                first_valid=true;
+            } else if(px[0]!=first[0] || px[1]!=first[1] || px[2]!=first[2]) {
+                ++changed;
+            }
             for (unsigned k=0; k<3u; ++k) {
                 const unsigned value = px[k];
                 sums[k] += value;
@@ -754,6 +762,9 @@ static void log_desktop_color_probe(const rdpGdi *gdi)
     rdp_diag_log_event(rgb?"gdi-high-rgb":"gdi-high-bgr",
                        above[0],above[1],above[2]);
     rdp_diag_log_event("gdi-white-count",whites,samples,color_probe_count);
+    /* A uniform-color remote desktop should have very few spatial
+     * differences. Count only variation; no actual pixel contents saved. */
+    rdp_diag_log_event("gdi-spatial-change",changed,samples,color_probe_count);
 }
 
 /* Diagnostic only, never sent to the server or stored on SD.
