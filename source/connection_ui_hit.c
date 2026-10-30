@@ -17,7 +17,7 @@ int connection_ui_field_at(int x, int y)
 int connection_ui_saved_at(int x, int y, int scroll, int count)
 {
     int index, offset;
-    if (x < 7 || x >= 313 || y < 58 || y >= 183) return -1;
+    if (x < 7 || x >= 292 || y < 58 || y >= 183) return -1;
     index = (y - 58) / 25;
     offset = (y - 58) % 25;
     if (offset >= 23 || index >= 5 || scroll < 0 || scroll + index >= count) return -1;
