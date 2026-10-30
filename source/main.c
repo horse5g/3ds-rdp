@@ -129,9 +129,11 @@ static void full_session(const ConnectionUI *state)
             gspWaitForVBlank();
         }
     }while(again);
-    /* Cached credentials are usable only for explicit retries within this
-     * launcher operation. Never retain them after Back/START. */
-    freerdp_3ds_clear_password_cache();
+    /* Return to launcher without wiping an explicitly enabled RAM cache.
+     * Otherwise the very next Connect is forced to prompt again.
+     * The credential is never written to SD and remains usable only
+     * for the same host/port/account, until the user turns caching off
+     * or leaves the application. */
     snprintf(status,sizeof(status),"%s",result==0 ? "Session exited" : "RDP session error");
     snprintf(detail,sizeof(detail),"%s",message);
 }
@@ -177,6 +179,7 @@ int main(int argc, char **argv)
     while (aptMainLoop()) {
         u32 down, held, menu_keys;
         bool call_probe, call_full;
+        const bool was_caching=ui.cache_password_for_run;
         bool touch_connect;
         char validation[96];
         hidScanInput();
@@ -192,6 +195,13 @@ int main(int argc, char **argv)
         menu_keys = down & ~KEY_L;
         if (held & KEY_L) menu_keys &= ~(KEY_Y|KEY_SELECT|KEY_X);
         connection_ui_key(&ui,menu_keys,PROFILES_FILE);
+#ifdef RDP_FULL_CLIENT
+        /* Turning the checkbox OFF immediately destroys cached credentials.
+         * Returning to launcher while ON intentionally keeps the password
+         * for this process only; exit below always wipes it. */
+        if(was_caching && !ui.cache_password_for_run)
+            freerdp_3ds_clear_password_cache();
+#endif
         touch_connect = ui.connect_requested;
         ui.connect_requested = false;
         call_full = !!((down & KEY_R) && (held & KEY_L));
