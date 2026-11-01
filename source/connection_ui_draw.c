@@ -419,9 +419,11 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
                 (key==SK_SHIFT && (pad->key_mods&SK_MOD_SHIFT)) ||
                 (key==SK_WIN && (pad->key_mods&SK_MOD_WIN)) ||
                 (key==SK_FN && pad->fn_page) ||
-                (key==SK_SYM && pad->sym_page);
+                (key==SK_SYM && pad->sym_page) ||
+                (key==SK_CAPS_LOCK && pad->caps_pressed);
             const bool action=(key==SK_CTRL||key==SK_WIN||key==SK_ALT||
-                               key==SK_SHIFT||key==SK_FN||key==SK_SYM);
+                               key==SK_SHIFT||key==SK_FN||key==SK_SYM||
+                               key==SK_CAPS_LOCK);
             const uint32_t idle_color=action?C(229,236,246):WHITE;
             const uint32_t ink=selected?WHITE:pressed?BLUE:INK;
             const int font_width=(int)strlen(tile.label)*6;
