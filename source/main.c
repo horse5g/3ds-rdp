@@ -196,7 +196,7 @@ int main(int argc, char **argv)
         }
         /* L is a diagnostic/session modifier, never an editor shortcut. */
         menu_keys = down & ~KEY_L;
-        if (held & KEY_L) menu_keys &= ~(KEY_Y|KEY_SELECT|KEY_X);
+        if (held & KEY_L) menu_keys &= ~(KEY_Y|KEY_SELECT|KEY_X|KEY_B);
         connection_ui_key(&ui,menu_keys,PROFILES_FILE);
 #ifdef RDP_FULL_CLIENT
 #endif
@@ -210,7 +210,8 @@ int main(int argc, char **argv)
         if (touch_connect) call_probe = true;
         (void)call_full;
 #endif
-        if (down & KEY_B) {
+        /* B is Back/Cancel in launcher dialogs. Diagnostics require L+B. */
+        if ((down & KEY_B) && (held & KEY_L)) {
             char result[96];
             bool passed = horizon_sync_selftest(result,sizeof(result));
             snprintf(status,sizeof(status),"Kernel events %s",passed ? "PASS" : "FAIL");
