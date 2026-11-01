@@ -289,6 +289,98 @@ int main(void)
     }
     assert(!lift(&pad).key);
 
+    /* Stylus tolerance: 10px drift inside one small key is a legitimate
+     * tap. A key-boundary crossing permanently cancels that touch, even if
+     * the stylus moves back and releases inside the original tile. */
+    t=keyboard_tile(&pad,SK_CHAR('s'));
+    touch(&pad,t.x+3,t.y+t.h/2);
+    a=touch(&pad,t.x+13,t.y+t.h/2);
+    assert(!pad.moved && !pad.keyboard_canceled && a.redraw);
+    a=lift(&pad);
+    assert(a.key==SK_CHAR('s'));
+
+    t=keyboard_tile(&pad,SK_CHAR('s'));
+    touch(&pad,t.x+t.w-2,t.y+t.h/2);
+    touch(&pad,t.x+t.w+2,t.y+t.h/2); /* next key */
+    assert(pad.keyboard_canceled);
+    touch(&pad,t.x+t.w-2,t.y+t.h/2);
+    assert(pad.keyboard_canceled);
+    assert(lift(&pad).key==0);
+
+    /* In-key movement can still typematically repeat. */
+    t=keyboard_tile(&pad,SK_BACKSPACE);
+    touch(&pad,t.x+3,t.y+t.h/2);
+    touch(&pad,t.x+14,t.y+t.h/2);
+    for (i=2;i<24;++i) touch(&pad,t.x+14,t.y+t.h/2);
+    a=touch(&pad,t.x+14,t.y+t.h/2);
+    assert(a.key==SK_BACKSPACE && !pad.keyboard_canceled);
+    assert(lift(&pad).key==0);
+
+    /* Holding Ctrl locks it until explicitly tapped again. A regular key
+     * consumes only one-shot modifiers, never the locked state. */
+    t=keyboard_tile(&pad,SK_CTRL);
+    touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    for(i=0;i<25;++i) {
+        a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+        assert(!a.key); /* modifier itself never repeats remotely */
+    }
+    a=lift(&pad);
+    assert(!a.key && pad.key_mods==SK_MOD_CTRL);
+    assert(pad.key_mods_locked==SK_MOD_CTRL);
+    a=tap_key(&pad,SK_CHAR('c'));
+    assert(a.key==SK_CHAR('c') && a.modifiers==SK_MOD_CTRL);
+    assert(pad.key_mods==SK_MOD_CTRL);
+    a=tap_key(&pad,SK_CHAR('v'));
+    assert(a.key==SK_CHAR('v') && a.modifiers==SK_MOD_CTRL);
+    a=tap_key(&pad,SK_CTRL);
+    assert(!a.key && pad.key_mods==0 && !pad.key_mods_locked);
+    a=tap_key(&pad,SK_CHAR('x'));
+    assert(a.key==SK_CHAR('x') && !a.modifiers);
+
+    /* Lock Shift, arm Ctrl for one key, then keep only locked Shift.
+     * Repeat should retain locked Shift throughout the held key. */
+    t=keyboard_tile(&pad,SK_SHIFT);
+    touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    for(i=0;i<25;++i) touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    lift(&pad);
+    assert(pad.key_mods_locked==SK_MOD_SHIFT);
+    a=tap_key(&pad,SK_CTRL);
+    assert(pad.key_mods==(SK_MOD_CTRL|SK_MOD_SHIFT));
+    a=tap_key(&pad,SK_CHAR('a'));
+    assert(a.modifiers==(SK_MOD_CTRL|SK_MOD_SHIFT));
+    assert(pad.key_mods==SK_MOD_SHIFT && pad.key_mods_locked==SK_MOD_SHIFT);
+    t=keyboard_tile(&pad,SK_CHAR('a'));
+    touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    for(i=1;i<24;++i) touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    assert(a.key==SK_CHAR('a') && a.modifiers==SK_MOD_SHIFT);
+    assert(pad.key_mods==SK_MOD_SHIFT);
+    assert(lift(&pad).key==0);
+    a=tap_key(&pad,SK_SHIFT);
+    assert(pad.key_mods==0 && pad.key_mods_locked==0);
+
+    /* A crossed modifier key cannot arm or lock even after a long hold. */
+    t=keyboard_tile(&pad,SK_ALT);
+    touch(&pad,t.x+t.w-2,t.y+t.h/2);
+    touch(&pad,t.x+t.w+2,t.y+t.h/2);
+    touch(&pad,t.x+t.w-2,t.y+t.h/2);
+    for(i=0;i<40;++i) touch(&pad,t.x+t.w-2,t.y+t.h/2);
+    assert(!lift(&pad).key);
+    assert(!pad.key_mods && !pad.key_mods_locked);
+
+    /* Closing the keyboard clears locked modifiers as well as one-shots,
+     * so a return to touchpad mode never leaves a latent remote chord. */
+    t=keyboard_tile(&pad,SK_WIN);
+    touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    for(i=0;i<25;++i) touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    lift(&pad);
+    assert(pad.key_mods_locked==SK_MOD_WIN);
+    a=tap(&pad,200,15);
+    assert(a.redraw && !pad.keyboard_open && !pad.key_mods_locked);
+    assert(!pad.key_mods);
+    a=tap(&pad,200,15);
+    assert(a.keyboard && pad.keyboard_open);
+
     /* Tapping the Keyboard toolbar tab returns to the touchpad, and
      * leaving it clears pending sticky modifiers and Fn/Sym layers. */
     a=tap_key(&pad,SK_CTRL);
