@@ -20,6 +20,20 @@ static PadActions tap(SessionPad *pad, int x, int y)
     return lift(pad);
 }
 
+static SessionKeyboardTile keyboard_tile(SessionPad *pad,int key)
+{
+    SessionKeyboardTile t;
+    for(int i=0;session_pad_keyboard_tile(pad,i,&t);++i)
+        if(t.key==key) return t;
+    assert(!"requested key absent from keyboard");
+    return (SessionKeyboardTile){0};
+}
+static PadActions tap_key(SessionPad *pad,int key)
+{
+    const SessionKeyboardTile t=keyboard_tile(pad,key);
+    return tap(pad,t.x+t.w/2,t.y+t.h/2);
+}
+
 int main(void)
 {
     SessionPad pad;
@@ -116,48 +130,105 @@ int main(void)
     assert(pad.disconnect_armed && !a.disconnect);
     a=tap(&pad,50,15);
     assert(a.disconnect);
-    /* F1-F12 page must have an exit back to Esc/Tab/arrow/modifier keys.
-       Prior version had only CLOSE, trapping active sticky modifiers. */
+    /* Real PC keyboard: every visible tile uses the same non-overlapping
+     * bounds as its hit-test region. All keys stay within the 320x240 LCD. */
     pad.keyboard_open=true;
     pad.fn_page=false;
-    /* A tiny glide across a key boundary (<6px) was previously able
-     * to send the OLD key: every key shares PAD_AREA. */
-    a=touch(&pad,81,50); /* ESC: last column pixel of first cell */
+    pad.sym_page=false;
+    int count=0;
+    SessionKeyboardTile t,other;
+    while(session_pad_keyboard_tile(&pad,count,&t)) {
+        assert(t.x>=0 && t.y>=32 && t.x+t.w<=320 && t.y+t.h<=240);
+        assert(t.w>=19 && t.h>=19);
+        assert(session_pad_keyboard_key(&pad,t.x+t.w/2,t.y+t.h/2)==t.key);
+        for(int j=0;j<count;++j) {
+            assert(session_pad_keyboard_tile(&pad,j,&other));
+            assert(t.x>=other.x+other.w || other.x>=t.x+t.w ||
+                   t.y>=other.y+other.h || other.y>=t.y+t.h);
+        }
+        ++count;
+    }
+    assert(count==67);
+    assert(session_pad_keyboard_key(&pad,0,65)==0); /* margin */
+    assert(session_pad_keyboard_key(&pad,10,64)==0); /* row gap */
+    assert(session_pad_keyboard_key(&pad,50,239)==0);
+    assert(session_pad_keyboard_key(&pad,5,38)==SK_CHAR('1'));
+    assert(session_pad_keyboard_key(&pad,6,68)==SK_TAB);
+    assert(session_pad_keyboard_key(&pad,60,68)==SK_CHAR('q'));
+    assert(session_pad_keyboard_key(&pad,300,99)==SK_ENTER);
+    assert(session_pad_keyboard_key(&pad,140,170)==SK_CHAR(' '));
+
+    /* A 2px glide from key 1 to key 2 must never send key 1, even
+     * though both touch positions share the generic PAD_AREA region. */
+    a=touch(&pad,25,50);
     assert(a.redraw && pad.captured==PAD_AREA);
-    a=touch(&pad,83,50); /* TAB: first pixels of second cell */
-    assert(!pad.moved);
+    a=touch(&pad,27,50);
+    assert(!pad.moved && a.redraw);
     a=lift(&pad);
     assert(a.key==0 && a.redraw);
-    a=tap(&pad,83,50);
-    assert(a.key==SK_TAB);
-    /* Leaving a key across a large drag must also cancel activation. */
-    touch(&pad,40,50);
-    touch(&pad,145,50);
+    a=tap_key(&pad,SK_CHAR('2'));
+    assert(a.key==SK_CHAR('2') && !a.modifiers);
+    touch(&pad,40,77);
+    touch(&pad,145,77);
     a=lift(&pad);
     assert(a.key==0);
 
-    a=tap(&pad, 110, 214); /* Basic row 4 col 2: F1-F12 */
-    assert(a.redraw && pad.fn_page);
-    assert(session_pad_keyboard_key(&pad,6,45)==SK_F1);
-    assert(session_pad_keyboard_key(&pad,110,214)==SK_FN);
-    a=tap(&pad,110,214); /* Function row 4 col 2: BASIC */
+    /* Fn replaces number row with F1-F12 without hiding letters,
+     * modifiers, navigation, or the Backspace key. */
+    a=tap_key(&pad,SK_FN);
+    assert(a.redraw && pad.fn_page && !pad.sym_page);
+    assert(session_pad_keyboard_key(&pad,5,40)==SK_F1);
+    a=tap_key(&pad,SK_F12);
+    assert(a.key==SK_F12 && pad.fn_page);
+    a=tap_key(&pad,SK_FN);
     assert(a.redraw && !pad.fn_page);
-    assert(session_pad_keyboard_key(&pad,6,45)==SK_ESC);
-    /* Sticky modifier state must not survive closing the keyboard. */
-    pad.settings_open=false; /* start from a visible keyboard, not a prior toolbar state */
-    pad.keyboard_open=true;
-    pad.fn_page=false;
-    a=tap(&pad, 40, 108); /* row 2, col 1: Ctrl */
-    assert(pad.key_mods&SK_MOD_CTRL);
-    a=tap(&pad, 240, 215); /* last row: CLOSE */
+    assert(session_pad_keyboard_key(&pad,5,40)==SK_CHAR('1'));
+
+    /* Symbol page is mutually exclusive with Fn and keeps all other
+     * keyboard rows unchanged. */
+    a=tap_key(&pad,SK_SYM);
+    assert(a.redraw && pad.sym_page);
+    assert(session_pad_keyboard_key(&pad,5,40)==SK_CHAR(96));
+    a=tap_key(&pad,SK_CHAR('['));
+    assert(a.key==SK_CHAR('[') && pad.sym_page);
+    a=tap_key(&pad,SK_FN);
+    assert(pad.fn_page && !pad.sym_page);
+    a=tap_key(&pad,SK_SYM);
+    assert(!pad.fn_page && pad.sym_page);
+    a=tap_key(&pad,SK_SYM);
+    assert(!pad.sym_page);
+
+    /* Latching Ctrl+Shift then pressing C produces exactly one chord
+     * and clears both modifiers, leaving the next key unmodified. */
+    a=tap_key(&pad,SK_CTRL);
+    assert(a.redraw && pad.key_mods==SK_MOD_CTRL);
+    a=tap_key(&pad,SK_SHIFT);
+    assert(pad.key_mods==(SK_MOD_CTRL|SK_MOD_SHIFT));
+    a=tap_key(&pad,SK_CHAR('c'));
+    assert(a.key==SK_CHAR('c') && a.modifiers==(SK_MOD_CTRL|SK_MOD_SHIFT));
+    assert(pad.key_mods==0);
+    a=tap_key(&pad,SK_CHAR('v'));
+    assert(a.key==SK_CHAR('v') && a.modifiers==0);
+    a=tap_key(&pad,SK_ALT);
+    a=tap_key(&pad,SK_TAB);
+    assert(a.key==SK_TAB && a.modifiers==SK_MOD_ALT && !pad.key_mods);
+    a=tap_key(&pad,SK_CTRL_ALT_END);
+    assert(a.key==SK_CTRL_ALT_END && !pad.key_mods);
+
+    /* Tapping the Keyboard toolbar tab returns to the touchpad, and
+     * leaving it clears pending sticky modifiers and Fn/Sym layers. */
+    a=tap_key(&pad,SK_CTRL);
+    a=tap_key(&pad,SK_FN);
+    a=tap(&pad,200,15);
     assert(a.redraw && !pad.keyboard_open && pad.key_mods==0);
-    pad.keyboard_open=true;
-    a=tap(&pad, 42, 108);
-    assert(pad.key_mods&SK_MOD_CTRL);
-    a=tap(&pad, 150, 15); /* Settings should replace keyboard overlay */
+    assert(!pad.fn_page && !pad.sym_page);
+    a=tap(&pad,200,15);
+    assert(a.redraw && pad.keyboard_open);
+    a=tap_key(&pad,SK_WIN);
+    a=tap(&pad,150,15);
     assert(a.redraw && !pad.keyboard_open && pad.settings_open);
-    assert(!pad.fn_page && pad.key_mods==0);
-    a=tap(&pad, 200, 15); /* Keyboard should replace settings */
+    assert(pad.key_mods==0);
+    a=tap(&pad,200,15);
     assert(a.redraw && pad.keyboard_open && !pad.settings_open);
     pad.keyboard_open=false; /* return to touchpad after keyboard test */
     /* x clamping and negative speed deltas */
