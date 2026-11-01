@@ -282,6 +282,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
         if (pad->keyboard_open && pad->captured == PAD_AREA && !pad->moved) {
             const int key=session_pad_keyboard_key(pad,pad->start_x,pad->start_y);
             if (key && keyboard_repeatable(key) &&
+                !(pad->repeat_modifiers & (SK_MOD_CTRL|SK_MOD_ALT|SK_MOD_WIN)) &&
                 key==session_pad_keyboard_key(pad,x,y) &&
                 pad->hold_frames>=KEY_REPEAT_DELAY_FRAMES &&
                 (pad->hold_frames-KEY_REPEAT_DELAY_FRAMES)%
