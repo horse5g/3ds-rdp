@@ -115,7 +115,7 @@ static const KeySpec shift_keys[] = {
     {SK_SHIFT,"SHIFT",45},
     CH('z',"Z",29),CH('x',"X",29),CH('c',"C",29),
     CH('v',"V",29),CH('b',"B",29),CH('n',"N",29),
-    CH('m',"M",29),CH(',',",",21),CH('.'," .",21),
+    CH('m',"M",29),CH(',',",",21),CH('.',"." ,21),
     CH('/',"/",21)
 };
 static const KeySpec modifier_keys[] = {
