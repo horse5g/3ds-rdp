@@ -113,7 +113,7 @@ For managing certificates on device, hold **L and press X** in the launcher. Thi
 | **R** | Non-authenticated X.224/RDP negotiation probe |
 | **L + R** | Full FreeRDP session (alternative to tapping Connect) |
 | **L + X** | Trusted certificates manager |
-| **B** | Horizon kernel event self-test |
+| **L + B** | Horizon kernel event self-test (B alone is Back/Cancel in launcher dialogs) |
 | **L + Y** | SOC loopback self-test |
 | **L + SELECT** | 3DS PS-service entropy self-test |
 | **START** | Exit |
