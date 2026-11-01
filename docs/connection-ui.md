@@ -33,7 +33,7 @@ The bottom touchscreen has a four-button toolbar:
 
 1. **Disconnect** — two-tap confirmation; START also ends the session.
 2. **Settings** — live input speed, wheel step and reverse wheel direction.
-3. **Keyboard** — on-screen virtual shortcut keys; X or Text opens the built-in text keyboard.
+3. **Keyboard** — opens a persistent touchscreen PC-style QWERTY keyboard immediately (no Nintendo keyboard applet); tap Keyboard again to return to the touchpad. The physical **X** button still offers the optional stock 3DS text-entry dialog for longer ASCII strings.
 4. **Help** — dedicated overlay containing the full gestures and controller shortcuts.
 
 The regular pad is deliberately quiet: a recessed, bordered contact surface, a small zoom indicator, a faint `TOUCHPAD / SWIPE TO MOVE` legend, two separate left/right buttons below and an independent scroll track along the right edge. Help text does not compete with the usable touch area.
@@ -51,14 +51,17 @@ Gestures and controls:
 | L + Circle Pad rotation | Smooth pointer-centered local zoom, 100–500% |
 | Y | Fit full remote desktop |
 | R | Toggle fit and close-up |
-| X / Text | Open stock 3DS text entry |
+| Keyboard toolbar tab | Show/hide the full PC-style QWERTY touch keyboard, no text-entry dialog required |
+| X (physical) | Optional stock 3DS text entry (ASCII fallback) |
 | START | Disconnect |
 | SELECT | Toggle read-only performance panel during a connected session |
 | L + SELECT | Toggle native LCD red/green/blue/white/yellow/cyan/magenta test strip on the top screen; independent of RDP decoding |
 
 A tap on **Help** disables pointer/click hit-testing in the content area until closed; only the toolbar remains actionable. Opening Keyboard or Settings closes Help, and keyboard modifiers are cleared when switching modes. Settings remain session-only.
 
-**Touch feedback and keyboard safety:** Touching a toolbar button, left/right click zone, or wheel strip immediately highlights that control; the highlight clears on release even when no input event is sent. The wheel controls only respond within their drawn rectangles, not the gaps. On the virtual keyboard, the stylus must remain within the same key cell from press through release; sliding into a neighboring key cancels the original key instead of sending it. The function-page Ctrl+Alt+End tile uses the shorter `C+A+END` label to remain legible.
+**Touch keyboard:** The Keyboard tab immediately fills the bottom screen with a seven-row PC-style layout: numbers/Backspace; QWERTY and home rows with Tab/Enter; Shift with ZXCVBNM and punctuation; Ctrl, Win, Alt, Space, Fn and Sym; Esc/Delete/Home/End/Page Up/Page Down and arrow keys; plus Ctrl+Alt+End, Alt+Tab and Win+R shortcuts. **Fn** substitutes F1–F12 for the number keys and **Sym** substitutes additional punctuation; tap either again to return. Those layers remain visible until toggled or the keyboard tab is closed. **Ctrl/Alt/Shift/Win** can be tapped in sequence before the target key (for example Ctrl, Shift, Esc); modifiers illuminate while armed and automatically clear after the next ordinary key. These are standard US QWERTY Set-1 scan-code events delivered directly over FreeRDP. Unicode/IME, non-US layouts and key-repeat-on-hold are not yet supported.
+
+**Touch feedback and keyboard safety:** Touching a toolbar button, left/right click zone, or wheel strip immediately highlights that control; the highlight clears on release even when no input event is sent. The wheel controls only respond within their drawn rectangles, not the gaps. The keyboard's drawn key geometry is the same as its hit-test geometry: sliding into a neighboring key cancels the original instead of sending it. The Ctrl+Alt+End shortcut remains available on the bottom row without needing a function layer.
 
 ### Rendering and performance
 

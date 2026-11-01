@@ -71,27 +71,116 @@ int session_pad_nudge(const SessionPad *pad,bool horizontal)
     return (int)(value>0?value:1);
 }
 
-/* Four-column touch panel. The final row supplies shortcuts and a text
- * entry button. The key grid uses the same hitboxes as the drawn controls. */
+/* The native 320x240 lower screen is a real PC-style keyboard, not a
+ * 4x4 shortcut palette or an OS keyboard applet. Every painted key and its
+ * touch region comes from this one data-driven layout. All rows fit x=4..316
+ * and y=37..238, below the session toolbar. */
+typedef struct { int key; const char *label; int w; } KeySpec;
+#define CH(c,l,w) {SK_CHAR(c),l,w}
+static const KeySpec number_keys[] = {
+    CH('1',"1",22),CH('2',"2",22),CH('3',"3",22),
+    CH('4',"4",22),CH('5',"5",22),CH('6',"6",22),
+    CH('7',"7",22),CH('8',"8",22),CH('9',"9",22),
+    CH('0',"0",22),CH('-',"-",22),CH('=',"=",22),
+    {SK_BACKSPACE,"BKSP",48}
+};
+static const KeySpec function_keys[] = {
+    {SK_F1,"F1",22},{SK_F2,"F2",22},{SK_F3,"F3",22},
+    {SK_F4,"F4",22},{SK_F5,"F5",22},{SK_F6,"F6",22},
+    {SK_F7,"F7",22},{SK_F8,"F8",22},{SK_F9,"F9",22},
+    {SK_F10,"F10",22},{SK_F11,"F11",22},{SK_F12,"F12",22},
+    {SK_BACKSPACE,"BKSP",48}
+};
+static const KeySpec symbol_keys[] = {
+    CH(96,"GRV",22),CH('~',"~",22),CH('[',"[",22),
+    CH(']',"]",22),CH(92,"BS",22),CH('|',"|",22),
+    CH('{',"{",22),CH('}',"}",22),CH(';',";",22),
+    CH(39,"'",22),CH(':',":",22),CH(34,"DQT",22),
+    {SK_BACKSPACE,"BKSP",48}
+};
+static const KeySpec qwerty_keys[] = {
+    {SK_TAB,"TAB",32},
+    CH('q',"Q",28),CH('w',"W",28),CH('e',"E",28),
+    CH('r',"R",28),CH('t',"T",28),CH('y',"Y",28),
+    CH('u',"U",28),CH('i',"I",28),CH('o',"O",28),
+    CH('p',"P",28)
+};
+static const KeySpec home_keys[] = {
+    CH('a',"A",25),CH('s',"S",25),CH('d',"D",25),
+    CH('f',"F",25),CH('g',"G",25),CH('h',"H",25),
+    CH('j',"J",25),CH('k',"K",25),CH('l',"L",25),
+    CH(';',";",22),CH(39,"'",22),{SK_ENTER,"ENTER",41}
+};
+static const KeySpec shift_keys[] = {
+    {SK_SHIFT,"SHIFT",45},
+    CH('z',"Z",29),CH('x',"X",29),CH('c',"C",29),
+    CH('v',"V",29),CH('b',"B",29),CH('n',"N",29),
+    CH('m',"M",29),CH(',',",",21),CH('.',"." ,21),
+    CH('/',"/",21)
+};
+static const KeySpec modifier_keys[] = {
+    {SK_CTRL,"CTRL",44},{SK_WIN,"WIN",39},{SK_ALT,"ALT",39},
+    CH(' ',"SPACE",125),{SK_FN,"FN",32},{SK_SYM,"SYM",33}
+};
+static const KeySpec navigation_keys[] = {
+    {SK_ESC,"ESC",28},{SK_TAB,"TAB",28},{SK_DELETE,"DEL",28},
+    {SK_HOME,"HOME",28},{SK_END,"END",28},
+    {SK_PGUP,"PGUP",28},{SK_PGDN,"PGDN",28},
+    {SK_LEFT,"<",28},{SK_UP,"^",28},
+    {SK_DOWN,"V",28},{SK_RIGHT,">",28}
+};
+static const KeySpec shortcut_keys[] = {
+    {SK_CTRL_ALT_END,"CTRL+ALT+END",104},
+    {SK_ALT_TAB,"ALT+TAB",104},{SK_WIN_R,"WIN+R",104}
+};
+#undef CH
+
+bool session_pad_keyboard_tile(const SessionPad *pad, int index,
+                               SessionKeyboardTile *tile)
+{
+    static const int row_y[]={37,66,95,124,153,186,219};
+    static const int row_h[]={26,26,26,26,30,29,19};
+    static const int row_x[]={4,4,6,4,4,6,4};
+    static const int row_count[]={13,11,12,11,6,11,3};
+    const KeySpec *row_keys;
+    int row,first=0,col,x;
+    if (!pad || !tile || index<0) return false;
+    for(row=0;row<7;++row) {
+        if(index<first+row_count[row]) break;
+        first+=row_count[row];
+    }
+    if(row>=7) return false;
+    switch(row) {
+    case 0: row_keys=pad->fn_page?function_keys:
+                     pad->sym_page?symbol_keys:number_keys;break;
+    case 1: row_keys=qwerty_keys;break;
+    case 2: row_keys=home_keys;break;
+    case 3: row_keys=shift_keys;break;
+    case 4: row_keys=modifier_keys;break;
+    case 5: row_keys=navigation_keys;break;
+    default:row_keys=shortcut_keys;break;
+    }
+    col=index-first;
+    x=row_x[row];
+    for(int i=0;i<col;++i) x+=row_keys[i].w;
+    tile->x=x;
+    tile->y=row_y[row];
+    tile->w=row_keys[col].w;
+    tile->h=row_h[row];
+    tile->key=row_keys[col].key;
+    tile->label=row_keys[col].label;
+    return true;
+}
+
 int session_pad_keyboard_key(const SessionPad *pad,int x,int y)
 {
-    static const int base[16]={
-        SK_ESC,SK_TAB,SK_ENTER,SK_BACKSPACE,
-        SK_CTRL,SK_ALT,SK_SHIFT,SK_WIN,
-        SK_LEFT,SK_UP,SK_DOWN,SK_RIGHT,
-        SK_DELETE,SK_FN,SK_TEXT,SK_CLOSE
-    };
-    static const int fn[16]={
-        SK_F1,SK_F2,SK_F3,SK_F4,
-        SK_F5,SK_F6,SK_F7,SK_F8,
-        SK_F9,SK_F10,SK_F11,SK_F12,
-        SK_CTRL_ALT_END,SK_FN,SK_WIN_R,SK_ALT_TAB
-    };
-    int col,row;
-    if(!pad || !pad->keyboard_open || x<4 || x>=316 || y<40 || y>=232)return 0;
-    col=(x-4)/78;row=(y-40)/48;
-    if(col>=4||row>=4)return 0;
-    return pad->fn_page?fn[row*4+col]:base[row*4+col];
+    SessionKeyboardTile tile;
+    if(!pad || !pad->keyboard_open || x<0 || x>=320 || y<32 || y>=240)
+        return 0;
+    for(int i=0;session_pad_keyboard_tile(pad,i,&tile);++i)
+        if(x>=tile.x && x<tile.x+tile.w &&
+           y>=tile.y && y<tile.y+tile.h) return tile.key;
+    return 0;
 }
 PadRegion session_pad_hit(const SessionPad *pad, int x, int y)
 {
@@ -189,6 +278,9 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
             out->pointer_moved=nx!=pad->pointer_x || ny!=pad->pointer_y;
             pad->pointer_x=nx;
             pad->pointer_y=ny;
+        } else if (pad->keyboard_open && pad->captured == PAD_AREA &&
+                   (dx || dy)) {
+            out->redraw = true; /* clear highlight on any key-crossing glide */
         } else if (pad->captured == PAD_SCROLL_STRIP) {
             /* Accumulate little strokes; movement down means scroll down. */
             pad->scroll_remainder += dy;
@@ -215,14 +307,26 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
             session_pad_keyboard_key(pad,pad->touch_x,pad->touch_y)==key) {
             /* PAD_AREA spans all virtual keys. A tiny stylus slip from
              * one cell to another must not send the first cell's key. */
-            if(key==SK_CLOSE){pad->keyboard_open=false;pad->fn_page=false;
-                pad->key_mods=0;out->redraw=true;}
-            else if(key==SK_FN){pad->fn_page=!pad->fn_page;out->redraw=true;}
-            else if(key==SK_TEXT){out->text_input=true;out->redraw=true;}
-            else if(key==SK_CTRL||key==SK_ALT||key==SK_SHIFT||key==SK_WIN){
+            if(key==SK_FN){
+                pad->fn_page=!pad->fn_page;
+                if(pad->fn_page) pad->sym_page=false;
+                out->redraw=true;
+            } else if(key==SK_SYM){
+                pad->sym_page=!pad->sym_page;
+                if(pad->sym_page) pad->fn_page=false;
+                out->redraw=true;
+            } else if(key==SK_CTRL||key==SK_ALT||key==SK_SHIFT||key==SK_WIN){
                 unsigned bit=1u<<(key-SK_CTRL);
-                pad->key_mods^=bit;out->redraw=true;
-            } else {out->key=key;out->modifiers=pad->key_mods;out->redraw=true;}
+                pad->key_mods^=bit;
+                out->redraw=true;
+            } else {
+                out->key=key;
+                out->modifiers=pad->key_mods;
+                /* One-shot modifiers: tapping Ctrl then C produces Ctrl+C
+                 * without leaving Ctrl active for subsequent normal keys. */
+                pad->key_mods=0;
+                out->redraw=true;
+            }
         } else if (pressed == PAD_AREA && !pad->keyboard_open && !pad->moved &&
             pad->hold_frames <= TAP_MAX_FRAMES && release_inside) {
             out->left_click = true;
@@ -242,7 +346,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                     pad->keyboard_open = !pad->keyboard_open;
                     pad->help_open = false;
                     if(pad->keyboard_open)pad->settings_open=false;
-                    else {pad->fn_page=false;pad->key_mods=0;}
+                    else {pad->fn_page=false;pad->sym_page=false;pad->key_mods=0;}
                     out->keyboard = true;
                     pad->disconnect_armed = false;
                     out->redraw = true;
@@ -252,6 +356,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                     pad->help_open = false;
                     pad->keyboard_open=false;
                     pad->fn_page=false;
+                    pad->sym_page=false;
                     pad->key_mods=0;
                     pad->disconnect_armed = false;
                     out->redraw = true;
@@ -261,6 +366,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                     pad->settings_open=false;
                     pad->keyboard_open=false;
                     pad->fn_page=false;
+                    pad->sym_page=false;
                     pad->key_mods=0;
                     pad->disconnect_armed=false;
                     out->redraw=true;

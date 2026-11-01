@@ -38,14 +38,19 @@ size_t session_key_sequence(int key,unsigned modifiers,SessionKeyEvent *out,size
     if(key==SK_CTRL_ALT_END) { modifiers=SK_MOD_CTRL|SK_MOD_ALT;key=SK_END; }
     if(key==SK_ALT_TAB) { modifiers=SK_MOD_ALT;key=SK_TAB; }
     if(key==SK_WIN_R) { modifiers=SK_MOD_WIN;scan=0x13;ext=0; }
-    else if(!keyscan(key,(uint8_t *)&(uint8_t){0},(uint8_t *)&(uint8_t){0})) return 0;
-    for(i=0;i<4;++i)
-        if(modifiers&(1u<<i)) if(!emit(out,cap,&n,codes[i],flags[i],1))return 0;
-    if(key!=SK_WIN_R) {
-        uint8_t c,e;
-        if(!keyscan(key,&c,&e))return 0;
+    else if(key>=SK_CHAR_BASE && key<SK_CHAR_BASE+128) {
+        uint8_t c=0,need_shift=0;
+        if(!session_ascii_scan((unsigned char)(key-SK_CHAR_BASE),
+                               &c,&need_shift)) return 0;
+        scan=c;ext=0;
+        if(need_shift) modifiers |= SK_MOD_SHIFT;
+    } else {
+        uint8_t c=0,e=0;
+        if(!keyscan(key,&c,&e)) return 0;
         scan=c;ext=e;
     }
+    for(i=0;i<4;++i)
+        if(modifiers&(1u<<i)) if(!emit(out,cap,&n,codes[i],flags[i],1))return 0;
     if(!emit(out,cap,&n,scan,ext,1) ||
        !emit(out,cap,&n,scan,ext,0))return 0;
     for(i=4;i>0;--i) {
@@ -67,7 +72,7 @@ const char *session_key_label(int k)
       case SK_UP:return "UP";case SK_DOWN:return "DOWN";case SK_RIGHT:return "RIGHT";
       case SK_CTRL:return "CTRL";case SK_ALT:return "ALT";
       case SK_SHIFT:return "SHIFT";case SK_WIN:return "WIN";
-      case SK_TEXT:return "TEXT";case SK_CLOSE:return "CLOSE";case SK_FN:return "F1-F12";
+      case SK_TEXT:return "TEXT";case SK_CLOSE:return "CLOSE";case SK_FN:return "FN";case SK_SYM:return "SYM";
       case SK_CTRL_ALT_END:return "CTRL ALT END";
       case SK_ALT_TAB:return "ALT TAB";case SK_WIN_R:return "WIN R";
       case SK_HOME:return "HOME";case SK_END:return "END";
