@@ -18,6 +18,18 @@ static void reset_pending(ConnectionUI *ui)
     ui->pending_delete = -1;
     ui->pending_load = -1;
 }
+/* Apply scrolling and keep the active target visible. Pending destructive
+ * confirmations are tied to the old context and must never survive it. */
+static void apply_saved_scroll(ConnectionUI *ui, int first)
+{
+    const int next=connection_ui_scroll_clamp(first,(int)ui->store.count,5);
+    if (next==ui->scroll) return;
+    ui->scroll=next;
+    ui->highlight=connection_ui_scroll_visible_selection(ui->highlight,next,
+                                                           (int)ui->store.count,5);
+    reset_pending(ui);
+}
+
 static void clear_profile(ConnectionUI *ui)
 {
     memset(&ui->current, 0, sizeof(ui->current));
@@ -196,6 +208,15 @@ static int choice_count(int menu)
     default: return 0;
     }
 }
+static void apply_choice_scroll(ConnectionUI *ui, int first)
+{
+    const int count=choice_count(ui->choice_menu);
+    const int next=connection_ui_scroll_clamp(first,count,5);
+    if (next==ui->choice_scroll) return;
+    ui->choice_scroll=next;
+    ui->choice_highlight=connection_ui_scroll_visible_selection(
+                                ui->choice_highlight,next,count,5);
+}
 static void choose_option(ConnectionUI *ui, int choice)
 {
     RdpUiOptions *o = &ui->options;
@@ -273,6 +294,8 @@ static void delete_profile(ConnectionUI *ui, const char *path)
         ui->highlight = candidate.count ? (int)candidate.count - 1 : 0;
     ui->scroll = connection_ui_scroll_clamp(ui->scroll,
                                                    (int)candidate.count,5);
+    ui->highlight=connection_ui_scroll_visible_selection(
+                  ui->highlight,ui->scroll,(int)candidate.count,5);
     reset_pending(ui);
     tell(ui, "Saved connection deleted");
 }
@@ -355,11 +378,13 @@ bool connection_ui_ready(const ConnectionUI *ui, char *error, size_t cap)
 void connection_ui_key(ConnectionUI *ui, uint32_t keys, const char *path)
 {
     if (ui->show_saved) {
-        if (keys & KEY_X) { ui->show_saved=false; reset_pending(ui); return; }
+        if (keys & (KEY_B|KEY_X)) { ui->show_saved=false; reset_pending(ui); return; }
         if (keys & KEY_L) { clear_profile(ui); ui->show_saved=false; return; }
+        const int old_highlight=ui->highlight;
         if ((keys & KEY_DUP) && ui->highlight>0) --ui->highlight;
         if ((keys & KEY_DDOWN) && (size_t)(ui->highlight+1)<ui->store.count)
             ++ui->highlight;
+        if (old_highlight!=ui->highlight) reset_pending(ui);
         /* Do not reset a stylus-scrolled list to the highlighted page on
          * every idle frame. Only keyboard navigation follows the cursor. */
         if (keys & (KEY_DUP|KEY_DDOWN)) {
@@ -416,8 +441,8 @@ void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
         if(x>=RDP_UI_CHOICE_BAR_X && x<295 &&
            y>=RDP_UI_CHOICE_BAR_Y && y<RDP_UI_CHOICE_BAR_Y+RDP_UI_CHOICE_BAR_H &&
            choice_count(ui->choice_menu)>5) {
-            ui->choice_scroll=connection_ui_scroll_at(y,RDP_UI_CHOICE_BAR_Y,
-                 RDP_UI_CHOICE_BAR_H,choice_count(ui->choice_menu),5);
+            apply_choice_scroll(ui,connection_ui_scroll_at(y,RDP_UI_CHOICE_BAR_Y,
+                 RDP_UI_CHOICE_BAR_H,choice_count(ui->choice_menu),5));
         } else if(x>=30 && x<RDP_UI_CHOICE_BAR_X &&
                   y>=80 && y<80+22*visible) {
             choose_option(ui,ui->choice_scroll+(y-80)/22);
@@ -428,8 +453,8 @@ void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
     if (ui->show_saved) {
         if (x>=RDP_UI_SAVED_BAR_X && x<313 && y>=RDP_UI_SAVED_BAR_Y &&
             y<RDP_UI_SAVED_BAR_Y+RDP_UI_SAVED_BAR_H) {
-            ui->scroll=connection_ui_scroll_at(y,RDP_UI_SAVED_BAR_Y,
-                            RDP_UI_SAVED_BAR_H,(int)ui->store.count,5);
+            apply_saved_scroll(ui,connection_ui_scroll_at(y,RDP_UI_SAVED_BAR_Y,
+                            RDP_UI_SAVED_BAR_H,(int)ui->store.count,5));
             return;
         }
         hit=connection_ui_saved_at(x,y,ui->scroll,(int)ui->store.count);
@@ -441,7 +466,7 @@ void connection_ui_touch(ConnectionUI *ui, int x, int y, const char *path)
             else {
                 const int next=connection_ui_scroll_clamp(ui->scroll+5,
                                                           (int)ui->store.count,5);
-                ui->scroll=next==ui->scroll?0:next;
+                apply_saved_scroll(ui,next==ui->scroll?0:next);
                 ui->highlight=ui->scroll;
                 reset_pending(ui);
                 tell(ui,"Next saved computers");
@@ -570,21 +595,21 @@ void connection_ui_touch_update(ConnectionUI *ui, bool held, int x, int y,
             ui->focus=ui->panel_scroll?3:0;
             break;
         case RDP_UI_DRAG_SAVED:
-            ui->scroll=connection_ui_scroll_drag(ui->touch_start_scroll,dy,25,
-                                                     (int)ui->store.count,5);
+            apply_saved_scroll(ui,connection_ui_scroll_drag(
+                           ui->touch_start_scroll,dy,25,(int)ui->store.count,5));
             break;
         case RDP_UI_DRAG_SAVED_BAR:
-            ui->scroll=connection_ui_scroll_at(y-ui->touch_thumb_offset,
-                         RDP_UI_SAVED_BAR_Y,RDP_UI_SAVED_BAR_H,(int)ui->store.count,5);
+            apply_saved_scroll(ui,connection_ui_scroll_at(y-ui->touch_thumb_offset,
+                        RDP_UI_SAVED_BAR_Y,RDP_UI_SAVED_BAR_H,(int)ui->store.count,5));
             break;
         case RDP_UI_DRAG_CHOICE:
-            ui->choice_scroll=connection_ui_scroll_drag(ui->touch_start_scroll,dy,
-                                             22,choice_count(ui->choice_menu),5);
+            apply_choice_scroll(ui,connection_ui_scroll_drag(
+                           ui->touch_start_scroll,dy,22,choice_count(ui->choice_menu),5));
             break;
         case RDP_UI_DRAG_CHOICE_BAR:
-            ui->choice_scroll=connection_ui_scroll_at(y-ui->touch_thumb_offset,
+            apply_choice_scroll(ui,connection_ui_scroll_at(y-ui->touch_thumb_offset,
                        RDP_UI_CHOICE_BAR_Y,RDP_UI_CHOICE_BAR_H,
-                       choice_count(ui->choice_menu),5);
+                       choice_count(ui->choice_menu),5));
             break;
         default:break;
         }
@@ -605,11 +630,11 @@ void connection_ui_touch_update(ConnectionUI *ui, bool held, int x, int y,
                                                     RDP_UI_GENERAL_BAR_H,2,1);
             ui->focus=ui->panel_scroll?3:0;
         } else if (region==RDP_UI_DRAG_SAVED_BAR) {
-            ui->scroll=connection_ui_scroll_at(ty-offset,RDP_UI_SAVED_BAR_Y,
-                                        RDP_UI_SAVED_BAR_H,(int)ui->store.count,5);
+            apply_saved_scroll(ui,connection_ui_scroll_at(ty-offset,RDP_UI_SAVED_BAR_Y,
+                                        RDP_UI_SAVED_BAR_H,(int)ui->store.count,5));
         } else if (region==RDP_UI_DRAG_CHOICE_BAR) {
-            ui->choice_scroll=connection_ui_scroll_at(ty-offset,RDP_UI_CHOICE_BAR_Y,
-                              RDP_UI_CHOICE_BAR_H,choice_count(ui->choice_menu),5);
+            apply_choice_scroll(ui,connection_ui_scroll_at(ty-offset,RDP_UI_CHOICE_BAR_Y,
+                              RDP_UI_CHOICE_BAR_H,choice_count(ui->choice_menu),5));
         } else {
             connection_ui_touch(ui,tx,ty,path);
         }
