@@ -11,6 +11,9 @@
  * release, preserving the existing slide-to-cancel gesture. */
 #define KEY_REPEAT_DELAY_FRAMES 24
 #define KEY_REPEAT_INTERVAL_FRAMES 5
+/* Long press of a modifier locks it until tapped again. Normal taps arm
+ * the modifier for one key, as before. */
+#define KEY_MOD_LOCK_FRAMES 24
 
 static int clamp(int value, int min, int max)
 {
@@ -228,6 +231,17 @@ PadRegion session_pad_hit(const SessionPad *pad, int x, int y)
 
 /* Auto-repeat only ordinary printable and editing/navigation keys.
  * Never repeat modifier toggles, Fn/Sym, Caps Lock, or security shortcuts. */
+static unsigned keyboard_modifier_bit(int key)
+{
+    switch (key) {
+    case SK_CTRL: return SK_MOD_CTRL;
+    case SK_ALT: return SK_MOD_ALT;
+    case SK_SHIFT: return SK_MOD_SHIFT;
+    case SK_WIN: return SK_MOD_WIN;
+    default: return 0;
+    }
+}
+
 static bool keyboard_repeatable(int key)
 {
     if(key>=SK_CHAR_BASE && key<SK_CHAR_BASE+128) return true;
@@ -263,6 +277,9 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
         pad->touch_y = pad->start_y = y;
         pad->hold_frames = 0;
         pad->moved = false;
+        pad->keyboard_canceled = false;
+        pad->touch_key = pad->keyboard_open && pad->captured==PAD_AREA ?
+                         session_pad_keyboard_key(pad,x,y) : 0;
         pad->key_repeat_sent = false;
         pad->repeat_modifiers = pad->key_mods;
         pad->scroll_remainder = 0;
@@ -275,26 +292,32 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
         dy = y - pad->touch_y;
         pad->touch_x = x;
         pad->touch_y = y;
-        if ((x - pad->start_x) * (x - pad->start_x) +
-            (y - pad->start_y) * (y - pad->start_y) >=
-            TAP_MOVEMENT * TAP_MOVEMENT)
-            pad->moved = true;
-        if (pad->keyboard_open && pad->captured == PAD_AREA && !pad->moved) {
-            const int key=session_pad_keyboard_key(pad,pad->start_x,pad->start_y);
-            if (key && keyboard_repeatable(key) &&
+        if (pad->keyboard_open && pad->captured==PAD_AREA) {
+            /* A key stays captured despite stylus drift inside its tile.
+             * Crossing any key boundary, even briefly, permanently cancels
+             * the gesture rather than activating a neighboring key. */
+            if (session_pad_keyboard_key(pad,x,y)!=pad->touch_key)
+                pad->keyboard_canceled=true;
+            if (pad->touch_key && !pad->keyboard_canceled &&
+                keyboard_repeatable(pad->touch_key) &&
                 !(pad->repeat_modifiers & (SK_MOD_CTRL|SK_MOD_ALT|SK_MOD_WIN)) &&
-                key==session_pad_keyboard_key(pad,x,y) &&
                 pad->hold_frames>=KEY_REPEAT_DELAY_FRAMES &&
                 (pad->hold_frames-KEY_REPEAT_DELAY_FRAMES)%
                     KEY_REPEAT_INTERVAL_FRAMES==0) {
-                out->key=key;
+                out->key=pad->touch_key;
                 out->modifiers=pad->repeat_modifiers;
                 if (!pad->key_repeat_sent) {
-                    pad->key_mods=0; /* consume one-shot modifiers once */
+                    /* Leave locked modifiers armed; consume only one-shot
+                     * modifiers after the first typematic event. */
+                    pad->key_mods=pad->key_mods_locked;
                     pad->key_repeat_sent=true;
                     out->redraw=true;
                 }
             }
+        } else if ((x - pad->start_x) * (x - pad->start_x) +
+                   (y - pad->start_y) * (y - pad->start_y) >=
+                   TAP_MOVEMENT * TAP_MOVEMENT) {
+            pad->moved = true;
         }
         if (!pad->keyboard_open && pad->captured == PAD_AREA &&
             session_pad_hit(pad, x, y) == PAD_AREA &&
@@ -334,7 +357,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
     if (!held && pad->touching) {
         PadRegion pressed = pad->captured;
         bool release_inside = same_release_region(pad, pad->touch_x, pad->touch_y);
-        int key = pad->keyboard_open ? session_pad_keyboard_key(pad,pad->start_x,pad->start_y) : 0;
+        int key = pad->keyboard_open ? pad->touch_key : 0;
         pad->touching = false;
         pad->captured = PAD_NONE;
         pad->scroll_remainder = 0;
@@ -342,7 +365,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
          * or wheel event is generated (for example after a drag). */
         if (pressed != PAD_NONE) out->redraw = true;
         if (pad->keyboard_open && key && !pad->key_repeat_sent &&
-            !pad->moved && release_inside &&
+            !pad->keyboard_canceled && release_inside &&
             session_pad_keyboard_key(pad,pad->touch_x,pad->touch_y)==key) {
             /* PAD_AREA spans all virtual keys. A tiny stylus slip from
              * one cell to another must not send the first cell's key. */
@@ -358,16 +381,25 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                 pad->caps_pressed=!pad->caps_pressed;
                 out->key=SK_CAPS_LOCK;
                 out->redraw=true;
-            } else if(key==SK_CTRL||key==SK_ALT||key==SK_SHIFT||key==SK_WIN){
-                unsigned bit=1u<<(key-SK_CTRL);
-                pad->key_mods^=bit;
+            } else if (keyboard_modifier_bit(key)) {
+                const unsigned bit=keyboard_modifier_bit(key);
+                if (pad->key_mods_locked & bit) {
+                    /* Tap or long-hold an already-locked modifier to clear. */
+                    pad->key_mods_locked &= ~bit;
+                    pad->key_mods &= ~bit;
+                } else if (pad->hold_frames >= KEY_MOD_LOCK_FRAMES) {
+                    pad->key_mods_locked |= bit;
+                    pad->key_mods |= bit;
+                } else {
+                    pad->key_mods ^= bit; /* one-shot toggle */
+                }
                 out->redraw=true;
             } else {
                 out->key=key;
                 out->modifiers=pad->key_mods;
-                /* One-shot modifiers: tapping Ctrl then C produces Ctrl+C
-                 * without leaving Ctrl active for subsequent normal keys. */
-                pad->key_mods=0;
+                /* Consume one-shot modifiers only; long-held locks stay
+                 * applied to later keys and are visibly marked in the UI. */
+                pad->key_mods=pad->key_mods_locked;
                 out->redraw=true;
             }
         } else if (pressed == PAD_AREA && !pad->keyboard_open && !pad->moved &&
@@ -389,7 +421,8 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                     pad->keyboard_open = !pad->keyboard_open;
                     pad->help_open = false;
                     if(pad->keyboard_open)pad->settings_open=false;
-                    else {pad->fn_page=false;pad->sym_page=false;pad->key_mods=0;}
+                    else {pad->fn_page=false;pad->sym_page=false;
+                          pad->key_mods=pad->key_mods_locked=0;}
                     out->keyboard = true;
                     pad->disconnect_armed = false;
                     out->redraw = true;
@@ -400,7 +433,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                     pad->keyboard_open=false;
                     pad->fn_page=false;
                     pad->sym_page=false;
-                    pad->key_mods=0;
+                    pad->key_mods=pad->key_mods_locked=0;
                     pad->disconnect_armed = false;
                     out->redraw = true;
                     break;
@@ -410,7 +443,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
                     pad->keyboard_open=false;
                     pad->fn_page=false;
                     pad->sym_page=false;
-                    pad->key_mods=0;
+                    pad->key_mods=pad->key_mods_locked=0;
                     pad->disconnect_armed=false;
                     out->redraw=true;
                     break;
