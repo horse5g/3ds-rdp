@@ -44,6 +44,7 @@ typedef struct {
     unsigned perf_gdi_kib;      /* primary GDI surface size only */
     unsigned perf_gdi_bpp;      /* 16 or 32 */
     bool fn_page;
+    bool sym_page;
     unsigned key_mods;
     bool disconnect_armed;
     bool touching;
@@ -78,6 +79,14 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
 /* Implementation is in connection_ui_draw.c; draws GSP_RGB565_OES bottom
  * screen through the same small font / framebuffer renderer as the menu. */
 void session_pad_draw(const SessionPad *pad, int zoom_percent);
+/* Shared key geometry for drawing and touch hit-tests (no overlapping keys). */
+typedef struct {
+    int x, y, w, h;
+    int key;
+    const char *label;
+} SessionKeyboardTile;
+bool session_pad_keyboard_tile(const SessionPad *pad, int index,
+                               SessionKeyboardTile *tile);
 int session_pad_keyboard_key(const SessionPad *pad,int x,int y);
 
 #endif
