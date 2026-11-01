@@ -45,6 +45,9 @@ typedef struct {
     unsigned perf_gdi_bpp;      /* 16 or 32 */
     bool fn_page;
     bool sym_page;
+    bool caps_pressed; /* best-effort local Caps Lock indicator */
+    bool key_repeat_sent; /* repeat emitted during current stylus hold */
+    unsigned repeat_modifiers; /* snapshot for a repeated chord */
     unsigned key_mods;
     bool disconnect_armed;
     bool touching;

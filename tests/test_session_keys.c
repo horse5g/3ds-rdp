@@ -5,6 +5,9 @@
 int main(void)
 {
     SessionKeyEvent events[10];size_t n;
+    n=session_key_sequence(SK_CAPS_LOCK,0,events,10);
+    assert(n==2 && events[0].scan==0x3A && !events[0].extended &&
+           events[0].down && !events[1].down);
     n=session_key_sequence(SK_ENTER,0,events,10);
     assert(n==2 && events[0].scan==0x1C && events[0].down && !events[1].down);
     n=session_key_sequence(SK_DELETE,SK_MOD_CTRL|SK_MOD_ALT,events,10);

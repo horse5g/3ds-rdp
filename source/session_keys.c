@@ -6,6 +6,7 @@ static int keyscan(int key, uint8_t *code, uint8_t *ext)
     switch(key) {
         case SK_ESC:*code=0x01;break; case SK_TAB:*code=0x0F;break;
         case SK_ENTER:*code=0x1C;break;case SK_BACKSPACE:*code=0x0E;break;
+        case SK_CAPS_LOCK:*code=0x3A;break;
         case SK_DELETE:*code=0x53;*ext=1;break;
         case SK_LEFT:*code=0x4B;*ext=1;break;
         case SK_UP:*code=0x48;*ext=1;break;
@@ -71,7 +72,7 @@ const char *session_key_label(int k)
       case SK_DELETE:return "DEL";case SK_LEFT:return "LEFT";
       case SK_UP:return "UP";case SK_DOWN:return "DOWN";case SK_RIGHT:return "RIGHT";
       case SK_CTRL:return "CTRL";case SK_ALT:return "ALT";
-      case SK_SHIFT:return "SHIFT";case SK_WIN:return "WIN";
+      case SK_SHIFT:return "SHIFT";case SK_WIN:return "WIN";case SK_CAPS_LOCK:return "CAPS";
       case SK_TEXT:return "TEXT";case SK_CLOSE:return "CLOSE";case SK_FN:return "FN";case SK_SYM:return "SYM";
       case SK_CTRL_ALT_END:return "CTRL ALT END";
       case SK_ALT_TAB:return "ALT TAB";case SK_WIN_R:return "WIN R";
