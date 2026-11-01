@@ -16,7 +16,7 @@ enum { SK_MOD_CTRL=1, SK_MOD_ALT=2, SK_MOD_SHIFT=4, SK_MOD_WIN=8 };
  * Shift/Alt/Ctrl/Win may be added just like for special keys. */
 #define SK_CHAR_BASE 128
 #define SK_CHAR(ch) (SK_CHAR_BASE + (int)(unsigned char)(ch))
-#define SK_SYM 22
+#define SK_SYM 24
 typedef struct { uint8_t scan; uint8_t extended; uint8_t down; } SessionKeyEvent;
 /* A short, balanced sequence. Modifiers are always released in reverse order.
  * Client maps each event to FreeRDP keyboard_event(flags,scan). */
