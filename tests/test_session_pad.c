@@ -148,7 +148,7 @@ int main(void)
         }
         ++count;
     }
-    assert(count==67);
+    assert(count==66);
     assert(session_pad_keyboard_key(&pad,0,65)==0); /* margin */
     assert(session_pad_keyboard_key(&pad,10,64)==0); /* row gap */
     assert(session_pad_keyboard_key(&pad,50,239)==0);
@@ -156,6 +156,7 @@ int main(void)
     assert(session_pad_keyboard_key(&pad,6,68)==SK_TAB);
     assert(session_pad_keyboard_key(&pad,60,68)==SK_CHAR('q'));
     assert(session_pad_keyboard_key(&pad,300,99)==SK_ENTER);
+    assert(session_pad_keyboard_key(&pad,10,100)==SK_CAPS_LOCK);
     assert(session_pad_keyboard_key(&pad,140,170)==SK_CHAR(' '));
 
     /* A 2px glide from key 1 to key 2 must never send key 1, even
@@ -214,6 +215,79 @@ int main(void)
     assert(a.key==SK_TAB && a.modifiers==SK_MOD_ALT && !pad.key_mods);
     a=tap_key(&pad,SK_CTRL_ALT_END);
     assert(a.key==SK_CTRL_ALT_END && !pad.key_mods);
+
+    /* Caps Lock is a real remote Set-1 toggle, not an emulated Shift.
+     * Its on-screen indicator follows taps made by this 3DS client. */
+    a=tap_key(&pad,SK_CAPS_LOCK);
+    assert(a.key==SK_CAPS_LOCK && a.redraw && pad.caps_pressed);
+    a=tap_key(&pad,SK_CHAR('a'));
+    assert(a.key==SK_CHAR('a') && a.modifiers==0 && pad.caps_pressed);
+    a=tap_key(&pad,SK_CAPS_LOCK);
+    assert(a.key==SK_CAPS_LOCK && !pad.caps_pressed);
+
+    /* Quick taps remain release-triggered; repeated events begin only
+     * once the same key is held for 24 frames, then every five frames. */
+    t=keyboard_tile(&pad,SK_CHAR('a'));
+    a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    assert(a.redraw && !a.key);
+    for(i=1;i<24;++i) {
+        a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+        assert(!a.key);
+    }
+    a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    assert(a.key==SK_CHAR('a') && a.modifiers==0 && pad.key_repeat_sent);
+    for(i=25;i<29;++i) {
+        a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+        assert(!a.key);
+    }
+    a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    assert(a.key==SK_CHAR('a'));
+    a=lift(&pad);
+    assert(a.redraw && !a.key); /* no duplicate after repeat */
+
+    /* Long Backspace repeats, while modifier shortcuts deliberately
+     * do not repeat and are delivered once on release. */
+    t=keyboard_tile(&pad,SK_BACKSPACE);
+    touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    for(i=1;i<24;++i) touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    assert(a.key==SK_BACKSPACE);
+    a=lift(&pad);
+    assert(!a.key);
+
+    a=tap_key(&pad,SK_CTRL);
+    t=keyboard_tile(&pad,SK_CHAR('c'));
+    touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    for(i=0;i<45;++i) {
+        a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+        assert(!a.key);
+    }
+    a=lift(&pad);
+    assert(a.key==SK_CHAR('c') && a.modifiers==SK_MOD_CTRL);
+    assert(!pad.key_mods);
+
+    /* A one-shot Shift is preserved through every repeat event and
+     * consumed once when typematic output first begins. */
+    a=tap_key(&pad,SK_SHIFT);
+    t=keyboard_tile(&pad,SK_CHAR('x'));
+    touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    for(i=1;i<24;++i) touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    assert(a.key==SK_CHAR('x') && a.modifiers==SK_MOD_SHIFT);
+    assert(!pad.key_mods);
+    for(i=25;i<29;++i) touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    a=touch(&pad,t.x+t.w/2,t.y+t.h/2);
+    assert(a.key==SK_CHAR('x') && a.modifiers==SK_MOD_SHIFT);
+    assert(!lift(&pad).key);
+
+    /* Sliding across a neighboring key cancels repeat as well. */
+    touch(&pad,25,50);
+    touch(&pad,27,50);
+    for(i=0;i<36;++i) {
+        a=touch(&pad,27,50);
+        assert(!a.key);
+    }
+    assert(!lift(&pad).key);
 
     /* Tapping the Keyboard toolbar tab returns to the touchpad, and
      * leaving it clears pending sticky modifiers and Fn/Sym layers. */
