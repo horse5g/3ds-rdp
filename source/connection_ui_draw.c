@@ -385,7 +385,13 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
     static const char *titles[]={"DISCONNECT","SETTINGS","KEYBOARD","HELP"};
     for(int i=0;i<4;++i){
         const int x=i*80;
-        const bool active=(i==0 && pad->disconnect_armed) ||
+        const bool pressed=pad->touching &&
+             ((i==0 && pad->captured==PAD_DISCONNECT) ||
+              (i==1 && pad->captured==PAD_SETTINGS) ||
+              (i==2 && pad->captured==PAD_KEYBOARD) ||
+              (i==3 && pad->captured==PAD_HELP));
+        const bool active=pressed ||
+                          (i==0 && pad->disconnect_armed) ||
                           (i==1 && pad->settings_open) ||
                           (i==2 && pad->keyboard_open) ||
                           (i==3 && pad->help_open);
@@ -402,14 +408,19 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
             const int x=4+col*78,y=40+row*48;
             const int key=session_pad_keyboard_key(pad,x+20,y+20);
             const char *name=(key==SK_FN && pad->fn_page)?
-                             "BASIC":session_key_label(key);
+                             "BASIC":key==SK_CTRL_ALT_END ?
+                             "C+A+END":session_key_label(key);
+            const bool pressed=pad->touching && pad->captured==PAD_AREA &&
+                 !pad->moved &&
+                 session_pad_keyboard_key(pad,pad->start_x,pad->start_y)==key &&
+                 session_pad_keyboard_key(pad,pad->touch_x,pad->touch_y)==key;
             const bool selected=(key==SK_CTRL && (pad->key_mods&SK_MOD_CTRL)) ||
                 (key==SK_ALT && (pad->key_mods&SK_MOD_ALT)) ||
                 (key==SK_SHIFT && (pad->key_mods&SK_MOD_SHIFT)) ||
                 (key==SK_WIN && (pad->key_mods&SK_MOD_WIN));
-            fill(x,y,74,44,selected?BLUE:WHITE);
-            outline(x,y,74,44,selected?NAVY:BORDER);
-            label(x+6,y+19,name,x+73,selected?WHITE:INK);
+            fill(x,y,74,44,selected?BLUE:pressed?HIGHLIGHT:WHITE);
+            outline(x,y,74,44,selected?NAVY:pressed?BLUE:BORDER);
+            label(x+6,y+19,name,x+73,selected?WHITE:pressed?BLUE:INK);
         }
         return;
     }
@@ -492,23 +503,32 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
 
     /* Proper independent vertical scroll control, not a fake slider
      * that moves the desktop viewport rather than remote wheel notches. */
-    fill(270,36,46,42,WHITE);outline(270,36,46,42,BORDER);
+    const bool wheel_up=pad->touching && pad->captured==PAD_SCROLL_UP;
+    const bool wheel_drag=pad->touching && pad->captured==PAD_SCROLL_STRIP;
+    const bool wheel_down=pad->touching && pad->captured==PAD_SCROLL_DOWN;
+    fill(270,36,46,42,wheel_up?HIGHLIGHT:WHITE);
+    outline(270,36,46,42,wheel_up?BLUE:BORDER);
     label(285,53,"UP",313,BLUE);
-    fill(270,80,46,111,C(229,233,239));
-    outline(270,80,46,111,BORDER);
-    fill(290,88,5,94,C(190,199,210));
-    fill(285,122,15,29,C(135,155,178));
-    outline(285,122,15,29,C(107,127,150));
-    fill(270,193,46,45,WHITE);outline(270,193,46,45,BORDER);
+    fill(270,80,46,111,wheel_drag?HIGHLIGHT:C(229,233,239));
+    outline(270,80,46,111,wheel_drag?BLUE:BORDER);
+    fill(290,88,5,76,C(190,199,210));
+    fill(285,115,15,29,wheel_drag?BLUE:C(135,155,178));
+    outline(285,115,15,29,wheel_drag?NAVY:C(107,127,150));
+    label(278,176,"WHEEL",315,MUTED);
+    fill(270,193,46,45,wheel_down?HIGHLIGHT:WHITE);
+    outline(270,193,46,45,wheel_down?BLUE:BORDER);
     label(279,212,"DOWN",314,BLUE);
 
-    /* Two inset mechanical-button zones; same touch geometry as before. */
-    fill(4,214,128,24,C(240,243,246));
-    outline(4,214,128,24,C(159,168,179));
-    fill(137,214,129,24,C(240,243,246));
-    outline(137,214,129,24,C(159,168,179));
-    label(50,223,"LEFT",127,INK);
-    label(176,223,"RIGHT",260,INK);
+    /* Visual feedback for independent click buttons. First contact and
+     * release now redraw the pad, even when no pointer motion occurs. */
+    const bool left_pressed=pad->touching && pad->captured==PAD_LEFT_BUTTON;
+    const bool right_pressed=pad->touching && pad->captured==PAD_RIGHT_BUTTON;
+    fill(4,214,128,24,left_pressed?HIGHLIGHT:C(240,243,246));
+    outline(4,214,128,24,left_pressed?BLUE:C(159,168,179));
+    fill(137,214,129,24,right_pressed?HIGHLIGHT:C(240,243,246));
+    outline(137,214,129,24,right_pressed?BLUE:C(159,168,179));
+    label(50,223,"LEFT",127,left_pressed?BLUE:INK);
+    label(176,223,"RIGHT",260,right_pressed?BLUE:INK);
 }
 
 void connection_ui_draw_status(const char *heading,const char *message,bool retry)

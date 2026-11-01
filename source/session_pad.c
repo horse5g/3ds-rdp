@@ -115,9 +115,12 @@ PadRegion session_pad_hit(const SessionPad *pad, int x, int y)
         return PAD_NONE;
     }
     if (x >= 270) {
-        if (y < 78) return PAD_SCROLL_UP;
-        if (y < 193) return PAD_SCROLL_STRIP;
-        return PAD_SCROLL_DOWN;
+        /* Match the three drawn control rectangles, not the blank 1-3px
+         * gaps or the bottom edge of the touchscreen. */
+        if (y >= 36 && y < 78) return PAD_SCROLL_UP;
+        if (y >= 80 && y < 191) return PAD_SCROLL_STRIP;
+        if (y >= 193 && y < 238) return PAD_SCROLL_DOWN;
+        return PAD_NONE;
     }
     if (y >= 214) {
         if (x < 132) return PAD_LEFT_BUTTON;
@@ -153,6 +156,7 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
         pad->hold_frames = 0;
         pad->moved = false;
         pad->scroll_remainder = 0;
+        out->redraw = pad->captured != PAD_NONE;
         return; /* no cursor teleport on touch down */
     }
     if (held && pad->touching) {
@@ -204,7 +208,13 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
         pad->touching = false;
         pad->captured = PAD_NONE;
         pad->scroll_remainder = 0;
-        if (pad->keyboard_open && key && !pad->moved && release_inside) {
+        /* Clear pressed-key/button borders on release, even when no click
+         * or wheel event is generated (for example after a drag). */
+        if (pressed != PAD_NONE) out->redraw = true;
+        if (pad->keyboard_open && key && !pad->moved && release_inside &&
+            session_pad_keyboard_key(pad,pad->touch_x,pad->touch_y)==key) {
+            /* PAD_AREA spans all virtual keys. A tiny stylus slip from
+             * one cell to another must not send the first cell's key. */
             if(key==SK_CLOSE){pad->keyboard_open=false;pad->fn_page=false;
                 pad->key_mods=0;out->redraw=true;}
             else if(key==SK_FN){pad->fn_page=!pad->fn_page;out->redraw=true;}

@@ -58,6 +58,8 @@ Gestures and controls:
 
 A tap on **Help** disables pointer/click hit-testing in the content area until closed; only the toolbar remains actionable. Opening Keyboard or Settings closes Help, and keyboard modifiers are cleared when switching modes. Settings remain session-only.
 
+**Touch feedback and keyboard safety:** Touching a toolbar button, left/right click zone, or wheel strip immediately highlights that control; the highlight clears on release even when no input event is sent. The wheel controls only respond within their drawn rectangles, not the gaps. On the virtual keyboard, the stylus must remain within the same key cell from press through release; sliding into a neighboring key cancels the original key instead of sending it. The function-page Ctrl+Alt+End tile uses the shorter `C+A+END` label to remain legible.
+
 ### Rendering and performance
 
 A recent hardware test found that the experimental local `PIXEL_FORMAT_RGB16` GDI output showed only a solid color at 720p/1080p. This diagnostic build therefore requests `PIXEL_FORMAT_XRGB32` at all resolutions; it still disables oversized optional planar codec allocations at large desktop sizes. The increased primary buffer size may cause 1080p to fail on memory-constrained original hardware. A software blitter scales/samples the desktop into the top LCD's 400×240 RGB565 framebuffer. The user observed a red/blue channel reversal in early hardware builds; a reversible fix is present but still requires physical confirmation. The new 800×480 mode is an exact 2× source resolution in both top-screen dimensions, and 960×540 is a modest 16:9 option. All intermediate-resolution rendering remains experimental on O3DS.
