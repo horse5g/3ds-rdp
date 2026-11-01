@@ -7,6 +7,10 @@
 
 #define TAP_MAX_FRAMES 18
 #define TAP_MOVEMENT 6
+/* Long-hold typematic on the touchscreen. A short tap still sends on
+ * release, preserving the existing slide-to-cancel gesture. */
+#define KEY_REPEAT_DELAY_FRAMES 24
+#define KEY_REPEAT_INTERVAL_FRAMES 5
 
 static int clamp(int value, int min, int max)
 {
@@ -106,10 +110,11 @@ static const KeySpec qwerty_keys[] = {
     CH('p',"P",28)
 };
 static const KeySpec home_keys[] = {
+    {SK_CAPS_LOCK,"CAPS",42},
     CH('a',"A",25),CH('s',"S",25),CH('d',"D",25),
     CH('f',"F",25),CH('g',"G",25),CH('h',"H",25),
     CH('j',"J",25),CH('k',"K",25),CH('l',"L",25),
-    CH(';',";",22),CH(39,"'",22),{SK_ENTER,"ENTER",41}
+    {SK_ENTER,"ENTER",41}
 };
 static const KeySpec shift_keys[] = {
     {SK_SHIFT,"SHIFT",45},
@@ -141,7 +146,7 @@ bool session_pad_keyboard_tile(const SessionPad *pad, int index,
     static const int row_y[]={37,66,95,124,153,186,219};
     static const int row_h[]={26,26,26,26,30,29,19};
     static const int row_x[]={4,4,6,4,4,6,4};
-    static const int row_count[]={13,11,12,11,6,11,3};
+    static const int row_count[]={13,11,11,11,6,11,3};
     const KeySpec *row_keys;
     int row,first=0,col,x;
     if (!pad || !tile || index<0) return false;
@@ -221,6 +226,20 @@ PadRegion session_pad_hit(const SessionPad *pad, int x, int y)
     return PAD_NONE;
 }
 
+/* Auto-repeat only ordinary printable and editing/navigation keys.
+ * Never repeat modifier toggles, Fn/Sym, Caps Lock, or security shortcuts. */
+static bool keyboard_repeatable(int key)
+{
+    if(key>=SK_CHAR_BASE && key<SK_CHAR_BASE+128) return true;
+    switch(key) {
+    case SK_BACKSPACE: case SK_DELETE:
+    case SK_LEFT: case SK_RIGHT: case SK_UP: case SK_DOWN:
+    case SK_PGUP: case SK_PGDN:
+        return true;
+    default: return false;
+    }
+}
+
 static bool same_release_region(const SessionPad *pad, int x, int y)
 {
     return pad->captured == session_pad_hit(pad, x, y);
@@ -244,6 +263,8 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
         pad->touch_y = pad->start_y = y;
         pad->hold_frames = 0;
         pad->moved = false;
+        pad->key_repeat_sent = false;
+        pad->repeat_modifiers = pad->key_mods;
         pad->scroll_remainder = 0;
         out->redraw = pad->captured != PAD_NONE;
         return; /* no cursor teleport on touch down */
@@ -258,6 +279,22 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
             (y - pad->start_y) * (y - pad->start_y) >=
             TAP_MOVEMENT * TAP_MOVEMENT)
             pad->moved = true;
+        if (pad->keyboard_open && pad->captured == PAD_AREA && !pad->moved) {
+            const int key=session_pad_keyboard_key(pad,pad->start_x,pad->start_y);
+            if (key && keyboard_repeatable(key) &&
+                key==session_pad_keyboard_key(pad,x,y) &&
+                pad->hold_frames>=KEY_REPEAT_DELAY_FRAMES &&
+                (pad->hold_frames-KEY_REPEAT_DELAY_FRAMES)%
+                    KEY_REPEAT_INTERVAL_FRAMES==0) {
+                out->key=key;
+                out->modifiers=pad->repeat_modifiers;
+                if (!pad->key_repeat_sent) {
+                    pad->key_mods=0; /* consume one-shot modifiers once */
+                    pad->key_repeat_sent=true;
+                    out->redraw=true;
+                }
+            }
+        }
         if (!pad->keyboard_open && pad->captured == PAD_AREA &&
             session_pad_hit(pad, x, y) == PAD_AREA &&
             (dx || dy)) {
@@ -303,7 +340,8 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
         /* Clear pressed-key/button borders on release, even when no click
          * or wheel event is generated (for example after a drag). */
         if (pressed != PAD_NONE) out->redraw = true;
-        if (pad->keyboard_open && key && !pad->moved && release_inside &&
+        if (pad->keyboard_open && key && !pad->key_repeat_sent &&
+            !pad->moved && release_inside &&
             session_pad_keyboard_key(pad,pad->touch_x,pad->touch_y)==key) {
             /* PAD_AREA spans all virtual keys. A tiny stylus slip from
              * one cell to another must not send the first cell's key. */
@@ -314,6 +352,10 @@ void session_pad_update(SessionPad *pad, bool held, int x, int y, PadActions *ou
             } else if(key==SK_SYM){
                 pad->sym_page=!pad->sym_page;
                 if(pad->sym_page) pad->fn_page=false;
+                out->redraw=true;
+            } else if(key==SK_CAPS_LOCK) {
+                pad->caps_pressed=!pad->caps_pressed;
+                out->key=SK_CAPS_LOCK;
                 out->redraw=true;
             } else if(key==SK_CTRL||key==SK_ALT||key==SK_SHIFT||key==SK_WIN){
                 unsigned bit=1u<<(key-SK_CTRL);
