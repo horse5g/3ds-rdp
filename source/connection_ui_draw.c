@@ -404,23 +404,35 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
     }
 
     if(pad->keyboard_open){
-        for(int row=0;row<4;++row)for(int col=0;col<4;++col){
-            const int x=4+col*78,y=40+row*48;
-            const int key=session_pad_keyboard_key(pad,x+20,y+20);
-            const char *name=(key==SK_FN && pad->fn_page)?
-                             "BASIC":key==SK_CTRL_ALT_END ?
-                             "C+A+END":session_key_label(key);
+        SessionKeyboardTile tile;
+        /* A compact seven-row PC keyboard. Both rendering and touch use
+         * session_pad_keyboard_tile(), so coordinates cannot drift apart. */
+        for(int i=0;session_pad_keyboard_tile(pad,i,&tile);++i){
+            const int key=tile.key;
             const bool pressed=pad->touching && pad->captured==PAD_AREA &&
-                 !pad->moved &&
-                 session_pad_keyboard_key(pad,pad->start_x,pad->start_y)==key &&
-                 session_pad_keyboard_key(pad,pad->touch_x,pad->touch_y)==key;
-            const bool selected=(key==SK_CTRL && (pad->key_mods&SK_MOD_CTRL)) ||
+                !pad->moved &&
+                session_pad_keyboard_key(pad,pad->start_x,pad->start_y)==key &&
+                session_pad_keyboard_key(pad,pad->touch_x,pad->touch_y)==key;
+            const bool selected=
+                (key==SK_CTRL && (pad->key_mods&SK_MOD_CTRL)) ||
                 (key==SK_ALT && (pad->key_mods&SK_MOD_ALT)) ||
                 (key==SK_SHIFT && (pad->key_mods&SK_MOD_SHIFT)) ||
-                (key==SK_WIN && (pad->key_mods&SK_MOD_WIN));
-            fill(x,y,74,44,selected?BLUE:pressed?HIGHLIGHT:WHITE);
-            outline(x,y,74,44,selected?NAVY:pressed?BLUE:BORDER);
-            label(x+6,y+19,name,x+73,selected?WHITE:pressed?BLUE:INK);
+                (key==SK_WIN && (pad->key_mods&SK_MOD_WIN)) ||
+                (key==SK_FN && pad->fn_page) ||
+                (key==SK_SYM && pad->sym_page);
+            const bool action=(key==SK_CTRL||key==SK_WIN||key==SK_ALT||
+                               key==SK_SHIFT||key==SK_FN||key==SK_SYM);
+            const uint32_t idle_color=action?C(229,236,246):WHITE;
+            const uint32_t ink=selected?WHITE:pressed?BLUE:INK;
+            const int font_width=(int)strlen(tile.label)*6;
+            int tx=tile.x+(tile.w-font_width)/2;
+            if(tx<tile.x+2)tx=tile.x+2;
+            fill(tile.x,tile.y,tile.w-1,tile.h-1,
+                 selected?BLUE:pressed?HIGHLIGHT:idle_color);
+            outline(tile.x,tile.y,tile.w-1,tile.h-1,
+                    selected?NAVY:pressed?BLUE:BORDER);
+            label(tx,tile.y+(tile.h-7)/2,tile.label,
+                  tile.x+tile.w-2,ink);
         }
         return;
     }
