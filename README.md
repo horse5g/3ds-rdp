@@ -17,6 +17,8 @@ A standalone **Microsoft Remote Desktop Protocol (RDP) client** for the original
 
 The native UI borrows the **layout and interaction conventions** of Windows Remote Desktop Connection (tabbed properties, grouped fields, dropdowns and explicit Save/Open actions), with an original monitor graphic rather than Microsoft's artwork.
 
+The **Keyboard** toolbar tab now opens an always-visible PC-style QWERTY keyboard directly on the bottom touchscreen—letters, numbers, space, backspace, Esc/Tab/Enter, navigation, Fn (F1–F12), Sym, and one-shot Ctrl/Alt/Shift/Win modifiers for chords such as Ctrl+C. Three shortcut keys provide Ctrl+Alt+End, Alt+Tab, and Win+R. Tapping the Keyboard tab again returns to the touchpad. No Nintendo keyboard applet is needed for individual keystrokes; physical X still offers optional ASCII text entry. Keys use US-layout Set-1 scan codes; Unicode, IME and auto-repeat remain unsupported.
+
 ## Screens and controls
 
 **Connection launcher:** The **top screen** displays the large Remote Desktop Connection heading, monitor graphic, selected computer and connection status. The **bottom screen** is a compact, touch-operated settings dialog:
