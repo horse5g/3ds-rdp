@@ -183,7 +183,7 @@ static void dropdown_overlay(const ConnectionUI *ui)
     static const char *timeout[]={"8 SECONDS","12 SECONDS","20 SECONDS"};
     static const char *gdiformats[]={"XRGB32 (RGB)","BGRX32 (BGR)"};
     const char *const *items=NULL;
-    int count=0;
+    int count=0, active=-1;
     switch(ui->choice_menu) {
     case 1: items=sizes;count=6;break;
     case 2: items=depth;count=2;break;
@@ -194,10 +194,23 @@ static void dropdown_overlay(const ConnectionUI *ui)
     case 9: items=gdiformats;count=2;break;
     default:return;
     }
+    /* Asterisk identifies the actual setting value; blue highlighting is
+     * just the current D-pad/touch selection and may move independently. */
+    switch(ui->choice_menu) {
+    case 1: active=ui->options.display_mode;break;
+    case 2: active=ui->options.color_depth==32?1:0;break;
+    case 3: active=ui->options.touch_speed-1;break;
+    case 4: active=ui->options.scroll_step-1;break;
+    case 5: active=ui->options.reverse_scroll;break;
+    case 6: active=ui->options.low_bandwidth;break;
+    case 7: active=ui->options.timeout_seconds==8?0:
+                   ui->options.timeout_seconds==12?1:2;break;
+    case 9: active=ui->gdi_bgrx_for_run?1:0;break;
+    }
     fill(27,49,270,146,C(217,222,229));
     fill(30,52,262,139,WHITE);
     outline(30,52,262,139,BLUE);
-    label(41,63,ui->choice_scroll?"UP: MORE  B: CLOSE":"SELECT VALUE  B: CLOSE",284,NAVY);
+    label(41,63,"* = CURRENT    B: CLOSE",284,NAVY);
     const int first=ui->choice_scroll;
     const int visible=count-first<5?count-first:5;
     for(int i=0;i<visible;i++) {
@@ -205,7 +218,8 @@ static void dropdown_overlay(const ConnectionUI *ui)
         const bool current=n==ui->choice_highlight;
         fill(36,y,244,21,current?HIGHLIGHT:(i&1)?PALE:WHITE);
         outline(36,y,244,21,current?BLUE:C(217,222,229));
-        label(46,y+7,items[n],275,current?BLUE:INK);
+        label(46,y+7,items[n],261,current?BLUE:INK);
+        if (n==active) label(266,y+7,"*",278,BLUE);
     }
     if (count>5) {
         /* The thumb reflects the 5 visible rows, not an arbitrary
@@ -285,7 +299,12 @@ static void saved_panel(const ConnectionUI *ui)
 {
     int i;
     char line[30];
-    for (i=0; i<5; ++i) {
+    if (!ui->store.count) {
+        fill(7,58,285,125,WHITE);
+        outline(7,58,285,125,BORDER);
+        label(40,100,"NO SAVED COMPUTERS",290,NAVY);
+        label(40,124,"CHOOSE NEW TO CREATE ONE",290,MUTED);
+    } else for (i=0; i<5; ++i) {
         const int index = ui->scroll+i, y=58+25*i;
         const uint32_t color = index == ui->highlight ? HIGHLIGHT : WHITE;
         fill(7,y,285,23,color);
@@ -302,7 +321,8 @@ static void saved_panel(const ConnectionUI *ui)
                     RDP_UI_SAVED_BAR_H,(int)ui->store.count,5,ui->scroll);
         fill(297,RDP_UI_SAVED_BAR_Y,13,RDP_UI_SAVED_BAR_H,C(237,240,244));
         outline(297,RDP_UI_SAVED_BAR_Y,13,RDP_UI_SAVED_BAR_H,BORDER);
-        fill(299,thumb_y+2,9,thumb_h-4,BLUE);
+        fill(299,thumb_y+2,9,thumb_h-4,
+             ui->store.count>5 ? BLUE : C(210,216,224));
     }
 }
 void connection_ui_draw(const ConnectionUI *ui)
@@ -320,7 +340,13 @@ void connection_ui_draw(const ConnectionUI *ui)
     } else {
         char count[24];
         fill(0,31,320,23,WHITE);
-        snprintf(count,sizeof(count),"SAVED CONNECTIONS: %u",(unsigned)ui->store.count);
+        if (ui->store.count) {
+            const unsigned first=(unsigned)ui->scroll+1;
+            unsigned last=(unsigned)ui->scroll+5;
+            if (last>ui->store.count) last=(unsigned)ui->store.count;
+            snprintf(count,sizeof(count),"SAVED: %u-%u OF %u",
+                     first,last,(unsigned)ui->store.count);
+        } else snprintf(count,sizeof(count),"SAVED: EMPTY");
         label(10,40,count,265,INK);
         label(270,40,"DRAG",319,MUTED);
         saved_panel(ui);
@@ -417,7 +443,7 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
         label(20,180,pad->reverse_scroll ?
               "REVERSE SCROLL: ON" : "REVERSE SCROLL: OFF",291,BLUE);
         label(277,180,"V",301,BLUE);
-        label(16,220,"BLUE LABELS ARE EDITABLE",304,MUTED);
+        label(16,220,"SESSION ONLY - NOT SAVED",304,MUTED);
         return;
     }
 
