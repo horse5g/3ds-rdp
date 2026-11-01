@@ -48,7 +48,10 @@ typedef struct {
     bool caps_pressed; /* best-effort local Caps Lock indicator */
     bool key_repeat_sent; /* repeat emitted during current stylus hold */
     unsigned repeat_modifiers; /* snapshot for a repeated chord */
-    unsigned key_mods;
+    unsigned key_mods; /* active temporary + locked modifiers */
+    unsigned key_mods_locked; /* long-press locks for repeated shortcuts */
+    int touch_key; /* exact key captured on initial stylus contact */
+    bool keyboard_canceled; /* crossing a key boundary cancels this touch */
     bool disconnect_armed;
     bool touching;
     bool moved;
