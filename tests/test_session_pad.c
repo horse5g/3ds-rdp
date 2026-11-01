@@ -34,17 +34,21 @@ int main(void)
     assert(session_pad_hit(&pad,300,60) == PAD_SCROLL_UP);
     assert(session_pad_hit(&pad,300,100) == PAD_SCROLL_STRIP);
     assert(session_pad_hit(&pad,300,220) == PAD_SCROLL_DOWN);
+    assert(session_pad_hit(&pad,300,34) == PAD_NONE);
+    assert(session_pad_hit(&pad,300,79) == PAD_NONE);
+    assert(session_pad_hit(&pad,300,192) == PAD_NONE);
+    assert(session_pad_hit(&pad,300,239) == PAD_NONE);
     assert(session_pad_hit(&pad,30,215) == PAD_LEFT_BUTTON);
     assert(session_pad_hit(&pad,200,220) == PAD_RIGHT_BUTTON);
     assert(session_pad_hit(&pad,-1,20) == PAD_NONE);
 
     /* First contact and lift never snap to touch coordinates. */
     a=touch(&pad,20,65);
-    assert(!a.pointer_moved);
+    assert(!a.pointer_moved && a.redraw);
     a=touch(&pad,26,68);
     assert(a.pointer_moved && pad.pointer_x==212 && pad.pointer_y==126);
     a=lift(&pad);
-    assert(!a.left_click);
+    assert(!a.left_click && a.redraw);
     a=touch(&pad,150,160);
     assert(!a.pointer_moved && pad.pointer_x==212);
     a=touch(&pad,155,160);
@@ -58,21 +62,27 @@ int main(void)
     for(i=0;i<22;++i) touch(&pad,100,100);
     a=lift(&pad);
     assert(!a.left_click);
-    a=tap(&pad,80,225);
-    assert(a.left_click);
-    a=tap(&pad,150,225);
-    assert(a.right_click);
+    a=touch(&pad,80,225);
+    assert(a.redraw && pad.touching && pad.captured==PAD_LEFT_BUTTON);
+    a=lift(&pad);
+    assert(a.left_click && a.redraw);
+    a=touch(&pad,150,225);
+    assert(a.redraw && pad.captured==PAD_RIGHT_BUTTON);
+    a=lift(&pad);
+    assert(a.right_click && a.redraw);
 
     a=tap(&pad,290,55);
     assert(a.wheel_notches == 1);
     a=tap(&pad,290,210);
     assert(a.wheel_notches == -1);
-    touch(&pad,280,110);
+    a=touch(&pad,280,110);
+    assert(a.redraw && pad.captured==PAD_SCROLL_STRIP);
     a=touch(&pad,280,145);
     assert(a.wheel_notches == -2);
     a=touch(&pad,280,152);
     assert(a.wheel_notches == -1);
-    lift(&pad);
+    a=lift(&pad);
+    assert(a.redraw);
 
     /* Settings: cycling speed/scroll step and reversing direction. */
     a=tap(&pad,150,15);
@@ -110,6 +120,22 @@ int main(void)
        Prior version had only CLOSE, trapping active sticky modifiers. */
     pad.keyboard_open=true;
     pad.fn_page=false;
+    /* A tiny glide across a key boundary (<6px) was previously able
+     * to send the OLD key: every key shares PAD_AREA. */
+    a=touch(&pad,81,50); /* ESC: last column pixel of first cell */
+    assert(a.redraw && pad.captured==PAD_AREA);
+    a=touch(&pad,83,50); /* TAB: first pixels of second cell */
+    assert(!pad.moved);
+    a=lift(&pad);
+    assert(a.key==0 && a.redraw);
+    a=tap(&pad,83,50);
+    assert(a.key==SK_TAB);
+    /* Leaving a key across a large drag must also cancel activation. */
+    touch(&pad,40,50);
+    touch(&pad,145,50);
+    a=lift(&pad);
+    assert(a.key==0);
+
     a=tap(&pad, 110, 214); /* Basic row 4 col 2: F1-F12 */
     assert(a.redraw && pad.fn_page);
     assert(session_pad_keyboard_key(&pad,6,45)==SK_F1);
