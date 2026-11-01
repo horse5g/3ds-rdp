@@ -410,8 +410,8 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
         for(int i=0;session_pad_keyboard_tile(pad,i,&tile);++i){
             const int key=tile.key;
             const bool pressed=pad->touching && pad->captured==PAD_AREA &&
-                !pad->moved &&
-                session_pad_keyboard_key(pad,pad->start_x,pad->start_y)==key &&
+                !pad->keyboard_canceled &&
+                pad->touch_key==key &&
                 session_pad_keyboard_key(pad,pad->touch_x,pad->touch_y)==key;
             const bool selected=
                 (key==SK_CTRL && (pad->key_mods&SK_MOD_CTRL)) ||
@@ -421,6 +421,11 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
                 (key==SK_FN && pad->fn_page) ||
                 (key==SK_SYM && pad->sym_page) ||
                 (key==SK_CAPS_LOCK && pad->caps_pressed);
+            const unsigned modbit=key==SK_CTRL?SK_MOD_CTRL:
+                                  key==SK_ALT?SK_MOD_ALT:
+                                  key==SK_SHIFT?SK_MOD_SHIFT:
+                                  key==SK_WIN?SK_MOD_WIN:0;
+            const bool locked=modbit && (pad->key_mods_locked&modbit);
             const bool action=(key==SK_CTRL||key==SK_WIN||key==SK_ALT||
                                key==SK_SHIFT||key==SK_FN||key==SK_SYM||
                                key==SK_CAPS_LOCK);
@@ -435,6 +440,12 @@ void session_pad_draw(const SessionPad *pad, int zoom_percent)
                     selected?NAVY:pressed?BLUE:BORDER);
             label(tx,tile.y+(tile.h-7)/2,tile.label,
                   tile.x+tile.w-2,ink);
+            /* A tiny corner mark distinguishes long-held/locked modifiers
+             * from the usual blue one-shot modifier highlight. */
+            if (locked) {
+                fill(tile.x+tile.w-8,tile.y+3,4,4,WHITE);
+                outline(tile.x+tile.w-9,tile.y+2,6,6,NAVY);
+            }
         }
         return;
     }
