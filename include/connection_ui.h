@@ -84,6 +84,9 @@ int connection_ui_field_at(int x, int y);
 int connection_ui_tab_at(int x, int y);
 int connection_ui_saved_at(int x, int y, int scroll, int count);
 int connection_ui_scroll_clamp(int first, int count, int visible);
+/* Keep a highlighted item inside the currently visible rows. */
+int connection_ui_scroll_visible_selection(int selection, int first,
+                                           int count, int visible);
 int connection_ui_scroll_thumb_h(int height, int count, int visible);
 int connection_ui_scroll_thumb_y(int top, int height, int count,
                                  int visible, int first);

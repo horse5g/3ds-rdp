@@ -34,6 +34,20 @@ int connection_ui_scroll_clamp(int first, int count, int visible)
     return first;
 }
 
+int connection_ui_scroll_visible_selection(int selection, int first,
+                                           int count, int visible)
+{
+    if (count <= 0 || visible <= 0) return 0;
+    first=connection_ui_scroll_clamp(first,count,visible);
+    if (selection < first) return first;
+    if (selection >= first + visible) {
+        const int last=first+visible-1;
+        return last<count ? last : count-1;
+    }
+    if (selection >= count) return count-1;
+    return selection;
+}
+
 int connection_ui_scroll_thumb_h(int height, int count, int visible)
 {
     int h;

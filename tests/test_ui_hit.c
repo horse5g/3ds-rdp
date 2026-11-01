@@ -44,6 +44,18 @@ int main(void)
     assert(connection_ui_scroll_drag(3,-500,25,12,5)==7);
     assert(connection_ui_scroll_drag(3,500,25,12,5)==0);
     assert(connection_ui_scroll_drag(0,-50,25,2,5)==0);
+    /* Selection must follow a scrolled viewport; never leave Delete
+     * targeting a hidden profile. Short lists and empty stores are safe. */
+    assert(connection_ui_scroll_visible_selection(0,4,12,5)==4);
+    assert(connection_ui_scroll_visible_selection(11,0,12,5)==4);
+    assert(connection_ui_scroll_visible_selection(6,3,12,5)==6);
+    assert(connection_ui_scroll_visible_selection(11,7,12,5)==11);
+    assert(connection_ui_scroll_visible_selection(99,7,12,5)==11);
+    assert(connection_ui_scroll_visible_selection(-1,0,12,5)==0);
+    assert(connection_ui_scroll_visible_selection(7,0,3,5)==2);
+    assert(connection_ui_scroll_visible_selection(0,0,0,5)==0);
+    assert(connection_ui_scroll_visible_selection(0,0,5,0)==0);
+    assert(connection_ui_scroll_visible_selection(0,1,6,5)==1);
     puts("Touch geometry and scrollbar mapping tests passed");
     return 0;
 }
